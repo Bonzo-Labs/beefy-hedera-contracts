@@ -14,6 +14,7 @@ contract MockStrategy is IStrategyV7 {
     IERC20Upgradeable private _want;
     address private _unirouter;
     bool private _paused;
+    bool private _isHederaToken;
 
     // Constants for Hedera Token Service
     address constant private HTS_PRECOMPILE = address(0x167);
@@ -23,15 +24,17 @@ contract MockStrategy is IStrategyV7 {
     // Events for HTS operations
     event HTSTokenAssociated(address token, int64 responseCode);
     event HTSTokenDissociated(address token, int64 responseCode);
+    event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
     
     // Constructor is empty to allow for flexible initialization in tests
-    constructor(address wantAddress) {
+    constructor(address wantAddress, bool isHederaToken) {
         _paused = false;
         _want = IERC20Upgradeable(wantAddress);
-        _associateToken(wantAddress);
+        _isHederaToken = isHederaToken;
+        if (_isHederaToken) {
+            _associateToken(wantAddress);
+        }
     }
-    
-
     
     /**
      * @dev Allow the owner to manually associate this contract with an HTS token
@@ -46,6 +49,23 @@ contract MockStrategy is IStrategyV7 {
         require(responseCode == HTS_SUCCESS, "HTS token association failed");
     }
     
+    /**
+     * @dev Helper function to transfer HTS tokens between accounts
+     * @param token The HTS token address
+     * @param from The sender address
+     * @param to The recipient address
+     * @param amount The amount to transfer as int64
+     */
+    function _transferHTS(address token, address from, address to, int64 amount) internal {
+        (bool success, bytes memory result) = HTS_PRECOMPILE.call(
+            abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, amount)
+        );
+        int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
+        if (responseCode != HTS_SUCCESS) {
+            emit HTSTokenTransferFailed(token, from, to, responseCode);
+            revert("HTS token transfer failed");
+        }
+    }
 
     // Setters for testing
     function setVault(address vaultAddress) external {
@@ -58,6 +78,10 @@ contract MockStrategy is IStrategyV7 {
     
     function setUnirouter(address routerAddress) external {
         _unirouter = routerAddress;
+    }
+    
+    function setIsHederaToken(bool isHederaToken) external {
+        _isHederaToken = isHederaToken;
     }
     
     // IStrategyV7 implementation
@@ -78,9 +102,15 @@ contract MockStrategy is IStrategyV7 {
     }
     
     function withdraw(uint256 _amount) external override {
-        // Mock withdraw - simply transfer tokens from this contract to vault
+        // Mock withdraw - transfer tokens from this contract to vault
         if (address(_want) != address(0) && _amount > 0) {
-            _want.transfer(_vault, _amount);
+            if (_isHederaToken) {
+                // For HTS tokens, use HTS precompile
+                _transferHTS(address(_want), address(this), _vault, int64(uint64(_amount)));
+            } else {
+                // For ERC20 tokens, use standard transfer
+                _want.transfer(_vault, _amount);
+            }
         }
     }
     
@@ -105,7 +135,13 @@ contract MockStrategy is IStrategyV7 {
         // Mock implementation - transfer all funds to vault
         uint256 balance = _want.balanceOf(address(this));
         if (balance > 0) {
-            _want.transfer(_vault, balance);
+            if (_isHederaToken) {
+                // For HTS tokens, use HTS precompile
+                _transferHTS(address(_want), address(this), _vault, int64(uint64(balance)));
+            } else {
+                // For ERC20 tokens, use standard transfer
+                _want.transfer(_vault, balance);
+            }
         }
     }
     
