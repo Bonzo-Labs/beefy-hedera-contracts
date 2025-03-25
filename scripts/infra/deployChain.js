@@ -8,23 +8,25 @@ const { addressBook } = require("blockchain-addressbook");
 
 const ethers = hardhat.ethers;
 
-const {
-  platforms: { 
-    beefyfinance: {
-      keeper,
-      voter, 
-      beefyFeeRecipient,
-    } },
-} = addressBook.arbitrum;
-
+// const {
+//   platforms: { 
+//     beefyfinance: {
+//       keeper,
+//       voter, 
+//       beefyFeeRecipient,
+//     } },
+// } = addressBook.;
+const keeper = "0x05240efdafd4756cc6e50491f38baaa52ef12bbc";
+const voter = "0x05240efdafd4756cc6e50491f38baaa52ef12bbc";
+const beefyFeeRecipient = "0x05240efdafd4756cc6e50491f38baaa52ef12bbc";
 const TIMELOCK_ADMIN_ROLE = "0x5f58e3a2316349923ce3780f8d587db2d72378aed66a8261c916544fa6846ca5";
 const STRAT_OWNER_DELAY = 21600;
 const VAULT_OWNER_DELAY = 0;
 const KEEPER = keeper;
 
 const config = {
-  devMultisig: "0xc2cCdd61187b81cC56EcA985bbaf9da418e3d87f",
-  treasuryMultisig: "0x2E52C94502f728A634a7b8eFf5941FB066d3eE76",
+  devMultisig: "0x05240efdafd4756cc6e50491f38baaa52ef12bbc",
+  treasuryMultisig: "0x05240efdafd4756cc6e50491f38baaa52ef12bbc",
   totalLimit: "95000000000000000",
   callFee: "500000000000000",
   strategist: "5000000000000000"
@@ -32,7 +34,7 @@ const config = {
 
 const proposer = config.devMultisig || TRUSTED_EOA;
 const timelockProposers = [proposer];
-const timelockExecutors = [proposer, KEEPER];
+const timelockExecutors = [KEEPER];
 
 async function main() {
   await hardhat.run("compile");
@@ -79,7 +81,7 @@ async function main() {
 
   console.log("Deploying Vault Factory");
   const VaultFactory = await ethers.getContractFactory("BeefyVaultV7Factory");
-  const VaultV7 = await ethers.getContractFactory("BeefyVaultV7");
+  const VaultV7 = await ethers.getContractFactory("BeefyVaultV7Hedera");
   const vault7 = await VaultV7.deploy();
   await vault7.deployed();
   console.log(`Vault V7 deployed to ${vault7.address}`);
@@ -112,19 +114,19 @@ async function main() {
     const treasuryMultisig = '${config.treasuryMultisig}';
   
     export const beefyfinance = {
-      devMultisig,
-      treasuryMultisig,
+      devMultisig: '${config.devMultisig}',
+      treasuryMultisig: '${config.treasuryMultisig}',
       strategyOwner: '${stratOwner.address}',
       vaultOwner: '${vaultOwner.address}',
-      keeper: '0x4fED5491693007f0CD49f4614FFC38Ab6A04B619',
-      treasurer: treasuryMultisig,
-      launchpoolOwner: devMultisig,
+      keeper: '${keeper}',
+      treasurer: '${config.treasuryMultisig}',
+      launchpoolOwner: '${config.devMultisig}',
       rewardPool: '${ethers.constants.AddressZero}',
       treasury: '${ethers.constants.AddressZero}',
-      beefyFeeRecipient: '0x02Ae4716B9D5d48Db1445814b0eDE39f5c28264B',
+      beefyFeeRecipient: '${config.treasuryMultisig}',
       multicall: '${multicall.address}',
       bifiMaxiStrategy: '${ethers.constants.AddressZero}',
-      voter: '0x5e1caC103F943Cd84A1E92dAde4145664ebf692A',
+      voter: '${voter}',
       beefyFeeConfig: '${transparentUpgradableProxy.address}',
       vaultFactory: '${vaultFactory.address}',
       wrapperFactory: '${ethers.constants.AddressZero}',
