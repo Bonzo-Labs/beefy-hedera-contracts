@@ -5,7 +5,7 @@ import "@nomiclabs/hardhat-etherscan";
 import "@openzeppelin/hardhat-upgrades";
 import "hardhat-gas-reporter";
 import "hardhat-contract-sizer";
-// import "@typechain/hardhat";
+import "@typechain/hardhat";
 import "./tasks";
 
 import { HardhatUserConfig } from "hardhat/src/types/config";
@@ -23,6 +23,16 @@ const config: DeploymentConfig = {
     hardhat: {
       // accounts visible to hardhat network used by `hardhat node --fork` (yarn net <chainName>)
       accounts: hardhatNetworkAccounts,
+    },
+    hedera_testnet: {
+      url: process.env.HEDERA_TESTNET_RPC || "https://testnet.hashio.io/api",
+      chainId: 296,
+      accounts,
+    },
+    hedera_mainnet: {
+      url: process.env.HEDERA_MAINNET_RPC || "https://mainnet.hashio.io/api",
+      chainId: 295,
+      accounts,
     },
     mainnet: {
       url: process.env.MAINNET_RPC || "https://rpc.ankr.com/eth",
