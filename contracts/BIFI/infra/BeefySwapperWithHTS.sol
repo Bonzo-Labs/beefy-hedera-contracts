@@ -24,8 +24,6 @@ contract BeefySwapperWithHTS is OwnableUpgradeable, PausableUpgradeable {
     // Error code when binding to the HTS precompile fails
     int64 constant private PRECOMPILE_BIND_ERROR = -1;
 
-    // The address of the router for swaps
-    address public router;
     // Mapping to track if a token is HTS
     mapping(address => bool) public isHederaToken;
 
@@ -112,12 +110,11 @@ contract BeefySwapperWithHTS is OwnableUpgradeable, PausableUpgradeable {
     event SetSlippage(uint256 slippage);
 
     /**
-     * @dev Initializes the contract with a router address, oracle, and slippage
+     * @dev Initializes the contract with a oracle, and slippage
      */
-    function initialize(address _router, address _oracle, uint256 _slippage) public initializer {
+    function initialize(address _oracle, uint256 _slippage) public initializer {
         __Ownable_init();
         __Pausable_init();
-        router = _router;
         oracle = IBeefyOracle(_oracle);
         slippage = _slippage;
     }
@@ -420,14 +417,6 @@ contract BeefySwapperWithHTS is OwnableUpgradeable, PausableUpgradeable {
         if (_slippage > 1 ether) _slippage = 1 ether;
         slippage = _slippage;
         emit SetSlippage(_slippage);
-    }
-
-    /**
-     * @dev Updates the router address
-     */
-    function setRouter(address _router) external onlyOwner {
-        router = _router;
-        emit RouterUpdated(_router);
     }
 
     /**

@@ -69,8 +69,25 @@ contract BeefyOracle is OwnableUpgradeable {
     /// @param _token Address of the token being fetched
     /// @return price Updated price of the token
     /// @return success Price update was success or not
-    function getFreshPrice(address _token) external returns (uint256 price, bool success) {
-        (price, success) = _getFreshPrice(_token);
+    function getFreshPrice(address _token) external view returns (uint256 price, bool success) {
+        SubOracle memory oracle = subOracle[_token];
+        if (oracle.oracle == address(0)) revert("No oracle set for token");
+        (price, success) = ISubOracle(oracle.oracle).getPrice(oracle.data);
+    }
+
+    /// @notice update the price for a token by calling the sub oracle
+    /// @param _token Address of the token being fetched
+    function updatePrice(address _token) external {
+        if (latestPrice[_token].timestamp + staleness > block.timestamp) {
+            (uint256 price, bool success) = _getFreshPrice(_token);
+            if (success) {
+                latestPrice[_token] = LatestPrice({price: price, timestamp: block.timestamp});
+                emit PriceUpdated(_token, price, block.timestamp);
+            }
+        }
+        else {
+            revert("Price is still fresh");
+        }
     }
 
     /// @dev If the price is stale then calculate a new price by delegating to the sub oracle
