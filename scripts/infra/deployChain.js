@@ -91,7 +91,7 @@ async function main() {
   console.log(`Vault Factory deployed to ${vaultFactory.address}`);
 
   console.log("Deploying Beefy Swapper");
-  const BeefySwapper = await ethers.getContractFactory("BeefySwapper");
+  const BeefySwapper = await ethers.getContractFactory("BeefySwapperWithHTS");
   const beefySwapper = await BeefySwapper.deploy();
   await beefySwapper.deployed();
 
@@ -102,12 +102,26 @@ async function main() {
   const beefyOracle = await BeefyOracle.deploy();
   await beefyOracle.deployed();
 
-  beefySwapper.initialize(beefyOracle.address, config.totalLimit);
-  beefySwapper.transferOwnership(keeper);
+  const initTrxSwapper = await beefySwapper.initialize(beefyOracle.address, config.totalLimit);
+  const initTxReceiptSwapper = await initTrxSwapper.wait(1);
+  console.log("initTxReceiptSwapper", initTxReceiptSwapper.transactionHash)
 
-  beefyOracle.initialize();
-  beefyOracle.transferOwnership(keeper);
+  const trxSwapper = await beefySwapper.transferOwnership(keeper);
+  const txReceiptSwapper = await trxSwapper.wait(1);
+  console.log("txReceiptSwapper", txReceiptSwapper.transactionHash)
+  console.log("Beefy Swapper owner:", await beefySwapper.owner());
+  
+
+  const initTrx = await beefyOracle.initialize();
+  const initTxReceipt = await initTrx.wait(1);
+  console.log("initTxReceipt", initTxReceipt.transactionHash)
+
+  const trx = await beefyOracle.transferOwnership(keeper);
+  const txReceipt = await trx.wait(1);
+  console.log("txReceipt", txReceipt.transactionHash)
+
   console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
+  console.log("Beefy Oracle owner:", await beefyOracle.owner());
 
   console.log(`
     const devMultisig = '${config.devMultisig}';
