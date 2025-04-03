@@ -52,6 +52,8 @@
     "deploy:appMulticallv2": "hardhat run scripts/infra/deployAppMulticall.js --network",
     "zap": "hardhat run ./scripts/infra/zapViaAggregator.js --network",
     "setOracle": "hardhat run ./scripts/manage/setOracle.js --network",
+    "deploy:supraOracle": "hardhat run ./scripts/infra/deploySupraOracle.js --network",
+    "setSupraOracleToken": "hardhat run ./scripts/infra/setSupraOracleToken.js --network",
     "setSwapInfo": "hardhat run ./scripts/manage/setSwapInfo.js --network",
     "flat-hardhat": "hardhat flatten contracts/BIFI/infra/BeefyFeeConfigurator.sol > tmp/flattened.sol",
     "flat": "bin/flatten.sh",
