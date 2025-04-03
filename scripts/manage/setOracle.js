@@ -25,7 +25,7 @@ const uniswapV2Factory = "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f";
 const velodromeFactory = "0x92aF10c685D2CF4CD845388C5f45aC5dc97C5024";
 const saucerSwapV2Factory = "0x00000000000000000000000000000000001243ee"; // SaucerSwapV2 Factory address
 
-const beefyfinanceOracle = "0x3f1DDEd53Ab55520698d11e4D3295F8dAE2a834f";
+const beefyfinanceOracle = "0xFBeb4a53B3F1398504C6255f5eC43E4736DcB5c0"; //"0x3f1DDEd53Ab55520698d11e4D3295F8dAE2a834f";
 const chainlinkOracle = "0x3DC71AAb800C5Acfe521d5bD86c06b2EfF477062";
 const uniswapV3Oracle = "0xc26314091EB7a9c75E5536f7f54A8F63e829547D";
 // const uniswapV2Oracle = beefyfinance.beefyOracleUniswapV2;
@@ -185,6 +185,7 @@ async function supra() {
 };
 
 async function setOracle(token, oracle, data) {
+  console.log("Setting Oracle for", token, oracle, data)
   // Create signer using private key from environment variables
   const provider = new ethers.providers.JsonRpcProvider(process.env.HEDERA_TESTNET_RPC);
   const keeper = new ethers.Wallet(process.env.KEEPER_PK, provider);
