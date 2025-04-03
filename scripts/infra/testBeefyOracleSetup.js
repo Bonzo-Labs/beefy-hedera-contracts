@@ -4,7 +4,7 @@ import BeefyOracleAbi from "../../data/abi/BeefyOracle.json";
 // Configuration
 const supraOracleAddress = "0xA55d9ac9aca329f5687e1cC286d0847e3f02062e"; // Supra Oracle address
 const tokenAddress = "0x0000000000000000000000000000000000120f46"; // SAUCE token
-const beefyOracleAddress = "0x3f1DDEd53Ab55520698d11e4D3295F8dAE2a834f"; // Beefy Oracle address
+const beefyOracleAddress = "0xFBeb4a53B3F1398504C6255f5eC43E4736DcB5c0"; // Beefy Oracle address
 
 async function main() {
   console.log("Testing BeefyOracle with Supra Oracle integration...");
@@ -33,14 +33,15 @@ async function main() {
     const price1 = await beefyOracle.getPrice(tokenAddress);
     console.log(`Price of token: ${price1} `);
     
+    
     const getPriceTrx = await beefyOracle.getFreshPrice(tokenAddress);
-    console.log(`Result trx hash: ${getPriceTrx.hash}`);
+    const getPriceTrxReceipt = await getPriceTrx.wait(1);
+    console.log(`Result trx hash: ${getPriceTrxReceipt.transactionHash}`);
     
-    // // Get the last update time
-    // const lastUpdated = await beefyOracle.lastUpdated(tokenAddress);
-    // const lastUpdatedDate = new Date(lastUpdated.toNumber() * 1000);
-    // console.log(`Last updated: ${lastUpdatedDate.toLocaleString()}`);
-    
+    const price2 = await beefyOracle.getPrice(tokenAddress);
+    console.log(`Price of token: ${price2} `);
+
+
     // // Calculate time since last update
     // const now = Math.floor(Date.now() / 1000);
     // const timeSinceUpdate = now - lastUpdated.toNumber();
