@@ -5,6 +5,15 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 
 interface IStrategyV7 {
+    struct CommonAddresses {
+        address vault;
+        address unirouter;
+        address keeper;
+        address strategist;
+        address beefyFeeRecipient;
+        address beefyFeeConfig;
+    }
+    
     function vault() external view returns (address);
     function want() external view returns (IERC20Upgradeable);
     function beforeDeposit() external;
