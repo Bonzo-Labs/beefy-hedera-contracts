@@ -4,6 +4,20 @@ pragma solidity ^0.8.0;
 
 
 interface IUniswapRouterV3WithDeadline {
+    struct MintParams {
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint256 amount0Desired;
+        uint256 amount1Desired;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        address recipient;
+        uint256 deadline;
+    }
+
     struct ExactInputSingleParams {
         address tokenIn;
         address tokenOut;
@@ -61,4 +75,8 @@ interface IUniswapRouterV3WithDeadline {
     /// @param params The parameters necessary for the multi-hop swap, encoded as `ExactOutputParams` in calldata
     /// @return amountIn The amount of the input token
     function exactOutput(ExactOutputParams calldata params) external payable returns (uint256 amountIn);
+
+    function mint(MintParams memory params) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
+
+    function getAmountsOut(uint256 amountIn, bytes memory path) external view returns (uint256[] memory amounts);
 }
