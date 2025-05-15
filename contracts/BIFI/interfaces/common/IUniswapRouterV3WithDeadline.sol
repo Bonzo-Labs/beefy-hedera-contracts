@@ -4,19 +4,7 @@ pragma solidity ^0.8.0;
 
 
 interface IUniswapRouterV3WithDeadline {
-    struct MintParams {
-        address token0;
-        address token1;
-        uint24 fee;
-        int24 tickLower;
-        int24 tickUpper;
-        uint256 amount0Desired;
-        uint256 amount1Desired;
-        uint256 amount0Min;
-        uint256 amount1Min;
-        address recipient;
-        uint256 deadline;
-    }
+
 
     struct ExactInputSingleParams {
         address tokenIn;
@@ -76,7 +64,25 @@ interface IUniswapRouterV3WithDeadline {
     /// @return amountIn The amount of the input token
     function exactOutput(ExactOutputParams calldata params) external payable returns (uint256 amountIn);
 
-    function mint(MintParams memory params) external payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
-
     function getAmountsOut(uint256 amountIn, bytes memory path) external view returns (uint256[] memory amounts);
+
+    /// @notice Collects tokens owed to a position
+    /// @dev Does not recompute fees earned, which must be done either via mint or burn of any amount of liquidity.
+    /// Collect must be called by the position owner. To withdraw only token0 or only token1, amount0Requested or
+    /// amount1Requested may be set to zero. To withdraw all tokens owed, caller may pass any value greater than the
+    /// actual tokens owed, e.g. type(uint128).max. Tokens owed may be from accumulated swap fees or burned liquidity.
+    /// @param recipient The address which should receive the fees collected
+    /// @param bottomTick The lower tick of the position for which to collect fees
+    /// @param topTick The upper tick of the position for which to collect fees
+    /// @param amount0Requested How much token0 should be withdrawn from the fees owed
+    /// @param amount1Requested How much token1 should be withdrawn from the fees owed
+    /// @return amount0 The amount of fees collected in token0
+    /// @return amount1 The amount of fees collected in token1
+    function collect(
+        address recipient,
+        int24 bottomTick,
+        int24 topTick,
+        uint128 amount0Requested,
+        uint128 amount1Requested
+    ) external returns (uint128 amount0, uint128 amount1);
 }

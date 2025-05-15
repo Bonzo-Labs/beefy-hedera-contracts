@@ -3,6 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "./BeefyVaultV7.sol";
+import "./BeefyVaultV7HederaMultiToken.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/ClonesUpgradeable.sol";
 
 // Beefy Finance Vault V7 Proxy Factory
@@ -12,15 +13,21 @@ contract BeefyVaultV7Factory {
 
   // Contract template for deploying proxied Beefy vaults
   BeefyVaultV7 public instance;
+  BeefyVaultV7HederaMultiToken public instanceHederaMultiToken;
 
   event ProxyCreated(address proxy);
 
   // Initializes the Factory with an instance of the Beefy Vault V7
-  constructor(address _instance) {
+  constructor(address _instance, address _instanceHederaMultiToken) {
     if (_instance == address(0)) {
       instance = new BeefyVaultV7();
     } else {
       instance = BeefyVaultV7(_instance);
+    }
+    if (_instanceHederaMultiToken == address(0)) {
+      instanceHederaMultiToken = new BeefyVaultV7HederaMultiToken();
+    } else {
+      instanceHederaMultiToken = BeefyVaultV7HederaMultiToken(_instanceHederaMultiToken);
     }
   }
 
@@ -30,10 +37,15 @@ contract BeefyVaultV7Factory {
     return BeefyVaultV7(cloneContract(address(instance)));
   }
 
+  function cloneVaultMultiToken() external returns (BeefyVaultV7HederaMultiToken) {
+    return BeefyVaultV7HederaMultiToken(cloneContract(address(instanceHederaMultiToken)));
+  }
+
   // Deploys and returns the address of a clone that mimics the behaviour of `implementation`
   function cloneContract(address implementation) public returns (address) {
     address proxy = implementation.clone();
     emit ProxyCreated(proxy);
     return proxy;
   }
+
 }
