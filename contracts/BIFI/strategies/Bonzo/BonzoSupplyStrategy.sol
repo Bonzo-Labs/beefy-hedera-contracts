@@ -63,8 +63,9 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         if (isHederaToken) {
             // Associate HTS tokens
             _associateToken(_want);
-            _associateToken(_output);
-            _associateToken(_aToken);
+            if(_want != _output) {
+                _associateToken(_output);
+            }
         }
 
         _giveAllowances();

@@ -45,55 +45,55 @@ async function main() {
 
   console.log("Deploying vault owner.");
   let deployParams = [VAULT_OWNER_DELAY, timelockProposers, timelockExecutors];
-  // const vaultOwner = await TimelockController.deploy(...deployParams);
-  // await vaultOwner.deployed();
-  // await vaultOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address);
-  // console.log(`Vault owner deployed to ${vaultOwner.address}`);
+  const vaultOwner = await TimelockController.deploy(...deployParams);
+  await vaultOwner.deployed();
+  await vaultOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address);
+  console.log(`Vault owner deployed to ${vaultOwner.address}`);
 
 
-  // console.log("Deploying strategy owner.");
-  // const stratOwner = await TimelockController.deploy(STRAT_OWNER_DELAY, timelockProposers, timelockExecutors);
-  // await stratOwner.deployed();
-  // await stratOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address);
-  // console.log(`Strategy owner deployed to ${stratOwner.address}`);
+  console.log("Deploying strategy owner.");
+  const stratOwner = await TimelockController.deploy(STRAT_OWNER_DELAY, timelockProposers, timelockExecutors);
+  await stratOwner.deployed();
+  await stratOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address);
+  console.log(`Strategy owner deployed to ${stratOwner.address}`);
 
-  // console.log("Deploying multicall");
-  // const Multicall = await ethers.getContractFactory("Multicall");
-  // const multicall = await Multicall.deploy();
-  // await multicall.deployed();
-  // console.log(`Multicall deployed to ${multicall.address}`);
+  console.log("Deploying multicall");
+  const Multicall = await ethers.getContractFactory("Multicall");
+  const multicall = await Multicall.deploy();
+  await multicall.deployed();
+  console.log(`Multicall deployed to ${multicall.address}`);
 
-  // const BeefyFeeConfiguratorFactory = await ethers.getContractFactory("BeefyFeeConfigurator");
-  // console.log("Deploying BeefyFeeConfigurator");
+  const BeefyFeeConfiguratorFactory = await ethers.getContractFactory("BeefyFeeConfigurator");
+  console.log("Deploying BeefyFeeConfigurator");
 
-  // const constructorArguments = [keeper, config.totalLimit];
-  // const transparentUpgradableProxy = await upgrades.deployProxy(BeefyFeeConfiguratorFactory, constructorArguments);
-  // await transparentUpgradableProxy.deployed();
+  const constructorArguments = [keeper, config.totalLimit];
+  const transparentUpgradableProxy = await upgrades.deployProxy(BeefyFeeConfiguratorFactory, constructorArguments);
+  await transparentUpgradableProxy.deployed();
 
-  // await transparentUpgradableProxy.setFeeCategory(0, BigInt(config.totalLimit), BigInt(config.callFee), BigInt(config.strategist), "default", true, true);
-  // await transparentUpgradableProxy.transferOwnership(config.devMultisig);
+  await transparentUpgradableProxy.setFeeCategory(0, BigInt(config.totalLimit), BigInt(config.callFee), BigInt(config.strategist), "default", true, true);
+  await transparentUpgradableProxy.transferOwnership(config.devMultisig);
 
-  // const implementationAddress = await upgrades.erc1967.getImplementationAddress(transparentUpgradableProxy.address);
+  const implementationAddress = await upgrades.erc1967.getImplementationAddress(transparentUpgradableProxy.address);
 
-  // console.log();
-  // console.log("BeefyFeeConfig:", transparentUpgradableProxy.address);
-  // console.log(`Implementation address:`, implementationAddress);
+  console.log();
+  console.log("BeefyFeeConfig:", transparentUpgradableProxy.address);
+  console.log(`Implementation address:`, implementationAddress);
 
-  // console.log("Deploying Vault Factory");
-  // const VaultFactory = await ethers.getContractFactory("BeefyVaultV7Factory");
-  // const VaultV7 = await ethers.getContractFactory("BeefyVaultV7Hedera");
-  // const vault7 = await VaultV7.deploy();
-  // await vault7.deployed();
-  // console.log(`Vault V7 deployed to ${vault7.address}`);
+  console.log("Deploying Vault Factory");
+  const VaultFactory = await ethers.getContractFactory("BeefyVaultV7FactoryHedera");
+  const VaultV7 = await ethers.getContractFactory("BeefyVaultV7Hedera");
+  const vault7 = await VaultV7.deploy();
+  await vault7.deployed();
+  console.log(`Vault V7 deployed to ${vault7.address}`);
 
-  // const VaultV7MultiToken = await ethers.getContractFactory("BeefyVaultV7HederaMultiToken");
-  // const vault7MultiToken = await VaultV7MultiToken.deploy();
-  // await vault7MultiToken.deployed();
-  // console.log(`Vault V7 MultiToken deployed to ${vault7MultiToken.address}`);
+  const VaultV7MultiToken = await ethers.getContractFactory("BeefyVaultV7HederaMultiToken");
+  const vault7MultiToken = await VaultV7MultiToken.deploy();
+  await vault7MultiToken.deployed();
+  console.log(`Vault V7 MultiToken deployed to ${vault7MultiToken.address}`);
 
-  // const vaultFactory = await VaultFactory.deploy(vault7.address, vault7MultiToken.address);
-  // await vaultFactory.deployed();
-  // console.log(`Vault Factory deployed to ${vaultFactory.address}`);
+  const vaultFactory = await VaultFactory.deploy(vault7.address, vault7MultiToken.address);
+  await vaultFactory.deployed();
+  console.log(`Vault Factory deployed to ${vaultFactory.address}`);
 
   console.log("Deploying Beefy Swapper");
   const BeefySwapper = await ethers.getContractFactory("BeefySwapper");
