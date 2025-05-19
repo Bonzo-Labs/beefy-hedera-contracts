@@ -3,6 +3,7 @@
 pragma solidity ^0.8.0;
 
 import "./BeefyVaultV7.sol";
+import "./BeefyVaultV7HederaMultiToken.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/ClonesUpgradeable.sol";
 
 // Beefy Finance Vault V7 Proxy Factory
@@ -36,4 +37,5 @@ contract BeefyVaultV7Factory {
     emit ProxyCreated(proxy);
     return proxy;
   }
+
 }

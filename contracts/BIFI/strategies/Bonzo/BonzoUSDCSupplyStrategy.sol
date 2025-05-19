@@ -57,10 +57,9 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
 
         // Associate HTS tokens
         _associateToken(_want);
-        _associateToken(_output);
-        _associateToken(_aToken);
-
-        _giveAllowances();
+        if(_want != _output) {
+            _associateToken(_output);
+        }
     }
 
     /**
@@ -83,7 +82,7 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
 
         if (wantBal > 0) {
             // Transfer Hedera USDC to lending pool using HTS
-            _transferHTS(want, address(this), lendingPool, int64(uint64(wantBal)));
+            IERC20(want).approve(lendingPool, wantBal);
             
             // Deposit into lending pool
             ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);
@@ -244,21 +243,21 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
 
     function pause() public onlyManager {
         _pause();
-        _removeAllowances();
+        // _removeAllowances();
     }
 
     function unpause() external onlyManager {
         _unpause();
-        _giveAllowances();
+        // _giveAllowances();
         deposit();
     }
 
-    function _giveAllowances() internal {
+    // function _giveAllowances() internal {
         // For HTS tokens, we don't need to approve as we use direct transfers
         // But we keep this for compatibility with the interface
-        IERC20(want).approve(lendingPool, type(uint).max);
-        IERC20(output).approve(unirouter, type(uint).max);
-    }
+        // IERC20(want).approve(lendingPool, type(uint).max);
+        // IERC20(output).approve(unirouter, type(uint).max);
+    // }
 
     function _removeAllowances() internal {
         IERC20(want).approve(lendingPool, 0);

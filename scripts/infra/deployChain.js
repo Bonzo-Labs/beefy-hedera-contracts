@@ -80,13 +80,18 @@ async function main() {
   console.log(`Implementation address:`, implementationAddress);
 
   console.log("Deploying Vault Factory");
-  const VaultFactory = await ethers.getContractFactory("BeefyVaultV7Factory");
+  const VaultFactory = await ethers.getContractFactory("BeefyVaultV7FactoryHedera");
   const VaultV7 = await ethers.getContractFactory("BeefyVaultV7Hedera");
   const vault7 = await VaultV7.deploy();
   await vault7.deployed();
   console.log(`Vault V7 deployed to ${vault7.address}`);
 
-  const vaultFactory = await VaultFactory.deploy(vault7.address);
+  const VaultV7MultiToken = await ethers.getContractFactory("BeefyVaultV7HederaMultiToken");
+  const vault7MultiToken = await VaultV7MultiToken.deploy();
+  await vault7MultiToken.deployed();
+  console.log(`Vault V7 MultiToken deployed to ${vault7MultiToken.address}`);
+
+  const vaultFactory = await VaultFactory.deploy(vault7.address, vault7MultiToken.address);
   await vaultFactory.deployed();
   console.log(`Vault Factory deployed to ${vaultFactory.address}`);
 
@@ -101,13 +106,28 @@ async function main() {
   const BeefyOracle = await ethers.getContractFactory("BeefyOracle");
   const beefyOracle = await BeefyOracle.deploy();
   await beefyOracle.deployed();
-
-  beefySwapper.initialize(beefyOracle.address, config.totalLimit);
-  beefySwapper.transferOwnership(keeper);
-
-  beefyOracle.initialize();
-  beefyOracle.transferOwnership(keeper);
   console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
+  
+  // Add 5 seconds timeout to ensure transactions are processed
+  console.log("Waiting 5 seconds before initializing...");
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  beefySwapper.initialize(beefyOracle.address, config.totalLimit);
+
+  console.log("Waiting 5 seconds before transferring ownership...");
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  beefySwapper.transferOwnership(keeper);
+  console.log("Beefy Swapper ownership transferred to keeper");
+  
+  console.log("Waiting 5 seconds before initializing...");
+  await new Promise(resolve => setTimeout(resolve, 5000));  
+  beefyOracle.initialize();
+  console.log("Beefy Oracle initialized");
+
+  console.log("Waiting 5 seconds before transferring ownership...");
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  await beefyOracle.transferOwnership(keeper);
+  console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
+  await new Promise(resolve => setTimeout(resolve, 5000));
 
   console.log(`
     const devMultisig = '${config.devMultisig}';

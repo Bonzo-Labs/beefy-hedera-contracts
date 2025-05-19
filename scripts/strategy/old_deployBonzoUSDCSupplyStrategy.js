@@ -21,30 +21,38 @@ async function main() {
   
   // These addresses need to be configured for the target network
   const want = "0x0000000000000000000000000000000000001549"; // Hedera USDC token
-  const aToken = "0x2e8Ba2d93436A275Cacb663Cb5129B8CDe087D44"; // aUSDC token address
-  const lendingPool = "0x102a8435D5875cEa9066F486bD560EfA6A45677c"; // Bonzo lending pool address  
-  const rewardsController = "0x39b98c21d9B4821d775Ab5c1F0F7a9cBA279f9Bc"; // Bonzo rewards controller address
-  const output = want; // Reward token is also USDC
+  const aToken = "0xee72C37fEc48C9FeC6bbD0982ecEb7d7a038841e"; // aUSDC token address
+  const lendingPool = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool address  
+  const rewardsController = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller address
+  const output = "0x0000000000000000000000000000000000001549"; // Reward token is also USDC
 
   const commonAddresses = {
+    vault: "0x0000000000000000000000000000000000000000", // Vault address will be set later
     keeper: "0x05240efdafd4756cc6e50491f38baaa52ef12bbc",
     strategist: "0x05240efdafd4756cc6e50491f38baaa52ef12bbc",
     unirouter: "0x00000000000000000000000000000000000026e7", // Router address
     beefyFeeRecipient: "0x05240efdafd4756cc6e50491f38baaa52ef12bbc",
-    beefyFeeConfig: "0xCeb8ab445Ab748C9C609b18C3CDAae8d79F06D6c" // Fee config address
+    beefyFeeConfig: "0x57c996f670364cAE84DEc46eA42E1Bc755e9A264" // Fee config address
   };
 
-  await strategy.initialize(
+  
+  // Add a 5 second delay before initialization
+  console.log("Waiting for 5 seconds before initialization...");
+  await new Promise(resolve => setTimeout(resolve, 5000));
+
+  const tx = await strategy.initialize(
     want,
     aToken, 
     lendingPool,
     rewardsController,
     output,
-    commonAddresses
+    commonAddresses,
+    {gasLimit: 3000000}
   );
+  const receipt = await tx.wait();
+  console.log("Transaction receipt:", receipt);
 
   console.log("Strategy initialized");
-
 
   console.log("Deployment completed");
 }
