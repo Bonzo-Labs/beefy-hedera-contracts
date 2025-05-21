@@ -114,7 +114,7 @@ async function main() {
   beefySwapper.initialize(beefyOracle.address, config.totalLimit);
 
   console.log("Waiting 5 seconds before transferring ownership...");
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  await new Promise(resolve => setTimeout(resolve, 10000));
   beefySwapper.transferOwnership(keeper);
   console.log("Beefy Swapper ownership transferred to keeper");
   
@@ -124,7 +124,7 @@ async function main() {
   console.log("Beefy Oracle initialized");
 
   console.log("Waiting 5 seconds before transferring ownership...");
-  await new Promise(resolve => setTimeout(resolve, 5000));
+  await new Promise(resolve => setTimeout(resolve,10000));
   await beefyOracle.transferOwnership(keeper);
   console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
   await new Promise(resolve => setTimeout(resolve, 5000));
