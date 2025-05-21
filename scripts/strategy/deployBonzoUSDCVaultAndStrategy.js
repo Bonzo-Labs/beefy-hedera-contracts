@@ -15,8 +15,8 @@ async function main() {
   console.log("BonzoUSDCSupplyStrategy deployed to:", strategy.address);
 
   // Step 2: Connect to the vault factory
-  const vaultFactoryAddress = "0xeCAfFc8cDB2393aB640cdc8C81C404Ce543384D3"; // Update this if needed
-  const vaultFactory = await ethers.getContractAt("BeefyVaultV7Factory", vaultFactoryAddress);
+  const vaultFactoryAddress = "0x4b740b0c84689C88880Ad028d2F3F28c58Dd5AB5"; //"0xeCAfFc8cDB2393aB640cdc8C81C404Ce543384D3"; // Update this if needed
+  const vaultFactory = await ethers.getContractAt("BeefyVaultV7FactoryHedera", vaultFactoryAddress);
   console.log("Connected to vault factory at:", vaultFactoryAddress);
 
   // Step 3: Create a new vault using the factory
