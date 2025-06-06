@@ -16,6 +16,11 @@ import "./Stader/IStaking.sol";
 contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     using SafeERC20 for IERC20;
 
+    // Hedera Token Service constants
+    address constant HTS_PRECOMPILE = address(0x167);
+    int64 constant HTS_SUCCESS = 22;
+    int64 constant PRECOMPILE_BIND_ERROR = -1;
+
     // Tokens used
     address public want; // HBARX token
     address public borrowToken; // HBAR token
@@ -51,6 +56,19 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     event ChargedFees(uint256 callFees, uint256 beefyFees, uint256 strategistFees);
     event LeverageUpdated(uint256 oldLeverage, uint256 newLeverage);
     event APYUpdated(uint256 borrowAPY, uint256 stakingAPY, uint256 supplyAPY);
+
+    function updateExchangeRate() public {
+        // Get current exchange rate from Stader
+        uint256 hbarAmount = 1e18; // 1 HBAR
+        uint256 hbarxBefore = IERC20(want).balanceOf(address(this));
+        IStaking(stakingContract).stake{value: hbarAmount}();
+        uint256 hbarxAfter = IERC20(want).balanceOf(address(this));
+        uint256 hbarxReceived = hbarxAfter - hbarxBefore;
+        hbarToHbarxRate = (hbarxReceived * RATE_PRECISION) / hbarAmount;
+        
+        // Unstake immediately to get HBAR back
+        IStaking(stakingContract).unStake(hbarxReceived);
+    }
 
     function initialize(
         address _want,
@@ -392,16 +410,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
     function setRewardsAvailable(bool _isRewardsAvailable) external onlyManager {
         isRewardsAvailable = _isRewardsAvailable;
-    }
-
-    function updateExchangeRate() external onlyManager {
-        // Get current exchange rate from Stader
-        uint256 hbarAmount = 1e18; // 1 HBAR
-        uint256 hbarxReceived = IStaking(stakingContract).stake{value: hbarAmount}();
-        hbarToHbarxRate = (hbarxReceived * RATE_PRECISION) / hbarAmount;
-        
-        // Unstake immediately to get HBAR back
-        IStaking(stakingContract).unStake(hbarxReceived);
     }
 }
 
