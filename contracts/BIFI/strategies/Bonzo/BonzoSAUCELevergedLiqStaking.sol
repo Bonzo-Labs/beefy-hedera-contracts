@@ -4,6 +4,7 @@ pragma solidity ^0.8.23;
 import "@openzeppelin-4/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin-4/contracts/security/Pausable.sol";
+import "@openzeppelin-4/contracts/security/ReentrancyGuard.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
 import "../../interfaces/bonzo/IRewardsController.sol";
 import "../Common/StratFeeManagerInitializable.sol";
@@ -12,7 +13,7 @@ import "../../interfaces/beefy/IStrategyV7.sol";
 import "../../interfaces/common/IFeeConfig.sol";
 import "./SaucerSwap/ISaucerSwapMothership.sol";
 
-contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
+contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // Tokens used
@@ -91,7 +92,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         IERC20(borrowToken).safeApprove(stakingPool, 0);
     }
 
-    function deposit() public whenNotPaused {
+    function deposit() public whenNotPaused nonReentrant {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal > 0) {
             _leveragePosition(wantBal);
@@ -175,7 +176,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         }
     }
 
-    function harvest() external whenNotPaused {
+    function harvest() external whenNotPaused nonReentrant {
         require(msg.sender == vault || msg.sender == owner() || msg.sender == keeper, "!authorized");
         
         if (isRewardsAvailable) {
@@ -337,6 +338,37 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         emit SlippageToleranceUpdated(slippageTolerance, _slippageTolerance);
         slippageTolerance = _slippageTolerance;
     }
+
+    function withdraw(uint256 _amount) external nonReentrant whenNotPaused {
+        require(msg.sender == vault, "!vault");
+
+        uint256 totalPosition = balanceOf();
+        require(_amount <= totalPosition, "Withdraw amount too large");
+
+        // Calculate how much to withdraw from each layer
+        uint256 layerAmount = _amount / maxLeverage;
+        
+        // Unwind leverage position
+        _unwindLeverage(_amount);
+
+        // Get the actual amount of want tokens we have
+        uint256 wantBal = IERC20(want).balanceOf(address(this));
+        if (wantBal > _amount) {
+            wantBal = _amount;
+        }
+
+        // Apply withdrawal fee if not owner and not paused
+        if (tx.origin != owner() && !paused()) {
+            uint256 withdrawalFeeAmount = wantBal * withdrawalFee / WITHDRAWAL_MAX;
+            wantBal = wantBal - withdrawalFeeAmount;
+        }
+
+        // Transfer want tokens to vault
+        IERC20(want).safeTransfer(vault, wantBal);
+        
+        emit Withdraw(balanceOf());
+    }
+
 
 
 }
