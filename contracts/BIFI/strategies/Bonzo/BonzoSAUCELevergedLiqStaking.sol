@@ -8,8 +8,6 @@ import "@openzeppelin-4/contracts/security/ReentrancyGuard.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
 import "../../interfaces/bonzo/IRewardsController.sol";
 import "../Common/StratFeeManagerInitializable.sol";
-import "../../utils/GasFeeThrottler.sol";
-import "../../interfaces/beefy/IStrategyV7.sol";
 import "../../interfaces/common/IFeeConfig.sol";
 import "./SaucerSwap/ISaucerSwapMothership.sol";
 
@@ -345,9 +343,6 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
         uint256 totalPosition = balanceOf();
         require(_amount <= totalPosition, "Withdraw amount too large");
 
-        // Calculate how much to withdraw from each layer
-        uint256 layerAmount = _amount / maxLeverage;
-        
         // Unwind leverage position
         _unwindLeverage(_amount);
 
@@ -368,8 +363,5 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
         
         emit Withdraw(balanceOf());
     }
-
-
-
 }
 
