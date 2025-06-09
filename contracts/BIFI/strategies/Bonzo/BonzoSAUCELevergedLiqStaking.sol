@@ -75,7 +75,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
         require(_lendingPool != address(0), "lendingPool cannot be zero address");
         require(_stakingPool != address(0), "stakingPool cannot be zero address");
         require(_maxBorrowable > 0 && _maxBorrowable <= 10000, "maxBorrowable must be between 0 and 10000");
-        
+
         want = _want; // xSAUCE
         borrowToken = _borrowToken; // SAUCE
         aToken = _aToken; // axSAUCE
@@ -406,6 +406,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
         }
 
         // Apply withdrawal fee if not owner and not paused
+        // using tx.origin since withdraw is called by vault and validation check is done for original trx sender - EOA
         if (tx.origin != owner() && !paused()) {
             uint256 withdrawalFeeAmount = wantBal * withdrawalFee / WITHDRAWAL_MAX;
             wantBal = wantBal - withdrawalFeeAmount;
