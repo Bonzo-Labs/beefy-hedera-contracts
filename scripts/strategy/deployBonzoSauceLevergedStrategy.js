@@ -9,11 +9,11 @@ async function main() {
   console.log("Deploying contracts with account:", deployer.address);
 
   // Step 1: Deploy the strategy first
-  console.log("Deploying BonzoUSDCSupplyStrategy...");
-  const BonzoUSDCSupplyStrategy = await ethers.getContractFactory("BonzoUSDCSupplyStrategy");
-  const strategy = await BonzoUSDCSupplyStrategy.deploy();
+  console.log("Deploying BonzoSAUCELevergedLiqStaking...");
+  const BonzoSAUCELevergedLiqStaking = await ethers.getContractFactory("BonzoSAUCELevergedLiqStaking");
+  const strategy = await BonzoSAUCELevergedLiqStaking.deploy();
   await strategy.deployed();
-  console.log("BonzoUSDCSupplyStrategy deployed to:", strategy.address);
+  console.log("BonzoSAUCELevergedLiqStaking deployed to:", strategy.address);
 
   // Step 2: Connect to the vault factory
   const vaultFactoryAddress = addresses.vaultFactory;
@@ -37,17 +37,23 @@ async function main() {
   console.log("Initializing strategy...");
   
   // These addresses need to be configured for the target network
-  const want = "0x0000000000000000000000000000000000001549"; // Hedera USDC token
-  const aToken = "0xee72C37fEc48C9FeC6bbD0982ecEb7d7a038841e"; // aUSDC token address
-  const lendingPool = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool address  
+  const want = "0x000000000000000000000000000000000015a59b"; // xSAUCE token
+  const borrowToken = "0x0000000000000000000000000000000000120f46"; // SAUCE token
+  const aToken = "0x2217F55E2056C15a21ED7a600446094C36720f29"; // axSAUCE token
+  const debtToken = "0x65be417A48511d2f20332673038e5647a4ED194D"; // debtSAUCE token
+  const lendingPool = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool address
   const rewardsController = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller address
-  const output = "0x0000000000000000000000000000000000001549"; // Reward token is also USDC
+  const stakingPool = "0x000000000000000000000000000000000015a59a"; // SaucerSwap staking pool address
+  const maxBorrowable = 5000; // 50% in basis points
+  const slippageTolerance = 50; // 0.5% in basis points
+  const isRewardsAvailable = false;
+  const isBonzoDeployer = true;
 
   const commonAddresses = {
-    vault: vaultAddress, // Set the vault address
+    vault: vaultAddress,
     keeper: addresses.keeper,
     strategist: deployer.address,
-    unirouter: "0x00000000000000000000000000000000000026e7", // Router address
+    unirouter: "0x00000000000000000000000000000000000026e7",
     beefyFeeRecipient: addresses.beefyFeeRecipient,
     beefyFeeConfig: addresses.beefyFeeConfig
   };
@@ -58,10 +64,16 @@ async function main() {
 
   const stratInitTx = await strategy.initialize(
     want,
-    aToken, 
+    borrowToken,
+    aToken,
+    debtToken,
     lendingPool,
     rewardsController,
-    output,
+    stakingPool,
+    maxBorrowable,
+    slippageTolerance,
+    isRewardsAvailable,
+    isBonzoDeployer,
     commonAddresses,
     {gasLimit: 3000000}
   );
@@ -73,8 +85,8 @@ async function main() {
   const isHederaToken = true; // Set to true for HTS tokens
   const vaultInitTx = await vault.initialize(
     strategy.address,
-    "Beefy USDC Bonzo",
-    "bvUSDC-BONZO",
+    "Beefy SAUCE Bonzo Leveraged",
+    "bvSAUCE-BONZO-LEV",
     0, // Performance fee - set to 0 initially
     isHederaToken,
     {gasLimit: 3000000}

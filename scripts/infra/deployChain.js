@@ -1,6 +1,8 @@
 const hardhat = require("hardhat");
 const { upgrades } = require("hardhat");
 const { addressBook } = require("blockchain-addressbook");
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Script used to deploy the basic infrastructure needed to run Beefy.
@@ -128,6 +130,45 @@ async function main() {
   await beefyOracle.transferOwnership(keeper);
   console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
   await new Promise(resolve => setTimeout(resolve, 5000));
+
+  // Create addresses object
+  const addresses = {
+    vaultFactory: vaultFactory.address,
+    vaultV7: vault7.address,
+    vaultV7MultiToken: vault7MultiToken.address,
+    beefySwapper: beefySwapper.address,
+    beefyOracle: beefyOracle.address,
+    keeper: keeper,
+    devMultisig: config.devMultisig,
+    treasuryMultisig: config.treasuryMultisig,
+    strategyOwner: stratOwner.address,
+    vaultOwner: vaultOwner.address,
+    treasurer: config.treasuryMultisig,
+    launchpoolOwner: config.devMultisig,
+    rewardPool: ethers.constants.AddressZero,
+    treasury: ethers.constants.AddressZero,
+    beefyFeeRecipient: config.treasuryMultisig,
+    multicall: multicall.address,
+    bifiMaxiStrategy: ethers.constants.AddressZero,
+    voter: voter,
+    beefyFeeConfig: transparentUpgradableProxy.address,
+    wrapperFactory: ethers.constants.AddressZero,
+    zap: ethers.constants.AddressZero,
+    zapTokenManager: ethers.constants.AddressZero,
+    treasurySwapper: ethers.constants.AddressZero,
+    clmFactory: ethers.constants.AddressZero,
+    clmStrategyFactory: ethers.constants.AddressZero,
+    clmRewardPoolFactory: ethers.constants.AddressZero,
+    positionMulticall: ethers.constants.AddressZero,
+    beefyOracleChainlink: ethers.constants.AddressZero,
+    beefyOracleUniswapV2: ethers.constants.AddressZero,
+    beefyOracleUniswapV3: ethers.constants.AddressZero
+  };
+
+  // Write addresses to JSON file
+  const addressesPath = path.join(__dirname, '..', 'deployed-addresses.json');
+  fs.writeFileSync(addressesPath, JSON.stringify(addresses, null, 2));
+  console.log(`Addresses saved to ${addressesPath}`);
 
   console.log(`
     const devMultisig = '${config.devMultisig}';
