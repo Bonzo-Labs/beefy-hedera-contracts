@@ -144,7 +144,7 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
         _harvest(callFeeRecipient);
     }
 
-    function _harvest(address callFeeRecipient) internal whenNotPaused nonReentrant {
+    function _harvest(address callFeeRecipient) internal whenNotPaused {
         require(callFeeRecipient != address(0), "Invalid fee recipient");
         
         // Create array with aToken address for rewards claiming

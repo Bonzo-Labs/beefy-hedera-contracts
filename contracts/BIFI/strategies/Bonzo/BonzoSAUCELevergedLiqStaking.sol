@@ -30,7 +30,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     address public rewardsController;
 
     // Yield loop parameters
-    uint256 public maxLoops = 3; // Maximum number of yield loops (e.g., 3 for 3x)
+    uint256 public maxLoops = 2; // Maximum number of yield loops (e.g., 3 for 3x)
     uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
     uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
 
@@ -140,7 +140,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         _createYieldLoops(wantBal);
     }
 
-    function _createYieldLoops(uint256 amount) internal nonReentrant {
+    function _createYieldLoops(uint256 amount) internal {
         require(amount > 0, "Amount must be greater than 0");
         // Initial deposit of xSAUCE
         IERC20(want).approve(lendingPool, amount);
@@ -172,6 +172,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
             if (borrowableAmount == 0) break;
             
             // Borrow SAUCE
+            IERC20(borrowToken).approve(lendingPool, borrowableAmount);
             ILendingPool(lendingPool).borrow(borrowToken, borrowableAmount, 2, 0, address(this));
             
             // Calculate expected xSAUCE amount before entering
@@ -179,10 +180,13 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
             uint256 minXSauce = expectedXSauce * (10000 - slippageTolerance) / 10000;
             
             // Convert borrowed SAUCE to xSAUCE through staking
+            IERC20(borrowToken).approve(stakingPool, borrowableAmount);
+
             uint256 xSauceAmount = _enter(borrowableAmount);
             require(xSauceAmount >= minXSauce, "Slippage too high");
             
             // Deposit xSAUCE
+            IERC20(want).approve(lendingPool, xSauceAmount);
             ILendingPool(lendingPool).deposit(want, xSauceAmount, address(this), 0);
             
             // Update our position
@@ -193,7 +197,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         emit Deposit(currentCollateral, totalBorrowed);
     }
 
-    function _enter(uint256 amount) internal nonReentrant returns (uint256) {
+    function _enter(uint256 amount) internal returns (uint256) {
         require(amount > 0, "Amount must be greater than 0");
         uint256 balanceBefore = IERC20(want).balanceOf(address(this));
         ISaucerSwapMothership(stakingPool).enter(amount);
@@ -204,7 +208,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         return received;
     }
 
-    function _leave(uint256 amount) internal nonReentrant returns (uint256) {
+    function _leave(uint256 amount) internal returns (uint256) {
         require(amount > 0, "Amount must be greater than 0");
         // Calculate expected SAUCE amount before leaving
         uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(amount);
@@ -224,7 +228,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         return receivedSauce;
     }
 
-    function _unwindYieldLoops(uint256 amount) internal nonReentrant {
+    function _unwindYieldLoops(uint256 amount) internal  {
         require(amount > 0, "Amount must be greater than 0");
         uint256 totalPosition = balanceOf();
         require(amount <= totalPosition, "Amount exceeds total position");
