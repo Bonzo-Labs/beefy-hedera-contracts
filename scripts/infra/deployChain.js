@@ -9,27 +9,27 @@ const { addressBook } = require("blockchain-addressbook");
 const ethers = hardhat.ethers;
 
 // const {
-//   platforms: { 
+//   platforms: {
 //     beefyfinance: {
 //       keeper,
-//       voter, 
+//       voter,
 //       beefyFeeRecipient,
 //     } },
 // } = addressBook.;
-const keeper = "0x05240efdafd4756cc6e50491f38baaa52ef12bbc";
-const voter = "0x05240efdafd4756cc6e50491f38baaa52ef12bbc";
-const beefyFeeRecipient = "0x05240efdafd4756cc6e50491f38baaa52ef12bbc";
+const keeper = "0xbe058ee0884696653e01cfc6f34678f2762d84db";
+const voter = "0xbe058ee0884696653e01cfc6f34678f2762d84db";
+const beefyFeeRecipient = "0xbe058ee0884696653e01cfc6f34678f2762d84db";
 const TIMELOCK_ADMIN_ROLE = "0x5f58e3a2316349923ce3780f8d587db2d72378aed66a8261c916544fa6846ca5";
 const STRAT_OWNER_DELAY = 21600;
 const VAULT_OWNER_DELAY = 0;
 const KEEPER = keeper;
 
 const config = {
-  devMultisig: "0x05240efdafd4756cc6e50491f38baaa52ef12bbc",
-  treasuryMultisig: "0x05240efdafd4756cc6e50491f38baaa52ef12bbc",
+  devMultisig: "0xbe058ee0884696653e01cfc6f34678f2762d84db",
+  treasuryMultisig: "0xbe058ee0884696653e01cfc6f34678f2762d84db",
   totalLimit: "95000000000000000",
   callFee: "500000000000000",
-  strategist: "5000000000000000"
+  strategist: "5000000000000000",
 };
 
 const proposer = config.devMultisig || TRUSTED_EOA;
@@ -50,7 +50,6 @@ async function main() {
   await vaultOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address);
   console.log(`Vault owner deployed to ${vaultOwner.address}`);
 
-
   console.log("Deploying strategy owner.");
   const stratOwner = await TimelockController.deploy(STRAT_OWNER_DELAY, timelockProposers, timelockExecutors);
   await stratOwner.deployed();
@@ -70,7 +69,15 @@ async function main() {
   const transparentUpgradableProxy = await upgrades.deployProxy(BeefyFeeConfiguratorFactory, constructorArguments);
   await transparentUpgradableProxy.deployed();
 
-  await transparentUpgradableProxy.setFeeCategory(0, BigInt(config.totalLimit), BigInt(config.callFee), BigInt(config.strategist), "default", true, true);
+  await transparentUpgradableProxy.setFeeCategory(
+    0,
+    BigInt(config.totalLimit),
+    BigInt(config.callFee),
+    BigInt(config.strategist),
+    "default",
+    true,
+    true
+  );
   await transparentUpgradableProxy.transferOwnership(config.devMultisig);
 
   const implementationAddress = await upgrades.erc1967.getImplementationAddress(transparentUpgradableProxy.address);
@@ -102,12 +109,12 @@ async function main() {
 
   console.log(`Beefy Swapper deployed to ${beefySwapper.address}`);
 
-  console.log('Deploying Beefy Oracle');
+  console.log("Deploying Beefy Oracle");
   const BeefyOracle = await ethers.getContractFactory("BeefyOracle");
   const beefyOracle = await BeefyOracle.deploy();
   await beefyOracle.deployed();
   console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
-  
+
   // Add 5 seconds timeout to ensure transactions are processed
   console.log("Waiting 5 seconds before initializing...");
   await new Promise(resolve => setTimeout(resolve, 5000));
@@ -117,9 +124,9 @@ async function main() {
   await new Promise(resolve => setTimeout(resolve, 10000));
   beefySwapper.transferOwnership(keeper);
   console.log("Beefy Swapper ownership transferred to keeper");
-  
+
   console.log("Waiting 5 seconds before initializing...");
-  await new Promise(resolve => setTimeout(resolve, 5000));  
+  await new Promise(resolve => setTimeout(resolve, 30000));
   beefyOracle.initialize();
   console.log("Beefy Oracle initialized");
 
@@ -167,7 +174,7 @@ async function main() {
       beefyOracleUniswapV2: '${ethers.constants.AddressZero}',
       beefyOracleUniswapV3: '${ethers.constants.AddressZero}',
     } as const;
-  `)
+  `);
 }
 
 main()
@@ -176,4 +183,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-  
