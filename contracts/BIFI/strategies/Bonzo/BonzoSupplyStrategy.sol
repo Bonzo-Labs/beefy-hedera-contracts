@@ -3,7 +3,6 @@ pragma solidity ^0.8.23;
 
 import "@openzeppelin-4/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin-4/contracts/security/Pausable.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
 import "../../interfaces/bonzo/IRewardsController.sol";
 import "../Common/StratFeeManagerInitializable.sol";
@@ -40,6 +39,10 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     event HTSTokenAssociated(address token, int64 responseCode);
     event HTSTokenDissociated(address token, int64 responseCode);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
+    event HarvestOnDepositUpdated(bool oldValue, bool newValue);
+    event RewardsClaimed(uint256 amount, address token);
+    event StratPanicCalled();
+    event StrategyRetired();
 
     function initialize(
         address _want,
@@ -50,9 +53,16 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         bool _isHederaToken,
         CommonAddresses calldata _commonAddresses
     ) public initializer {
+        require(_want != address(0), "Invalid want address");
+        require(_aToken != address(0), "Invalid aToken address");
+        require(_lendingPool != address(0), "Invalid lending pool address");
+        require(_rewardsController != address(0), "Invalid rewards controller address");
+        require(_output != address(0), "Invalid output address");
+       
         __StratFeeManager_init(_commonAddresses);
         __Ownable_init();
         __Pausable_init();
+        __ReentrancyGuard_init();
         want = _want;
         aToken = _aToken;
         lendingPool = _lendingPool;
@@ -72,6 +82,7 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     }
 
     function _associateToken(address token) internal {
+        require(token != address(0), "Invalid token address");
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
         );
@@ -81,27 +92,34 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     }
 
     function _safeTransfer(address token, address from, address to, uint256 amount) internal {
+        require(token != address(0), "Invalid token address");
+        require(from != address(0), "Invalid from address");
+        require(to != address(0), "Invalid to address");
+        require(amount > 0, "Amount must be greater than 0");
+
         if (isHederaToken) {
+            require(amount <= uint256(uint64(type(int64).max)), "Amount too large for int64");
             _transferHTS(token, from, to, int64(uint64(amount)));
         } else {
             IERC20(token).safeTransfer(to, amount);
         }
     }
 
-    function deposit() public whenNotPaused {
+    function deposit() public whenNotPaused nonReentrant {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
+        require(wantBal > 0, "No funds to deposit");
 
-        if (wantBal > 0) {
-            if (isHederaToken) {
-                _transferHTS(want, address(this), lendingPool, int64(uint64(wantBal)));
-            }
-            ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);
-            emit Deposit(balanceOf());
+        if (isHederaToken) {
+            require(wantBal <= uint256(uint64(type(int64).max)), "Amount too large for int64");
+            _transferHTS(want, address(this), lendingPool, int64(uint64(wantBal)));
         }
+        ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);
+        emit Deposit(balanceOf());
     }
 
-    function withdraw(uint256 _amount) external {
+    function withdraw(uint256 _amount) external nonReentrant {
         require(msg.sender == vault, "!vault");
+        require(_amount > 0, "Amount must be greater than 0");
 
         uint256 wantBal = IERC20(want).balanceOf(address(this));
 
@@ -124,32 +142,38 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         emit Withdraw(balanceOf());
     }
 
-    function beforeDeposit() external virtual override {
+    function beforeDeposit() external virtual override nonReentrant {
         if (harvestOnDeposit) {
             require(msg.sender == vault, "!vault");
             _harvest(tx.origin);
         }
     }
 
-    function harvest() external virtual {
+    function harvest() external virtual nonReentrant {
         _harvest(tx.origin);
     }
 
-    function harvest(address callFeeRecipient) external virtual {
+    function harvest(address callFeeRecipient) external virtual nonReentrant {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
         _harvest(callFeeRecipient);
     }
 
-    function _harvest(address callFeeRecipient) internal whenNotPaused {
+    function _harvest(address callFeeRecipient) internal whenNotPaused nonReentrant {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
+        
         address[] memory assets = new address[](1);
         assets[0] = aToken;
         uint256 amount = rewardsAvailable();
         
-        IRewardsController(rewardsController).claimRewards(
-            assets,
-            amount,
-            address(this),
-            output
-        );
+        if (amount > 0) {
+            IRewardsController(rewardsController).claimRewards(
+                assets,
+                amount,
+                address(this),
+                output
+            );
+            emit RewardsClaimed(amount, output);
+        }
 
         uint256 outputBal = IERC20(output).balanceOf(address(this));
         if (outputBal > 0) {
@@ -163,6 +187,8 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     }
 
     function chargeFees(address callFeeRecipient) internal {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
+        
         IFeeConfig.FeeCategory memory fees = getFees();
         uint256 outputBal = IERC20(output).balanceOf(address(this));
         uint256 toNative = outputBal * fees.total / DIVISOR;
@@ -180,6 +206,11 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     }
 
     function _transferHTS(address token, address from, address to, int64 amount) internal {
+        require(token != address(0), "Invalid token address");
+        require(from != address(0), "Invalid from address");
+        require(to != address(0), "Invalid to address");
+        require(amount > 0, "Amount must be greater than 0");
+
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, amount)
         );
@@ -220,28 +251,29 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         } else {
             setWithdrawalFee(10);
         }
+        emit HarvestOnDepositUpdated(harvestOnDeposit, _harvestOnDeposit);
     }
 
-    function retireStrat() external {
+    function retireStrat() external nonReentrant {
         require(msg.sender == vault, "!vault");
         ILendingPool(lendingPool).withdraw(want, balanceOfPool(), address(this));
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         _safeTransfer(want, address(this), vault, wantBal);
+        emit StrategyRetired();
     }
 
     function panic() public onlyManager {
         pause();
         ILendingPool(lendingPool).withdraw(want, balanceOfPool(), address(this));
+        emit StratPanicCalled();
     }
 
     function pause() public onlyManager {
         _pause();
-        _removeAllowances();
     }
 
     function unpause() external onlyManager {
         _unpause();
-        _giveAllowances();
         deposit();
     }
 
@@ -252,10 +284,11 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         }
     }
 
-    function _removeAllowances() internal {
-        if (!isHederaToken) {
-            IERC20(want).approve(lendingPool, 0);
-            IERC20(output).approve(unirouter, 0);
-        }
+    function name() external pure returns (string memory) {
+        return "Strategy Bonzo Supply";
+    }
+
+    function symbol() external pure returns (string memory) {
+        return "strategy-bonzo-supply";
     }
 }
