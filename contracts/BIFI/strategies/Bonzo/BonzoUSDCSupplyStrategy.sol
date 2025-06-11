@@ -3,7 +3,6 @@ pragma solidity ^0.8.23;
 
 import "@openzeppelin-4/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin-4/contracts/security/Pausable.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
 import "../../interfaces/bonzo/IRewardsController.sol";
 import "../Common/StratFeeManagerInitializable.sol";
@@ -30,15 +29,16 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
     bool public harvestOnDeposit;
     uint256 public lastHarvest;
     
-
     // Events
     event StratHarvest(address indexed harvester, uint256 wantHarvested, uint256 tvl);
     event Deposit(uint256 tvl);
     event Withdraw(uint256 tvl);
     event ChargedFees(uint256 callFees, uint256 beefyFees, uint256 strategistFees);
+    event HarvestOnDepositUpdated(bool oldValue, bool newValue);
     event HTSTokenAssociated(address token, int64 responseCode);
-    event HTSTokenDissociated(address token, int64 responseCode);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
+    event StratPanicCalled();
+    event StrategyRetired();
 
     function initialize(
         address _want,
@@ -48,7 +48,17 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
         address _output,
         CommonAddresses calldata _commonAddresses
     ) public initializer {
+        require(_want != address(0), "Invalid want address");
+        require(_aToken != address(0), "Invalid aToken address");
+        require(_lendingPool != address(0), "Invalid lending pool address");
+        require(_rewardsController != address(0), "Invalid rewards controller address");
+        require(_output != address(0), "Invalid output address");
+
         __StratFeeManager_init(_commonAddresses);
+        __Ownable_init();
+        __Pausable_init();
+        __ReentrancyGuard_init();
+
         want = _want;
         aToken = _aToken;
         lendingPool = _lendingPool;
@@ -68,6 +78,7 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
      * @param token The HTS token address to associate with this contract
      */
     function _associateToken(address token) internal {
+        require(token != address(0), "Invalid token address");
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
         );
@@ -77,21 +88,21 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
     }
 
     // puts the funds to work
-    function deposit() public whenNotPaused {
+    function deposit() public whenNotPaused nonReentrant {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
+        require(wantBal > 0, "No funds to deposit");
 
-        if (wantBal > 0) {
-            // Transfer Hedera USDC to lending pool using HTS
-            IERC20(want).approve(lendingPool, wantBal);
-            
-            // Deposit into lending pool
-            ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);
-            emit Deposit(balanceOf());
-        }
+        // Transfer Hedera USDC to lending pool using HTS
+        IERC20(want).approve(lendingPool, wantBal);
+        
+        // Deposit into lending pool
+        ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);
+        emit Deposit(balanceOf());
     }
 
-    function withdraw(uint256 _amount) external {
+    function withdraw(uint256 _amount) external nonReentrant {
         require(msg.sender == vault, "!vault");
+        require(_amount > 0, "Amount must be greater than 0");
 
         uint256 wantBal = IERC20(want).balanceOf(address(this));
 
@@ -110,40 +121,46 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
             wantBal = wantBal - withdrawalFeeAmount;
         }
 
+        require(wantBal <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         // Transfer Hedera USDC to vault using HTS
         _transferHTS(want, address(this), vault, int64(uint64(wantBal)));
 
         emit Withdraw(balanceOf());
     }
 
-    function beforeDeposit() external virtual override {
+    function beforeDeposit() external virtual override nonReentrant {
         if (harvestOnDeposit) {
             require(msg.sender == vault, "!vault");
             _harvest(tx.origin);
         }
     }
 
-    function harvest() external  virtual {
+    function harvest() external  virtual nonReentrant {
         _harvest(tx.origin);
     }
 
-    function harvest(address callFeeRecipient) external  virtual {
+    function harvest(address callFeeRecipient) external virtual nonReentrant {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
         _harvest(callFeeRecipient);
     }
 
-    // compounds earnings and charges performance fee
     function _harvest(address callFeeRecipient) internal whenNotPaused {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
+        
         // Create array with aToken address for rewards claiming
         address[] memory assets = new address[](1);
         assets[0] = aToken; // For supply rewards
         uint256 amount = rewardsAvailable();
+
         // Claim rewards in Hedera USDC
-        IRewardsController(rewardsController).claimRewards(
-            assets,
-            amount, // Claim all rewards
-            address(this), // Send rewards to this contract
-            output // Reward token address (Hedera USDC)
-        );
+        if (amount > 0) {
+            IRewardsController(rewardsController).claimRewards(
+                assets,
+                amount, // Claim all rewards
+                address(this), // Send rewards to this contract
+                output // Reward token address (Hedera USDC)
+            );
+        }
 
         uint256 outputBal = IERC20(output).balanceOf(address(this));
         if (outputBal > 0) {
@@ -158,24 +175,34 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
 
     // performance fees
     function chargeFees(address callFeeRecipient) internal {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
+        
         IFeeConfig.FeeCategory memory fees = getFees();
         uint256 outputBal = IERC20(output).balanceOf(address(this));
+        
         uint256 toNative = outputBal * fees.total / DIVISOR;
 
         uint256 callFeeAmount = toNative * fees.call / DIVISOR;
+        require(callFeeAmount <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         _transferHTS(output, address(this), callFeeRecipient, int64(uint64(callFeeAmount)));
 
         uint256 beefyFeeAmount = toNative * fees.beefy / DIVISOR;
+        require(beefyFeeAmount <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         _transferHTS(output, address(this), beefyFeeRecipient, int64(uint64(beefyFeeAmount)));
 
         uint256 strategistFeeAmount = toNative * fees.strategist / DIVISOR;
+        require(strategistFeeAmount <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         _transferHTS(output, address(this), strategist, int64(uint64(strategistFeeAmount)));
 
         emit ChargedFees(callFeeAmount, beefyFeeAmount, strategistFeeAmount);
     }
 
-    // Helper function to transfer HTS tokens
     function _transferHTS(address token, address from, address to, int64 amount) internal {
+        require(token != address(0), "Invalid token address");
+        require(from != address(0), "Invalid from address");
+        require(to != address(0), "Invalid to address");
+        require(amount > 0, "Amount must be greater than 0");
+
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, amount)
         );
@@ -222,45 +249,44 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
         } else {
             setWithdrawalFee(10);
         }
+        emit HarvestOnDepositUpdated(harvestOnDeposit, _harvestOnDeposit);
     }
 
 
     // called as part of strat migration. Sends all the available funds back to the vault.
-    function retireStrat() external {
+    function retireStrat() external nonReentrant {
         require(msg.sender == vault, "!vault");
 
         ILendingPool(lendingPool).withdraw(want, balanceOfPool(), address(this));
 
         uint256 wantBal = IERC20(want).balanceOf(address(this));
+        require(wantBal <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         _transferHTS(want, address(this), vault, int64(uint64(wantBal)));
+        emit StrategyRetired();
     }
 
     // pauses deposits and withdraws all funds from third party systems.
-    function panic() public onlyManager {
+    function panic() public onlyManager nonReentrant {
         pause();
         ILendingPool(lendingPool).withdraw(want, balanceOfPool(), address(this));
+        emit StratPanicCalled();
     }
 
     function pause() public onlyManager {
         _pause();
-        // _removeAllowances();
     }
 
     function unpause() external onlyManager {
         _unpause();
-        // _giveAllowances();
         deposit();
     }
 
-    // function _giveAllowances() internal {
-        // For HTS tokens, we don't need to approve as we use direct transfers
-        // But we keep this for compatibility with the interface
-        // IERC20(want).approve(lendingPool, type(uint).max);
-        // IERC20(output).approve(unirouter, type(uint).max);
-    // }
-
-    function _removeAllowances() internal {
-        IERC20(want).approve(lendingPool, 0);
-        IERC20(output).approve(unirouter, 0);
+    function name() external pure returns (string memory) {
+        return "Strategy Bonzo USDC Supply";
     }
+
+    function symbol() external pure returns (string memory) {
+        return "strategy-bonzo-usdc-supply";
+    }
+    
 }

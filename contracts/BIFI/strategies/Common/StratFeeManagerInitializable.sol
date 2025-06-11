@@ -4,9 +4,10 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "../../interfaces/common/IFeeConfig.sol";
 
-contract StratFeeManagerInitializable is OwnableUpgradeable, PausableUpgradeable {
+contract StratFeeManagerInitializable is OwnableUpgradeable, PausableUpgradeable, ReentrancyGuardUpgradeable {
 
     struct CommonAddresses {
         address vault;
@@ -42,6 +43,7 @@ contract StratFeeManagerInitializable is OwnableUpgradeable, PausableUpgradeable
     function __StratFeeManager_init(CommonAddresses calldata _commonAddresses) internal onlyInitializing {
         __Ownable_init();
         __Pausable_init();
+        __ReentrancyGuard_init();
         vault = _commonAddresses.vault;
         unirouter = _commonAddresses.unirouter;
         keeper = _commonAddresses.keeper;

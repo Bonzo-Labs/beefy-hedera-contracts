@@ -3,8 +3,6 @@ pragma solidity ^0.8.23;
 
 import "@openzeppelin-4/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin-4/contracts/security/Pausable.sol";
-import "@openzeppelin-4/contracts/security/ReentrancyGuard.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
 import "../../interfaces/bonzo/IRewardsController.sol";
 import "../Common/StratFeeManagerInitializable.sol";
@@ -12,7 +10,7 @@ import "../../interfaces/common/IFeeConfig.sol";
 import "./SaucerSwap/ISaucerSwapMothership.sol";
 import "../../Hedera/IHederaTokenService.sol";
 
-contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, ReentrancyGuard {
+contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     using SafeERC20 for IERC20;
 
     // Hedera Token Service constants
@@ -32,7 +30,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
     address public rewardsController;
 
     // Yield loop parameters
-    uint256 public maxLoops; // Maximum number of yield loops (e.g., 3 for 3x)
+    uint256 public maxLoops = 2; // Maximum number of yield loops (e.g., 3 for 3x)
     uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
     uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
 
@@ -49,6 +47,13 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
     event Staked(uint256 amount);
     event Unstaked(uint256 amount);
     event SlippageToleranceUpdated(uint256 oldValue, uint256 newValue);
+    event MaxLoopsUpdated(uint256 oldValue, uint256 newValue);
+    event MaxBorrowableUpdated(uint256 oldValue, uint256 newValue);
+    event RewardsAvailabilityUpdated(bool oldValue, bool newValue);
+    event HarvestOnDepositUpdated(bool oldValue, bool newValue);
+    event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
+    event StratPanicCalled();
+    event StrategyRetired();
 
     function initialize(
         address _want,
@@ -67,6 +72,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
         __StratFeeManager_init(_commonAddresses);
         __Ownable_init();
         __Pausable_init();
+        __ReentrancyGuard_init();
         
         require(_want != address(0), "want cannot be zero address");
         require(_borrowToken != address(0), "borrowToken cannot be zero address");
@@ -95,6 +101,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
     }
 
     function _associateToken(address token) internal {
+        require(token != address(0), "Invalid token address");
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
         );
@@ -103,37 +110,44 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
     }
 
     function _safeTransfer(address token, address from, address to, uint256 amount) internal {
+        require(token != address(0), "Invalid token address");
+        require(from != address(0), "Invalid from address");
+        require(to != address(0), "Invalid to address");
+        require(amount > 0, "Amount must be greater than 0");
+        require(amount <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         _transferHTS(token, from, to, int64(uint64(amount)));
     }
 
     function _transferHTS(address token, address from, address to, int64 amount) internal {
+        require(token != address(0), "Invalid token address");
+        require(from != address(0), "Invalid from address");
+        require(to != address(0), "Invalid to address");
+        require(amount > 0, "Amount must be greater than 0");
+        
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, amount)
         );
         int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
-        require(responseCode == HTS_SUCCESS, "HTS token transfer failed");
-    }
-
-    function _removeAllowances() internal {
-        IERC20(want).approve(lendingPool, 0);
-        IERC20(borrowToken).approve(lendingPool, 0);
-        IERC20(borrowToken).approve(stakingPool, 0);
+        if (responseCode != HTS_SUCCESS) {
+            emit HTSTokenTransferFailed(token, from, to, responseCode);
+            revert("HTS token transfer failed");
+        }
     }
 
     function deposit() public whenNotPaused nonReentrant {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
-        if (wantBal > 0) {
-            _createYieldLoops(wantBal);
-        }
+        require(wantBal > 0, "No funds to deposit");
+        _createYieldLoops(wantBal);
     }
 
     function _createYieldLoops(uint256 amount) internal {
+        require(amount > 0, "Amount must be greater than 0");
         // Initial deposit of xSAUCE
+        IERC20(want).approve(lendingPool, amount);
         ILendingPool(lendingPool).deposit(want, amount, address(this), 0);
         
         uint256 currentCollateral = amount;
         uint256 totalBorrowed = 0;
-        
         
         // Loop for maxLoops times
         for (uint256 i = 0; i < maxLoops; i++) {
@@ -158,6 +172,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
             if (borrowableAmount == 0) break;
             
             // Borrow SAUCE
+            IERC20(borrowToken).approve(lendingPool, borrowableAmount);
             ILendingPool(lendingPool).borrow(borrowToken, borrowableAmount, 2, 0, address(this));
             
             // Calculate expected xSAUCE amount before entering
@@ -165,10 +180,13 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
             uint256 minXSauce = expectedXSauce * (10000 - slippageTolerance) / 10000;
             
             // Convert borrowed SAUCE to xSAUCE through staking
+            IERC20(borrowToken).approve(stakingPool, borrowableAmount);
+
             uint256 xSauceAmount = _enter(borrowableAmount);
             require(xSauceAmount >= minXSauce, "Slippage too high");
             
             // Deposit xSAUCE
+            IERC20(want).approve(lendingPool, xSauceAmount);
             ILendingPool(lendingPool).deposit(want, xSauceAmount, address(this), 0);
             
             // Update our position
@@ -180,15 +198,18 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
     }
 
     function _enter(uint256 amount) internal returns (uint256) {
+        require(amount > 0, "Amount must be greater than 0");
         uint256 balanceBefore = IERC20(want).balanceOf(address(this));
         ISaucerSwapMothership(stakingPool).enter(amount);
         uint256 balanceAfter = IERC20(want).balanceOf(address(this));
         uint256 received = balanceAfter - balanceBefore;
+        require(received > 0, "No tokens received from staking");
         emit Staked(received);
         return received;
     }
 
     function _leave(uint256 amount) internal returns (uint256) {
+        require(amount > 0, "Amount must be greater than 0");
         // Calculate expected SAUCE amount before leaving
         uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(amount);
         uint256 minSauce = expectedSauce * (10000 - slippageTolerance) / 10000;
@@ -201,29 +222,52 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
         // Verify we received at least the expected amount minus slippage
         uint256 receivedSauce = balanceAft - balanceBefore;
         require(receivedSauce >= minSauce, "Slippage too high");
+        require(receivedSauce > 0, "No tokens received from unstaking");
 
         emit Unstaked(receivedSauce);
         return receivedSauce;
     }
 
-    function _unwindYieldLoops(uint256 amount) internal {
+    function _unwindYieldLoops(uint256 amount) internal  {
+        require(amount > 0, "Amount must be greater than 0");
+        uint256 totalPosition = balanceOf();
+        require(amount <= totalPosition, "Amount exceeds total position");
+        
+        // Calculate proportional amounts for each layer
         uint256 layerAmount = amount / maxLoops;
+        uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
+        // Calculate debt amount proportional to withdrawal amount
+        uint256 layerDebt = (totalDebt * amount) / totalPosition / maxLoops;
+        uint256 debtPaid = 0;
         
         for (uint256 i = 0; i < maxLoops; i++) {
             // Withdraw from lending pool
             ILendingPool(lendingPool).withdraw(want, layerAmount, address(this));
             
-            // If not the last layer, repay debt
+            // For all layers except the last one, repay proportional debt
             if (i < maxLoops - 1) {
-                uint256 debtAmount = IERC20(debtToken).balanceOf(address(this));
                 // Calculate expected SAUCE amount before leaving
-                uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(debtAmount);
+                uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(layerDebt);
                 uint256 minSauce = expectedSauce * (10000 - slippageTolerance) / 10000;
-                require(minSauce >= debtAmount, "Insufficient SAUCE for debt repayment");
+                require(minSauce >= layerDebt, "Insufficient SAUCE for debt repayment");
                 
                 // Convert xSAUCE to SAUCE for repayment
-                uint256 sauceAmount = _leave(debtAmount);
+                uint256 sauceAmount = _leave(layerDebt);
                 ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
+                debtPaid += layerDebt;
+            } else {
+                // For the last layer, repay remaining debt
+                uint256 remainingDebt = totalDebt - debtPaid;
+                if (remainingDebt > 0) {
+                    // Calculate expected SAUCE amount before leaving
+                    uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(remainingDebt);
+                    uint256 minSauce = expectedSauce * (10000 - slippageTolerance) / 10000;
+                    require(minSauce >= remainingDebt, "Insufficient SAUCE for debt repayment");
+                    
+                    // Convert xSAUCE to SAUCE for repayment
+                    uint256 sauceAmount = _leave(remainingDebt);
+                    ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
+                }
             }
         }
     }
@@ -255,9 +299,12 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
             uint256 callFeeAmount = wantBal * fees.call / 1e18;
             uint256 beefyFeeAmount = wantBal * fees.beefy / 1e18;
             uint256 strategistFeeAmount = isBonzoDeployer ? 0 : wantBal * fees.strategist / 1e18;
-
-            _safeTransfer(want, address(this), msg.sender, callFeeAmount);
-            _safeTransfer(want, address(this), beefyFeeRecipient, beefyFeeAmount);
+            if (callFeeAmount > 0) {
+                _safeTransfer(want, address(this), msg.sender, callFeeAmount);
+            }
+            if (beefyFeeAmount > 0) {
+                _safeTransfer(want, address(this), beefyFeeRecipient, beefyFeeAmount);
+            }
             if (strategistFeeAmount > 0) {
                 _safeTransfer(want, address(this), strategist, strategistFeeAmount);
             }
@@ -284,20 +331,21 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
 
     function setHarvestOnDeposit(bool _harvestOnDeposit) external onlyManager {
         harvestOnDeposit = _harvestOnDeposit;
+        emit HarvestOnDepositUpdated(harvestOnDeposit, _harvestOnDeposit);
     }
 
     function setRewardsAvailable(bool _isRewardsAvailable) external onlyManager {
         isRewardsAvailable = _isRewardsAvailable;
+        emit RewardsAvailabilityUpdated(isRewardsAvailable, _isRewardsAvailable);
     }
 
     function panic() external onlyManager {
         _pause();
-        _removeAllowances();
+        emit StratPanicCalled();
     }
 
     function pause() external onlyManager {
         _pause();
-        _removeAllowances();
     }
 
     function unpause() external onlyManager {
@@ -316,8 +364,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
         if (wantBal > 0) {
             _safeTransfer(want, address(this), vault, wantBal);
         }
-
-        _removeAllowances();
+        emit StrategyRetired();
     }
 
     function inCaseTokensGetStuck(address _token) external onlyManager {
@@ -365,6 +412,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
     function setMaxLoops(uint256 _maxLoops) external onlyManager {
         require(_maxLoops > 0 && _maxLoops <= 10, "!range"); // Reasonable range: 1-10x
         maxLoops = _maxLoops;
+        emit MaxLoopsUpdated(maxLoops, _maxLoops);
     }
 
     function getMaxBorrowable() external view returns (uint256) {
@@ -374,6 +422,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
     function setMaxBorrowable(uint256 _maxBorrowable) external onlyManager {
         require(_maxBorrowable <= 10000, "!cap"); // Cannot be more than 100%
         maxBorrowable = _maxBorrowable;
+        emit MaxBorrowableUpdated(maxBorrowable, _maxBorrowable);
     }
 
     function getLendingPool() external view returns (address) {
@@ -392,6 +441,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable, Reentranc
 
     function withdraw(uint256 _amount) external nonReentrant whenNotPaused {
         require(msg.sender == vault, "!vault");
+        require(_amount > 0, "Amount must be greater than 0");
 
         uint256 totalPosition = balanceOf();
         require(_amount <= totalPosition, "Withdraw amount too large");
