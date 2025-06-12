@@ -197,7 +197,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
             ILendingPool(lendingPool).borrow(want, borrowableAmount, 2, 0, address(this));
             borrowAmounts[i] = borrowableAmount;
 
-            
             ILendingPool(lendingPool).deposit(want, borrowableAmount, address(this), 0);
             supplyAmounts[i + 1] = borrowableAmount;
 
@@ -210,8 +209,18 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         uint256 totalAssets = balanceOf();
         if (totalAssets == 0) return;
 
+        // Calculate withdrawal percentage in basis points (10000 = 100%)
+        uint256 withdrawBps = (_targetAmount * 10000) / totalAssets;
+        if (withdrawBps > 10000) withdrawBps = 10000; // Cap at 100%
+
+        // For near-complete withdrawal (>99.5%), exit all positions to avoid rounding issues
+        if (withdrawBps >= 9950) {
+            _completePositionExit();
+            return;
+        }
+
+        // Convert to ratio for calculations (1e18 = 100%)
         uint256 withdrawRatio = (_targetAmount * 1e18) / totalAssets;
-        if (withdrawRatio > 1e18) withdrawRatio = 1e18; // Cap at 100%
 
         // Unwind leverage in reverse order
         for (uint256 i = leverageLoops; i > 0; i--) {
@@ -390,7 +399,7 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         _emergencyDeleverage();
     }
 
-    function _emergencyDeleverage() internal {
+    function _completePositionExit() internal {
         uint256 totalDebt = balanceOfBorrow();
         uint256 totalRepaid;
         uint256 totalWithdrawn;
@@ -436,7 +445,13 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
             supplyAmounts[i] = 0;
             borrowAmounts[i] = 0;
         }
+    }
 
+    function _emergencyDeleverage() internal {
+        _completePositionExit();
+
+        uint256 totalRepaid = 0; // We could track this in _completePositionExit if needed
+        uint256 totalWithdrawn = 0; // We could track this in _completePositionExit if needed
         emit EmergencyDeleveraged(totalRepaid, totalWithdrawn);
     }
 
@@ -465,16 +480,10 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     function _safeTransfer(address token, address from, address to, uint256 amount) internal {
         if (amount == 0) return;
 
-        if (isHederaToken) {
-            // Check bounds for HTS transfer
-            if (amount > uint256(uint64(type(int64).max))) revert InvalidAmount();
-            _transferHTS(token, from, to, int64(uint64(amount)));
+        if (from == address(this)) {
+            IERC20(token).safeTransfer(to, amount);
         } else {
-            if (from == address(this)) {
-                IERC20(token).safeTransfer(to, amount);
-            } else {
-                IERC20(token).safeTransferFrom(from, to, amount);
-            }
+            IERC20(token).safeTransferFrom(from, to, amount);
         }
     }
 

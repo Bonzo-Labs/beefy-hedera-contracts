@@ -170,105 +170,197 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it("should handle deposits correctly", async function () {
-      console.log("sender address", deployer.address);
+    it("should handle complete deposit-withdraw cycle", async function () {
+      console.log("Testing complete deposit-withdraw cycle...");
 
       // Skip this test if we don't have want tokens to test with
       const userBalance = await want.balanceOf(deployer.address);
-      console.log("user balance", userBalance.toString());
+      console.log("Initial user balance:", userBalance.toString());
       if (userBalance.eq(0)) {
-        console.log("Skipping deposit test - no want tokens available");
+        console.log("Skipping deposit-withdraw test - no want tokens available");
         this.skip();
         return;
       }
 
       const depositAmount = "1000000"; // 1 unit (assuming 6 decimals)
 
-      // Approve the vault to spend tokens
-      const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
-      const approveReceipt = await approveTx.wait();
-      console.log("approve transaction", approveReceipt.transactionHash);
+      console.log("\n=== DEPOSIT PHASE ===");
 
-      // Check initial balances
-      const initialUserBalance = await want.balanceOf(deployer.address);
+      // Approve and deposit
+      const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
+      await approveTx.wait();
+      console.log("Tokens approved for vault");
+
       const initialVaultBalance = await want.balanceOf(vault.address);
       const initialTotalSupply = await vault.totalSupply();
+      const initialUserBalance = await want.balanceOf(deployer.address);
 
-      console.log("Initial user balance:", initialUserBalance.toString());
-      console.log("Initial vault balance:", initialVaultBalance.toString());
-      console.log("Initial total supply:", initialTotalSupply.toString());
+      const depositTx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+      await depositTx.wait();
+      console.log("Deposit completed");
 
-      // Perform deposit
-      console.log("Depositing...");
-      const tx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
-      const receipt = await tx.wait();
-      console.log("Deposit transaction:", receipt.transactionHash);
-
-      // Check post-deposit balances
+      // Verify deposit results
       const postDepositUserBalance = await want.balanceOf(deployer.address);
-      const postDepositVaultBalance = await want.balanceOf(vault.address);
       const postDepositTotalSupply = await vault.totalSupply();
       const userShares = await vault.balanceOf(deployer.address);
-
-      console.log("Post-deposit user balance:", postDepositUserBalance.toString());
-      console.log("Post-deposit vault balance:", postDepositVaultBalance.toString());
-      console.log("Post-deposit total supply:", postDepositTotalSupply.toString());
-      console.log("User shares:", userShares.toString());
-
-      // Verify deposit
-      expect(postDepositUserBalance).to.be.lt(initialUserBalance);
-      expect(postDepositTotalSupply).to.be.gt(initialTotalSupply);
-      expect(userShares).to.be.gt(0);
-
-      // Check strategy balances
       const strategyBalance = await strategy.balanceOf();
       const supplyBalance = await strategy.balanceOfSupply();
       const borrowBalance = await strategy.balanceOfBorrow();
 
+      console.log("Post-deposit user balance:", postDepositUserBalance.toString());
+      console.log("User shares received:", userShares.toString());
       console.log("Strategy total balance:", strategyBalance.toString());
       console.log("Strategy supply balance:", supplyBalance.toString());
       console.log("Strategy borrow balance:", borrowBalance.toString());
 
+      // Deposit assertions
+      expect(postDepositUserBalance).to.be.lt(initialUserBalance);
+      expect(postDepositTotalSupply).to.be.gt(initialTotalSupply);
+      expect(userShares).to.be.gt(0);
       expect(strategyBalance).to.be.gt(0);
       expect(supplyBalance).to.be.gt(0);
-      // We might have borrow balance if leverage loops > 1
-      if ((await strategy.leverageLoops()) > 1) {
-        expect(borrowBalance).to.be.gte(0);
+
+      console.log("\n=== PARTIAL WITHDRAWAL PHASE ===");
+
+      const partialWithdrawAmount = userShares.div(2); // Withdraw half
+      console.log("Withdrawing shares:", partialWithdrawAmount.toString());
+
+      const prePartialWithdrawBalance = await want.balanceOf(deployer.address);
+
+      const partialWithdrawTx = await vault.withdraw(partialWithdrawAmount, { gasLimit: 5000000 });
+      await partialWithdrawTx.wait();
+      console.log("Partial withdrawal completed");
+
+      const postPartialWithdrawBalance = await want.balanceOf(deployer.address);
+      const postPartialWithdrawShares = await vault.balanceOf(deployer.address);
+      const postPartialStrategyBalance = await strategy.balanceOf();
+
+      console.log("Post-partial-withdrawal user balance:", postPartialWithdrawBalance.toString());
+      console.log("Remaining user shares:", postPartialWithdrawShares.toString());
+      console.log("Strategy balance after partial withdrawal:", postPartialStrategyBalance.toString());
+
+      // Partial withdrawal assertions
+      expect(postPartialWithdrawBalance).to.be.gt(prePartialWithdrawBalance);
+      expect(postPartialWithdrawShares).to.be.lt(userShares);
+      expect(postPartialStrategyBalance).to.be.lt(strategyBalance);
+      expect(postPartialWithdrawShares).to.be.gt(0); // Still has shares
+
+      console.log("\n=== FULL WITHDRAWAL PHASE ===");
+
+      const remainingShares = await vault.balanceOf(deployer.address);
+      console.log("Withdrawing remaining shares:", remainingShares.toString());
+
+      const preFullWithdrawBalance = await want.balanceOf(deployer.address);
+
+      const fullWithdrawTx = await vault.withdraw(remainingShares, { gasLimit: 5000000 });
+      await fullWithdrawTx.wait();
+      console.log("Full withdrawal completed");
+
+      const finalUserBalance = await want.balanceOf(deployer.address);
+      const finalUserShares = await vault.balanceOf(deployer.address);
+      const finalStrategyBalance = await strategy.balanceOf();
+      const finalSupplyBalance = await strategy.balanceOfSupply();
+      const finalBorrowBalance = await strategy.balanceOfBorrow();
+
+      console.log("Final user balance:", finalUserBalance.toString());
+      console.log("Final user shares:", finalUserShares.toString());
+      console.log("Final strategy balance:", finalStrategyBalance.toString());
+      console.log("Final supply balance:", finalSupplyBalance.toString());
+      console.log("Final borrow balance:", finalBorrowBalance.toString());
+
+      // Full withdrawal assertions
+      expect(finalUserBalance).to.be.gt(preFullWithdrawBalance);
+      expect(finalUserShares).to.be.eq(0); // No shares left
+
+      // Strategy should be fully unwound (allow for small dust amounts)
+      const dustThreshold = 1002;
+      expect(finalStrategyBalance).to.be.lt(dustThreshold);
+      expect(finalSupplyBalance).to.be.lt(dustThreshold);
+      expect(finalBorrowBalance).to.be.lt(dustThreshold);
+
+      // === WITHDRAWAL FEES TEST ===
+      console.log("\n=== WITHDRAWAL FEES TEST ===");
+
+      // Test withdrawal fees with a non-owner account
+      await strategy.setWithdrawalFee(10); // 0.1%
+
+      // Make another deposit for fee testing
+      const feeTestAmount = "500000";
+      await want.approve(vault.address, feeTestAmount, { gasLimit: 3000000 });
+      await vault.deposit(feeTestAmount, { gasLimit: 5000000 });
+
+      const ownerShares = await vault.balanceOf(deployer.address);
+
+      // Check if we have multiple signers available
+      const signers = await ethers.getSigners();
+      if (signers.length > 1) {
+        // Transfer shares to non-owner and test fees
+        const nonOwner = signers[1];
+        const sharesToTransfer = ownerShares.div(2);
+        await vault.transfer(nonOwner.address, sharesToTransfer);
+
+        const nonOwnerShares = await vault.balanceOf(nonOwner.address);
+        const preNonOwnerBalance = await want.balanceOf(nonOwner.address);
+
+        // Withdraw as non-owner (should incur fees)
+        const vaultAsNonOwner = vault.connect(nonOwner);
+        await vaultAsNonOwner.withdraw(nonOwnerShares, { gasLimit: 5000000 });
+
+        const postNonOwnerBalance = await want.balanceOf(nonOwner.address);
+        const tokensReceived = postNonOwnerBalance.sub(preNonOwnerBalance);
+
+        console.log("Tokens received by non-owner (with fees):", tokensReceived.toString());
+        expect(tokensReceived).to.be.gt(0);
+
+        // Clean up - reset withdrawal fee and withdraw remaining
+        await strategy.setWithdrawalFee(0);
+        const remainingOwnerShares = await vault.balanceOf(deployer.address);
+        if (remainingOwnerShares.gt(0)) {
+          await vault.withdraw(remainingOwnerShares, { gasLimit: 5000000 });
+        }
+      } else {
+        console.log("⚠️ Skipping withdrawal fee test - only one signer available");
+        // Just test that withdrawal fee can be set and reset
+        await strategy.setWithdrawalFee(0);
+        // Withdraw all remaining shares
+        await vault.withdraw(ownerShares, { gasLimit: 5000000 });
       }
+
+      console.log("✅ Complete deposit-withdraw cycle test passed!");
     });
   });
 
   describe("Strategy Parameters", () => {
-    it.skip("should allow updating borrow factor", async function () {
+    it("should allow updating borrow factor", async function () {
       const newBorrowFactor = 3000; // 30%
       await strategy.setBorrowFactor(newBorrowFactor);
       const updatedBorrowFactor = await strategy.borrowFactor();
       expect(updatedBorrowFactor).to.be.eq(newBorrowFactor);
     });
 
-    it.skip("should not allow borrow factor above maximum", async function () {
+    it("should not allow borrow factor above maximum", async function () {
       const excessiveBorrowFactor = 7000; // 70% - above BORROW_FACTOR_MAX of 60%
       await expect(strategy.setBorrowFactor(excessiveBorrowFactor)).to.be.reverted;
     });
 
-    it.skip("should allow updating leverage loops", async function () {
+    it("should allow updating leverage loops", async function () {
       const newLeverageLoops = 3;
       await strategy.setLeverageLoops(newLeverageLoops);
       const updatedLeverageLoops = await strategy.leverageLoops();
       expect(updatedLeverageLoops).to.be.eq(newLeverageLoops);
     });
 
-    it.skip("should not allow leverage loops above maximum", async function () {
+    it("should not allow leverage loops above maximum", async function () {
       const excessiveLoops = 6; // Above MAX_LOOPS of 5
       await expect(strategy.setLeverageLoops(excessiveLoops)).to.be.reverted;
     });
 
-    it.skip("should not allow zero leverage loops", async function () {
+    it("should not allow zero leverage loops", async function () {
       const zeroLoops = 0;
       await expect(strategy.setLeverageLoops(zeroLoops)).to.be.reverted;
     });
 
-    it.skip("should allow updating harvest on deposit", async function () {
+    it("should allow updating harvest on deposit", async function () {
       const currentHarvestOnDeposit = await strategy.harvestOnDeposit();
       await strategy.setHarvestOnDeposit(!currentHarvestOnDeposit);
       const updatedHarvestOnDeposit = await strategy.harvestOnDeposit();
@@ -277,7 +369,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Swap Functionality", () => {
-    it.skip("should allow updating swap path", async function () {
+    it("should allow updating swap path", async function () {
       // Create a test path with an intermediate token
       const intermediateToken = "0x0000000000000000000000000000000000INTER";
       const newPath = [OUTPUT_TOKEN_ADDRESS, intermediateToken, WANT_TOKEN_ADDRESS];
@@ -291,7 +383,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(updatedPath[2]).to.be.eq(WANT_TOKEN_ADDRESS);
     });
 
-    it.skip("should not allow invalid swap paths", async function () {
+    it("should not allow invalid swap paths", async function () {
       // Test empty path
       await expect(strategy.setSwapPath([])).to.be.reverted;
 
@@ -307,19 +399,19 @@ describe("BeefyYieldLoopConfigurable", function () {
       await expect(strategy.setSwapPath(invalidPath2)).to.be.reverted;
     });
 
-    it.skip("should allow updating slippage tolerance", async function () {
+    it("should allow updating slippage tolerance", async function () {
       const newSlippage = 500; // 5%
       await strategy.setSwapSlippageTolerance(newSlippage);
       const updatedSlippage = await strategy.swapSlippageTolerance();
       expect(updatedSlippage).to.be.eq(newSlippage);
     });
 
-    it.skip("should not allow excessive slippage tolerance", async function () {
+    it("should not allow excessive slippage tolerance", async function () {
       const excessiveSlippage = 1500; // 15% - above 10% limit
       await expect(strategy.setSwapSlippageTolerance(excessiveSlippage)).to.be.reverted;
     });
 
-    it.skip("should return correct swap path", async function () {
+    it("should return correct swap path", async function () {
       // Reset to default path
       const defaultPath = [OUTPUT_TOKEN_ADDRESS, WANT_TOKEN_ADDRESS];
       await strategy.setSwapPath(defaultPath);
@@ -332,7 +424,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Harvest Functionality", () => {
-    it.skip("should allow harvest when rewards are available", async function () {
+    it("should allow harvest when rewards are available", async function () {
       const initialBalance = await strategy.balanceOf();
 
       // Call harvest
@@ -348,7 +440,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(harvestReceipt.status).to.be.eq(1);
     });
 
-    it.skip("should allow harvest with custom call fee recipient", async function () {
+    it("should allow harvest with custom call fee recipient", async function () {
       const callFeeRecipient = deployer.address;
 
       const harvestTx = await strategy["harvest(address)"](callFeeRecipient, { gasLimit: 5000000 });
@@ -358,13 +450,13 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(harvestReceipt.status).to.be.eq(1);
     });
 
-    it.skip("should not allow harvest with zero address as recipient", async function () {
+    it("should not allow harvest with zero address as recipient", async function () {
       const zeroAddress = ethers.constants.AddressZero;
 
       await expect(strategy["harvest(address)"](zeroAddress)).to.be.reverted;
     });
 
-    it.skip("should handle harvest with swap when output tokens available", async function () {
+    it("should handle harvest with swap when output tokens available", async function () {
       // This test would require having actual output tokens to swap
       // For now, we just verify harvest completes without errors
       const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
@@ -378,13 +470,13 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Emergency Functions", () => {
-    it.skip("should allow manager to pause strategy", async function () {
+    it("should allow manager to pause strategy", async function () {
       await strategy.pause();
       const isPaused = await strategy.paused();
       expect(isPaused).to.be.eq(true);
     });
 
-    it.skip("should allow manager to unpause strategy", async function () {
+    it("should allow manager to unpause strategy", async function () {
       // First ensure it's paused
       if (!(await strategy.paused())) {
         await strategy.pause();
@@ -395,7 +487,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(isPaused).to.be.eq(false);
     });
 
-    it.skip("should allow manager to call panic", async function () {
+    it("should allow manager to call panic", async function () {
       const panicTx = await strategy.panic({ gasLimit: 5000000 });
       const panicReceipt = await panicTx.wait();
       console.log("Panic transaction:", panicReceipt.transactionHash);
@@ -409,7 +501,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("View Functions", () => {
-    it.skip("should return correct balance information", async function () {
+    it("should return correct balance information", async function () {
       const totalBalance = await strategy.balanceOf();
       const wantBalance = await strategy.balanceOfWant();
       const supplyBalance = await strategy.balanceOfSupply();
@@ -425,7 +517,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(totalBalance).to.be.eq(calculatedBalance);
     });
 
-    it.skip("should return rewards available", async function () {
+    it("should return rewards available", async function () {
       const rewardsAvailable = await strategy.rewardsAvailable();
       const callReward = await strategy.callReward();
 
@@ -436,7 +528,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(callReward).to.be.gte(0);
     });
 
-    it.skip("should return supply and borrow at each level", async function () {
+    it("should return supply and borrow at each level", async function () {
       const leverageLoops = await strategy.leverageLoops();
 
       for (let i = 0; i < leverageLoops; i++) {
@@ -450,7 +542,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       }
     });
 
-    it.skip("should return current swap configuration", async function () {
+    it("should return current swap configuration", async function () {
       const swapPath = await strategy.getSwapPath();
       const slippageTolerance = await strategy.swapSlippageTolerance();
 
@@ -463,17 +555,17 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Access Control", () => {
-    it.skip("should only allow vault to call withdraw", async function () {
+    it("should only allow vault to call withdraw", async function () {
       const withdrawAmount = 1000;
 
       await expect(strategy.withdraw(withdrawAmount)).to.be.reverted;
     });
 
-    it.skip("should only allow vault to call retireStrat", async function () {
+    it("should only allow vault to call retireStrat", async function () {
       await expect(strategy.retireStrat()).to.be.reverted;
     });
 
-    it.skip("should only allow manager to update parameters", async function () {
+    it("should only allow manager to update parameters", async function () {
       const [, nonManager] = await ethers.getSigners();
       const strategyAsNonManager = strategy.connect(nonManager);
 
@@ -484,7 +576,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       await expect(strategyAsNonManager.setHarvestOnDeposit(true)).to.be.reverted;
     });
 
-    it.skip("should only allow manager to update swap settings", async function () {
+    it("should only allow manager to update swap settings", async function () {
       const [, nonManager] = await ethers.getSigners();
       const strategyAsNonManager = strategy.connect(nonManager);
 
@@ -496,7 +588,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Leverage Mechanism", () => {
-    it.skip("should track leverage levels correctly", async function () {
+    it("should track leverage levels correctly", async function () {
       const leverageLoops = await strategy.leverageLoops();
       console.log("Current leverage loops:", leverageLoops.toString());
 
@@ -511,7 +603,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       }
     });
 
-    it.skip("should respect borrow factor limits", async function () {
+    it("should respect borrow factor limits", async function () {
       const borrowFactor = await strategy.borrowFactor();
       const maxBorrowFactor = await strategy.BORROW_FACTOR_MAX();
 
