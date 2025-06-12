@@ -106,6 +106,36 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       deployNewContract = false;
     }
     want = await ethers.getContractAt("IERC20Upgradeable", XSAUCE_TOKEN_ADDRESS);
+
+    const aToken = await ethers.getContractAt("IERC20Upgradeable", AXSAUCE_TOKEN_ADDRESS);
+    const debtToken = await ethers.getContractAt("IERC20Upgradeable", DEBT_TOKEN_ADDRESS);
+
+    const strategyATokenBalance = await aToken.balanceOf(strategy.address);
+    const strategyDebtTokenBalance = await debtToken.balanceOf(strategy.address);
+
+    console.log("Strategy aToken balance:", strategyATokenBalance.toString());
+    console.log("Strategy debt token balance:", strategyDebtTokenBalance.toString());
+  });
+
+  after(async () => {
+    const aToken = await ethers.getContractAt("IERC20Upgradeable", AXSAUCE_TOKEN_ADDRESS);
+    const debtToken = await ethers.getContractAt("IERC20Upgradeable", DEBT_TOKEN_ADDRESS);
+
+    const strategyATokenBalance = await aToken.balanceOf(strategy.address);
+    const strategyDebtTokenBalance = await debtToken.balanceOf(strategy.address);
+    console.log("Strategy aToken balance:", strategyATokenBalance.toString());
+    console.log("Strategy debt token balance:", strategyDebtTokenBalance.toString());
+
+    const lendingPool = await ethers.getContractAt("contracts/BIFI/interfaces/bonzo/ILendingPool.sol:ILendingPool", LENDING_POOL_ADDRESS);
+    const userAccountData = await lendingPool.getUserAccountData(strategy.address);
+    console.log("User Account Data:", {
+      totalCollateralBase: userAccountData.totalCollateralETH.toString(),
+      totalDebtBase: userAccountData.totalDebtETH.toString(),
+      availableBorrowsBase: userAccountData.availableBorrowsETH.toString(),
+      currentLiquidationThreshold: userAccountData.currentLiquidationThreshold.toString(),
+      ltv: userAccountData.ltv.toString(),
+      healthFactor: userAccountData.healthFactor.toString(),
+    });
   });
 
   describe("Deposit and Withdraw", () => {
@@ -153,7 +183,20 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       const tx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
       const receipt = await tx.wait();
       console.log("Deposit transaction:", receipt.transactionHash);
+      // console.log("receipt", receipt);
+      const debugFilter = strategy.filters.DebugValues();
+      const debugEvents = await strategy.queryFilter(debugFilter, receipt.blockNumber, receipt.blockNumber);
 
+      if (debugEvents.length > 0) {
+        const debugEvent = debugEvents[0];
+        console.log("Strategy Debug Values:");
+        console.log("Collateral Base:", ethers.utils.formatUnits(debugEvent.args.collateralBase, 18));
+        console.log("Debt Base:", ethers.utils.formatUnits(debugEvent.args.debtBase, 18));
+        console.log("LTV:", debugEvent.args.ltv.toString());
+        console.log("SAUCE Price:", ethers.utils.formatUnits(debugEvent.args.saucePrice, 18));
+        console.log("Max Borrow Base:", ethers.utils.formatUnits(debugEvent.args.maxBorrowBase, 18));
+        console.log("Desired:", ethers.utils.formatUnits(debugEvent.args.desired, 18));
+      }
       // Check post-deposit balances
       const postDepositUserBalance = await want.balanceOf(deployer.address);
       const postDepositVaultBalance = await want.balanceOf(vault.address);
