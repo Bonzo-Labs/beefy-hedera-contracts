@@ -165,10 +165,8 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     // ===== Internal Core Functions =====
 
     function _leverage(uint256 _amount) internal {
-        // Initial deposit outside the loop
-        if (isHederaToken) {
-            _transferHTS(want, address(this), lendingPool, int64(uint64(_amount)));
-        }
+        // Approve lending pool to spend want tokens
+        IERC20(want).approve(lendingPool, _amount * (leverageLoops + 1));
         ILendingPool(lendingPool).deposit(want, _amount, address(this), 0);
         supplyAmounts[0] = _amount;
 
@@ -199,10 +197,7 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
             ILendingPool(lendingPool).borrow(want, borrowableAmount, 2, 0, address(this));
             borrowAmounts[i] = borrowableAmount;
 
-            // Supply the borrowed amount in the next iteration
-            if (isHederaToken) {
-                _transferHTS(want, address(this), lendingPool, int64(uint64(borrowableAmount)));
-            }
+            
             ILendingPool(lendingPool).deposit(want, borrowableAmount, address(this), 0);
             supplyAmounts[i + 1] = borrowableAmount;
 
