@@ -61,6 +61,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
     event StratPanicCalled();
     event StrategyRetired();
+    event OracleUpdated(address oldValue, address newValue);
     event DebugValues(
         uint256 collateralBase,
         uint256 debtBase,
@@ -77,6 +78,8 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 decimalDiff,
         uint256 saucePrice
     );
+
+    error InsufficientSauceForDebtRepayment(uint256 layerDebt, uint256 expectedSauce, uint256 minSauce);
 
     function initialize(
         address _want,
@@ -165,7 +168,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     function _createYieldLoops(uint256 amount) internal {
         require(amount > 0, "Amount must be > 0");
 
-        // Approve once for everything we’ll need
+        // Approve once for everything we'll need
         uint256 approvalAmount = amount * (maxLoops * 2);
         IERC20(want).approve(lendingPool, approvalAmount);
         IERC20(borrowToken).approve(lendingPool, approvalAmount);
@@ -231,20 +234,17 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         require(amount > 0, "Amount must be greater than 0");
         // Calculate expected SAUCE amount before leaving
         uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(amount);
-        uint256 minSauce = (expectedSauce * (10000 - slippageTolerance)) / 10000;
-
-        // Leave the bar by sending xSAUCE to get SAUCE
+        require(expectedSauce > 0, "No tokens received from unstaking");
         uint256 balanceBefore = IERC20(borrowToken).balanceOf(address(this));
+        //approve
+        IERC20(want).approve(stakingPool, amount);
         ISaucerSwapMothership(stakingPool).leave(amount);
-        uint256 balanceAft = IERC20(borrowToken).balanceOf(address(this));
+        uint256 balanceAfter = IERC20(borrowToken).balanceOf(address(this));
+        uint256 received = balanceAfter - balanceBefore;
+        require(received > 0, "No tokens received from unstaking");
 
-        // Verify we received at least the expected amount minus slippage
-        uint256 receivedSauce = balanceAft - balanceBefore;
-        require(receivedSauce >= minSauce, "Slippage too high");
-        require(receivedSauce > 0, "No tokens received from unstaking");
-
-        emit Unstaked(receivedSauce);
-        return receivedSauce;
+        emit Unstaked(received);
+        return received;
     }
 
     function _unwindYieldLoops(uint256 amount) internal {
@@ -253,39 +253,42 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         require(amount <= totalPosition, "Amount exceeds total position");
 
         // Calculate proportional amounts for each layer
-        uint256 layerAmount = amount / maxLoops;
+        uint256 layerAmount = amount / (maxLoops+1);
         uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
         // Calculate debt amount proportional to withdrawal amount
-        uint256 layerDebt = (totalDebt * amount) / totalPosition / maxLoops;
+        uint256 layerDebt = (totalDebt * amount) / totalPosition / (maxLoops+1);
         uint256 debtPaid = 0;
 
-        for (uint256 i = 0; i < maxLoops; i++) {
+        for (uint256 i = 0; i < maxLoops+1; i++) {
             // Withdraw from lending pool
             ILendingPool(lendingPool).withdraw(want, layerAmount, address(this));
-
+            uint256 debtBalance = IERC20(debtToken).balanceOf(address(this));
+            if(debtBalance == 0)
+                break;
             // For all layers except the last one, repay proportional debt
             if (i < maxLoops - 1) {
-                // Calculate expected SAUCE amount before leaving
-                uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(layerDebt);
-                uint256 minSauce = (expectedSauce * (10000 - slippageTolerance)) / 10000;
-                require(minSauce >= layerDebt, "Insufficient SAUCE for debt repayment");
-
+                // Calculate required xSAUCE amount to get enough SAUCE after slippage
+                uint256 requiredXSauce = (layerDebt * 10000) / (10000 - slippageTolerance);
                 // Convert xSAUCE to SAUCE for repayment
-                uint256 sauceAmount = _leave(layerDebt);
+                uint256 sauceAmount = _leave(requiredXSauce);
+                //approve
+                IERC20(borrowToken).approve(lendingPool, sauceAmount);
                 ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
                 debtPaid += layerDebt;
             } else {
                 // For the last layer, repay remaining debt
                 uint256 remainingDebt = totalDebt - debtPaid;
                 if (remainingDebt > 0) {
-                    // Calculate expected SAUCE amount before leaving
-                    uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(remainingDebt);
-                    uint256 minSauce = (expectedSauce * (10000 - slippageTolerance)) / 10000;
-                    require(minSauce >= remainingDebt, "Insufficient SAUCE for debt repayment");
-
+                    // Calculate required xSAUCE amount to get enough SAUCE after slippage
+                    uint256 requiredXSauce = (remainingDebt * 10000) / (10000 - slippageTolerance);
                     // Convert xSAUCE to SAUCE for repayment
-                    uint256 sauceAmount = _leave(remainingDebt);
-                    ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
+                    uint256 sauceAmount = _leave(requiredXSauce);
+                    //check variable debt balance
+                    if (sauceAmount > 0) {
+                        //approve
+                        IERC20(borrowToken).approve(lendingPool, sauceAmount);
+                        ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
+                    }
                 }
             }
         }
@@ -456,6 +459,13 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         require(_slippageTolerance <= 500, "Slippage too high"); // Max 5%
         emit SlippageToleranceUpdated(slippageTolerance, _slippageTolerance);
         slippageTolerance = _slippageTolerance;
+    }
+
+    //setter for oracle address
+    function setOracle(address _oracle) external onlyManager {
+        require(_oracle != address(0), "!oracle");
+        BEEFY_ORACLE = _oracle;
+        emit OracleUpdated(BEEFY_ORACLE, _oracle);
     }
 
     function withdraw(uint256 _amount) external nonReentrant whenNotPaused {

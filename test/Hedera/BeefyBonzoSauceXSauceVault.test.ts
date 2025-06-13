@@ -213,31 +213,31 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       expect(postDepositTotalSupply).to.be.gt(initialTotalSupply);
       expect(userShares).to.be.gt(0);
 
-      // // Wait for some time to allow for yield generation
-      // console.log("Waiting for yield generation...");
-      // await new Promise(resolve => setTimeout(resolve, 30000));
+      // Wait for some time to allow for yield generation
+      console.log("Waiting for yield generation...");
+      await new Promise(resolve => setTimeout(resolve, 30000));
 
-      // // Perform withdrawal
-      // console.log("Withdrawing...");
-      // const withdrawTx = await vault.withdraw(userShares, { gasLimit: 3000000 });
-      // const withdrawReceipt = await withdrawTx.wait();
-      // console.log("Withdraw transaction:", withdrawReceipt.transactionHash);
+      // Perform withdrawal
+      console.log("Withdrawing...");
+      const withdrawTx = await vault.withdraw(userShares, { gasLimit: 5000000 });
+      const withdrawReceipt = await withdrawTx.wait();
+      console.log("Withdraw transaction:", withdrawReceipt.transactionHash);
 
-      // // Check post-withdrawal balances
-      // const postWithdrawUserBalance = await want.balanceOf(deployer.address);
-      // const postWithdrawVaultBalance = await want.balanceOf(vault.address);
-      // const postWithdrawTotalSupply = await vault.totalSupply();
-      // const postWithdrawUserShares = await vault.balanceOf(deployer.address);
+      // Check post-withdrawal balances
+      const postWithdrawUserBalance = await want.balanceOf(deployer.address);
+      const postWithdrawVaultBalance = await want.balanceOf(vault.address);
+      const postWithdrawTotalSupply = await vault.totalSupply();
+      const postWithdrawUserShares = await vault.balanceOf(deployer.address);
 
-      // console.log("Post-withdraw user balance:", postWithdrawUserBalance.toString());
-      // console.log("Post-withdraw vault balance:", postWithdrawVaultBalance.toString());
-      // console.log("Post-withdraw total supply:", postWithdrawTotalSupply.toString());
-      // console.log("Post-withdraw user shares:", postWithdrawUserShares.toString());
+      console.log("Post-withdraw user balance:", postWithdrawUserBalance.toString());
+      console.log("Post-withdraw vault balance:", postWithdrawVaultBalance.toString());
+      console.log("Post-withdraw total supply:", postWithdrawTotalSupply.toString());
+      console.log("Post-withdraw user shares:", postWithdrawUserShares.toString());
 
-      // // Verify withdrawal
-      // expect(postWithdrawUserBalance).to.be.gt(postDepositUserBalance);
-      // expect(postWithdrawTotalSupply).to.be.lt(postDepositTotalSupply);
-      // expect(postWithdrawUserShares).to.be.eq(0);
+      // Verify withdrawal
+      expect(postWithdrawUserBalance).to.be.gt(postDepositUserBalance);
+      expect(postWithdrawTotalSupply).to.be.lt(postDepositTotalSupply);
+      expect(postWithdrawUserShares).to.be.eq(0);
     });
   });
 
