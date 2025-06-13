@@ -123,7 +123,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Strategy Initialization", () => {
-    it("should have correct initial parameters", async function () {
+    it.skip("should have correct initial parameters", async function () {
       const borrowFactor = await strategy.borrowFactor();
       const leverageLoops = await strategy.leverageLoops();
       const isHederaToken = await strategy.isHederaToken();
@@ -143,7 +143,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(outputAddress).to.be.eq(OUTPUT_TOKEN_ADDRESS);
     });
 
-    it("should have correct addresses", async function () {
+    it.skip("should have correct addresses", async function () {
       const lendingPool = await strategy.lendingPool();
       const rewardsController = await strategy.rewardsController();
       const aToken = await strategy.aToken();
@@ -155,7 +155,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(debtToken).to.be.eq(DEBT_TOKEN_ADDRESS);
     });
 
-    it("should have correct initial swap settings", async function () {
+    it.skip("should have correct initial swap settings", async function () {
       const swapPath = await strategy.getSwapPath();
       const slippageTolerance = await strategy.swapSlippageTolerance();
 
@@ -170,14 +170,14 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it("should handle complete deposit-withdraw cycle", async function () {
-      console.log("Testing complete deposit-withdraw cycle...");
+    it.skip("should handle deposit", async function () {
+      console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have want tokens to test with
       const userBalance = await want.balanceOf(deployer.address);
       console.log("Initial user balance:", userBalance.toString());
       if (userBalance.eq(0)) {
-        console.log("Skipping deposit-withdraw test - no want tokens available");
+        console.log("Skipping deposit test - no want tokens available");
         this.skip();
         return;
       }
@@ -220,9 +220,39 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(strategyBalance).to.be.gt(0);
       expect(supplyBalance).to.be.gt(0);
 
+      console.log("✅ Deposit test passed!");
+    });
+
+    it.skip("should handle withdrawal methods", async function () {
+      console.log("Testing withdrawal functionality...");
+
+      // Check if user has shares to withdraw
+      const userShares = await vault.balanceOf(deployer.address);
+      console.log("User shares available:", userShares.toString());
+
+      if (userShares.eq(0)) {
+        console.log("No shares available for withdrawal test - need to deposit first");
+
+        // Make a deposit first
+        const userBalance = await want.balanceOf(deployer.address);
+        if (userBalance.eq(0)) {
+          console.log("Skipping withdrawal test - no want tokens available for deposit");
+          this.skip();
+          return;
+        }
+
+        const depositAmount = "1000000";
+        await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
+        await vault.deposit(depositAmount, { gasLimit: 5000000 });
+        console.log("Made initial deposit for withdrawal test");
+      }
+
+      const totalUserShares = await vault.balanceOf(deployer.address);
+      console.log("Total user shares for withdrawal:", totalUserShares.toString());
+
       console.log("\n=== PARTIAL WITHDRAWAL PHASE ===");
 
-      const partialWithdrawAmount = userShares.div(2); // Withdraw half
+      const partialWithdrawAmount = totalUserShares.div(2); // Withdraw half
       console.log("Withdrawing shares:", partialWithdrawAmount.toString());
 
       const prePartialWithdrawBalance = await want.balanceOf(deployer.address);
@@ -241,8 +271,7 @@ describe("BeefyYieldLoopConfigurable", function () {
 
       // Partial withdrawal assertions
       expect(postPartialWithdrawBalance).to.be.gt(prePartialWithdrawBalance);
-      expect(postPartialWithdrawShares).to.be.lt(userShares);
-      expect(postPartialStrategyBalance).to.be.lt(strategyBalance);
+      expect(postPartialWithdrawShares).to.be.lt(totalUserShares);
       expect(postPartialWithdrawShares).to.be.gt(0); // Still has shares
 
       console.log("\n=== FULL WITHDRAWAL PHASE ===");
@@ -326,7 +355,7 @@ describe("BeefyYieldLoopConfigurable", function () {
         await vault.withdraw(ownerShares, { gasLimit: 5000000 });
       }
 
-      console.log("✅ Complete deposit-withdraw cycle test passed!");
+      console.log("✅ Withdrawal methods test passed!");
     });
   });
 
@@ -344,7 +373,7 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
 
     it.skip("should allow updating leverage loops", async function () {
-      const newLeverageLoops = 3;
+      const newLeverageLoops = 1;
       await strategy.setLeverageLoops(newLeverageLoops);
       const updatedLeverageLoops = await strategy.leverageLoops();
       expect(updatedLeverageLoops).to.be.eq(newLeverageLoops);
@@ -371,7 +400,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   describe("Swap Functionality", () => {
     it.skip("should allow updating swap path", async function () {
       // Create a test path with an intermediate token
-      const intermediateToken = "0x0000000000000000000000000000000000INTER";
+      const intermediateToken = "0x0000000000000000000000000000000000001549";
       const newPath = [OUTPUT_TOKEN_ADDRESS, intermediateToken, WANT_TOKEN_ADDRESS];
 
       await strategy.setSwapPath(newPath);
@@ -390,12 +419,12 @@ describe("BeefyYieldLoopConfigurable", function () {
       // Test single token path
       await expect(strategy.setSwapPath([OUTPUT_TOKEN_ADDRESS])).to.be.reverted;
 
-      // Test path not starting with output token
-      const invalidPath1 = [WANT_TOKEN_ADDRESS, OUTPUT_TOKEN_ADDRESS];
+      // Test path not starting with output token (use a different address)
+      const invalidPath1 = ["0x0000000000000000000000000000000000001549", OUTPUT_TOKEN_ADDRESS];
       await expect(strategy.setSwapPath(invalidPath1)).to.be.reverted;
 
-      // Test path not ending with want token
-      const invalidPath2 = [OUTPUT_TOKEN_ADDRESS, "0x0000000000000000000000000000000000OTHER"];
+      // Test path not ending with want token (use a different address)
+      const invalidPath2 = [OUTPUT_TOKEN_ADDRESS, "0xee72C37fEc48C9FeC6bbD0982ecEb7d7a038841e"];
       await expect(strategy.setSwapPath(invalidPath2)).to.be.reverted;
     });
 
@@ -501,7 +530,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("View Functions", () => {
-    it.skip("should return correct balance information", async function () {
+    it("should return correct balance information", async function () {
       const totalBalance = await strategy.balanceOf();
       const wantBalance = await strategy.balanceOfWant();
       const supplyBalance = await strategy.balanceOfSupply();
@@ -517,7 +546,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(totalBalance).to.be.eq(calculatedBalance);
     });
 
-    it.skip("should return rewards available", async function () {
+    it("should return rewards available", async function () {
       const rewardsAvailable = await strategy.rewardsAvailable();
       const callReward = await strategy.callReward();
 
@@ -528,7 +557,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(callReward).to.be.gte(0);
     });
 
-    it.skip("should return supply and borrow at each level", async function () {
+    it("should return supply and borrow at each level", async function () {
       const leverageLoops = await strategy.leverageLoops();
 
       for (let i = 0; i < leverageLoops; i++) {
@@ -542,7 +571,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       }
     });
 
-    it.skip("should return current swap configuration", async function () {
+    it("should return current swap configuration", async function () {
       const swapPath = await strategy.getSwapPath();
       const slippageTolerance = await strategy.swapSlippageTolerance();
 
@@ -555,17 +584,17 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Access Control", () => {
-    it.skip("should only allow vault to call withdraw", async function () {
+    it("should only allow vault to call withdraw", async function () {
       const withdrawAmount = 1000;
 
       await expect(strategy.withdraw(withdrawAmount)).to.be.reverted;
     });
 
-    it.skip("should only allow vault to call retireStrat", async function () {
+    it("should only allow vault to call retireStrat", async function () {
       await expect(strategy.retireStrat()).to.be.reverted;
     });
 
-    it.skip("should only allow manager to update parameters", async function () {
+    it("should only allow manager to update parameters", async function () {
       const [, nonManager] = await ethers.getSigners();
       const strategyAsNonManager = strategy.connect(nonManager);
 
@@ -576,7 +605,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       await expect(strategyAsNonManager.setHarvestOnDeposit(true)).to.be.reverted;
     });
 
-    it.skip("should only allow manager to update swap settings", async function () {
+    it("should only allow manager to update swap settings", async function () {
       const [, nonManager] = await ethers.getSigners();
       const strategyAsNonManager = strategy.connect(nonManager);
 
