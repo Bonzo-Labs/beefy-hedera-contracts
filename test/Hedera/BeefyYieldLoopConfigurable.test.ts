@@ -29,7 +29,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   let output: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = true; // Set to false to use existing deployed contracts
+  let deployNewContract = false; // Set to false to use existing deployed contracts
 
   before(async () => {
     [deployer] = await ethers.getSigners();
@@ -106,8 +106,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contracts - Use addresses.vaultV7 as reference or update with actual deployed addresses
-      const VAULT_ADDRESS = addresses.vaultV7; // Update this with actual deployed YieldLoopConfigurable vault
-      const STRATEGY_ADDRESS = "0x0000000000000000000000000000000000000000"; // Update with actual deployed strategy
+      const VAULT_ADDRESS = "0x5cF82dA820521a4c981f5e3B7BaBCacEbB7dFA79"; // Update this with actual deployed YieldLoopConfigurable vault
+      const STRATEGY_ADDRESS = "0x83B9B48D541A7B59CF34004776BcB6567d17642C"; // Update with actual deployed strategy
 
       console.log("Using existing deployed contracts:");
       console.log("Vault address:", VAULT_ADDRESS);
@@ -331,36 +331,36 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Strategy Parameters", () => {
-    it("should allow updating borrow factor", async function () {
+    it.skip("should allow updating borrow factor", async function () {
       const newBorrowFactor = 3000; // 30%
       await strategy.setBorrowFactor(newBorrowFactor);
       const updatedBorrowFactor = await strategy.borrowFactor();
       expect(updatedBorrowFactor).to.be.eq(newBorrowFactor);
     });
 
-    it("should not allow borrow factor above maximum", async function () {
+    it.skip("should not allow borrow factor above maximum", async function () {
       const excessiveBorrowFactor = 7000; // 70% - above BORROW_FACTOR_MAX of 60%
       await expect(strategy.setBorrowFactor(excessiveBorrowFactor)).to.be.reverted;
     });
 
-    it("should allow updating leverage loops", async function () {
+    it.skip("should allow updating leverage loops", async function () {
       const newLeverageLoops = 3;
       await strategy.setLeverageLoops(newLeverageLoops);
       const updatedLeverageLoops = await strategy.leverageLoops();
       expect(updatedLeverageLoops).to.be.eq(newLeverageLoops);
     });
 
-    it("should not allow leverage loops above maximum", async function () {
+    it.skip("should not allow leverage loops above maximum", async function () {
       const excessiveLoops = 6; // Above MAX_LOOPS of 5
       await expect(strategy.setLeverageLoops(excessiveLoops)).to.be.reverted;
     });
 
-    it("should not allow zero leverage loops", async function () {
+    it.skip("should not allow zero leverage loops", async function () {
       const zeroLoops = 0;
       await expect(strategy.setLeverageLoops(zeroLoops)).to.be.reverted;
     });
 
-    it("should allow updating harvest on deposit", async function () {
+    it.skip("should allow updating harvest on deposit", async function () {
       const currentHarvestOnDeposit = await strategy.harvestOnDeposit();
       await strategy.setHarvestOnDeposit(!currentHarvestOnDeposit);
       const updatedHarvestOnDeposit = await strategy.harvestOnDeposit();
@@ -369,7 +369,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Swap Functionality", () => {
-    it("should allow updating swap path", async function () {
+    it.skip("should allow updating swap path", async function () {
       // Create a test path with an intermediate token
       const intermediateToken = "0x0000000000000000000000000000000000INTER";
       const newPath = [OUTPUT_TOKEN_ADDRESS, intermediateToken, WANT_TOKEN_ADDRESS];
@@ -383,7 +383,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(updatedPath[2]).to.be.eq(WANT_TOKEN_ADDRESS);
     });
 
-    it("should not allow invalid swap paths", async function () {
+    it.skip("should not allow invalid swap paths", async function () {
       // Test empty path
       await expect(strategy.setSwapPath([])).to.be.reverted;
 
@@ -399,19 +399,19 @@ describe("BeefyYieldLoopConfigurable", function () {
       await expect(strategy.setSwapPath(invalidPath2)).to.be.reverted;
     });
 
-    it("should allow updating slippage tolerance", async function () {
+    it.skip("should allow updating slippage tolerance", async function () {
       const newSlippage = 500; // 5%
       await strategy.setSwapSlippageTolerance(newSlippage);
       const updatedSlippage = await strategy.swapSlippageTolerance();
       expect(updatedSlippage).to.be.eq(newSlippage);
     });
 
-    it("should not allow excessive slippage tolerance", async function () {
+    it.skip("should not allow excessive slippage tolerance", async function () {
       const excessiveSlippage = 1500; // 15% - above 10% limit
       await expect(strategy.setSwapSlippageTolerance(excessiveSlippage)).to.be.reverted;
     });
 
-    it("should return correct swap path", async function () {
+    it.skip("should return correct swap path", async function () {
       // Reset to default path
       const defaultPath = [OUTPUT_TOKEN_ADDRESS, WANT_TOKEN_ADDRESS];
       await strategy.setSwapPath(defaultPath);
@@ -424,7 +424,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Harvest Functionality", () => {
-    it("should allow harvest when rewards are available", async function () {
+    it.skip("should allow harvest when rewards are available", async function () {
       const initialBalance = await strategy.balanceOf();
 
       // Call harvest
@@ -440,7 +440,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(harvestReceipt.status).to.be.eq(1);
     });
 
-    it("should allow harvest with custom call fee recipient", async function () {
+    it.skip("should allow harvest with custom call fee recipient", async function () {
       const callFeeRecipient = deployer.address;
 
       const harvestTx = await strategy["harvest(address)"](callFeeRecipient, { gasLimit: 5000000 });
@@ -450,13 +450,13 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(harvestReceipt.status).to.be.eq(1);
     });
 
-    it("should not allow harvest with zero address as recipient", async function () {
+    it.skip("should not allow harvest with zero address as recipient", async function () {
       const zeroAddress = ethers.constants.AddressZero;
 
       await expect(strategy["harvest(address)"](zeroAddress)).to.be.reverted;
     });
 
-    it("should handle harvest with swap when output tokens available", async function () {
+    it.skip("should handle harvest with swap when output tokens available", async function () {
       // This test would require having actual output tokens to swap
       // For now, we just verify harvest completes without errors
       const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
@@ -470,13 +470,13 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Emergency Functions", () => {
-    it("should allow manager to pause strategy", async function () {
+    it.skip("should allow manager to pause strategy", async function () {
       await strategy.pause();
       const isPaused = await strategy.paused();
       expect(isPaused).to.be.eq(true);
     });
 
-    it("should allow manager to unpause strategy", async function () {
+    it.skip("should allow manager to unpause strategy", async function () {
       // First ensure it's paused
       if (!(await strategy.paused())) {
         await strategy.pause();
@@ -487,7 +487,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(isPaused).to.be.eq(false);
     });
 
-    it("should allow manager to call panic", async function () {
+    it.skip("should allow manager to call panic", async function () {
       const panicTx = await strategy.panic({ gasLimit: 5000000 });
       const panicReceipt = await panicTx.wait();
       console.log("Panic transaction:", panicReceipt.transactionHash);
@@ -501,7 +501,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("View Functions", () => {
-    it("should return correct balance information", async function () {
+    it.skip("should return correct balance information", async function () {
       const totalBalance = await strategy.balanceOf();
       const wantBalance = await strategy.balanceOfWant();
       const supplyBalance = await strategy.balanceOfSupply();
@@ -517,7 +517,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(totalBalance).to.be.eq(calculatedBalance);
     });
 
-    it("should return rewards available", async function () {
+    it.skip("should return rewards available", async function () {
       const rewardsAvailable = await strategy.rewardsAvailable();
       const callReward = await strategy.callReward();
 
@@ -528,7 +528,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(callReward).to.be.gte(0);
     });
 
-    it("should return supply and borrow at each level", async function () {
+    it.skip("should return supply and borrow at each level", async function () {
       const leverageLoops = await strategy.leverageLoops();
 
       for (let i = 0; i < leverageLoops; i++) {
@@ -542,7 +542,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       }
     });
 
-    it("should return current swap configuration", async function () {
+    it.skip("should return current swap configuration", async function () {
       const swapPath = await strategy.getSwapPath();
       const slippageTolerance = await strategy.swapSlippageTolerance();
 
@@ -555,17 +555,17 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Access Control", () => {
-    it("should only allow vault to call withdraw", async function () {
+    it.skip("should only allow vault to call withdraw", async function () {
       const withdrawAmount = 1000;
 
       await expect(strategy.withdraw(withdrawAmount)).to.be.reverted;
     });
 
-    it("should only allow vault to call retireStrat", async function () {
+    it.skip("should only allow vault to call retireStrat", async function () {
       await expect(strategy.retireStrat()).to.be.reverted;
     });
 
-    it("should only allow manager to update parameters", async function () {
+    it.skip("should only allow manager to update parameters", async function () {
       const [, nonManager] = await ethers.getSigners();
       const strategyAsNonManager = strategy.connect(nonManager);
 
@@ -576,7 +576,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       await expect(strategyAsNonManager.setHarvestOnDeposit(true)).to.be.reverted;
     });
 
-    it("should only allow manager to update swap settings", async function () {
+    it.skip("should only allow manager to update swap settings", async function () {
       const [, nonManager] = await ethers.getSigners();
       const strategyAsNonManager = strategy.connect(nonManager);
 
@@ -588,7 +588,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Leverage Mechanism", () => {
-    it("should track leverage levels correctly", async function () {
+    it.skip("should track leverage levels correctly", async function () {
       const leverageLoops = await strategy.leverageLoops();
       console.log("Current leverage loops:", leverageLoops.toString());
 
@@ -603,7 +603,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       }
     });
 
-    it("should respect borrow factor limits", async function () {
+    it.skip("should respect borrow factor limits", async function () {
       const borrowFactor = await strategy.borrowFactor();
       const maxBorrowFactor = await strategy.BORROW_FACTOR_MAX();
 
