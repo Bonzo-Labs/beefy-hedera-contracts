@@ -1,5 +1,6 @@
 import hardhat, { ethers } from "hardhat";
 import BeefyOracleAbi from "../../data/abi/BeefyOracle.json";
+import addresses from "../deployed-addresses.json";
 
 // Configuration
 const supraOracleAddress = "0xA55d9ac9aca329f5687e1cC286d0847e3f02062e"; // Supra Oracle address
@@ -7,7 +8,7 @@ const tokenAddress = "0x0000000000000000000000000000000000120f46"; // SAUCE toke
 const token2Address = "0x0000000000000000000000000000000000001549"; // USDC token
 const token3Address = "0x0000000000000000000000000000000000001599"; // DAI token
 
-const beefyOracleAddress = "0x2Af605609FE2Fb7f331CDB15f469cce5fAd24D1E";
+const beefyOracleAddress = addresses.beefyOracle;
 //"0x3f1DDEd53Ab55520698d11e4D3295F8dAE2a834f"; // Beefy Oracle address
 
 async function main() {

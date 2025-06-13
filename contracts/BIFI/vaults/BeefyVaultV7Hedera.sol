@@ -41,6 +41,9 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
     int64 constant private PRECOMPILE_BIND_ERROR = -1;
     // Flag to track if the strategy has been associated with the token
     bool private strategyTokenAssociated;
+    // token address
+    address public wantToken;
+
 
     event NewStratCandidate(address implementation);
     event UpgradeStrat(address implementation);
@@ -70,11 +73,10 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
         approvalDelay = _approvalDelay;
         isHederaToken = _isHederaToken;
         strategyTokenAssociated = false;
-
+        wantToken = address(strategy.want());
         // If using HTS token, check and associate token with this contract
         if (isHederaToken) {
-            address token = address(strategy.want());
-            associateToken(token);
+            associateToken(wantToken);
         }
     }
 
@@ -128,8 +130,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
         
         if (isHederaToken) {
             // For HTS tokens, check association and transfer
-            address token = address(want());
-            _transferHTS(token, msg.sender, address(this), int64(uint64(_amount)));
+            _transferHTS(wantToken, msg.sender, address(this), int64(uint64(_amount)));
         } else {
             // For ERC20 tokens, use standard SafeERC20 transfer
             want().safeTransferFrom(msg.sender, address(this), _amount);
@@ -156,8 +157,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
         
         if (isHederaToken) {            
             // Transfer tokens to strategy
-            address token = address(want());
-            _transferHTS(token, address(this), address(strategy), int64(uint64(_bal)));
+            _transferHTS(wantToken, address(this), address(strategy), int64(uint64(_bal)));
         } else {
             // For ERC20 tokens, use standard SafeERC20 transfer
             want().safeTransfer(address(strategy), _bal);
@@ -195,8 +195,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
 
         if (isHederaToken) {
             // For HTS tokens, transfer to user
-            address token = address(want());
-            _transferHTS(token, address(this), msg.sender, int64(uint64(r)));
+            _transferHTS(wantToken, address(this), msg.sender, int64(uint64(r)));
         } else {
             // For ERC20 tokens, use standard SafeERC20 transfer
             want().safeTransfer(msg.sender, r);
@@ -235,13 +234,12 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
         stratCandidate.proposedTime = 5000000000;
         // Associate the new strategy with the token if it's a Hedera token
         if (isHederaToken && !strategyTokenAssociated) {
-            address token = address(want());
             (bool success, bytes memory result) = HTS_PRECOMPILE.call(
-                abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(strategy), token)
+                abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(strategy), wantToken)
             );
             int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
             if (responseCode != HTS_SUCCESS) {
-                emit HTSAssociationFailed(token, address(strategy), responseCode);
+                emit HTSAssociationFailed(wantToken, address(strategy), responseCode);
             } else {
                 strategyTokenAssociated = true;
             }
