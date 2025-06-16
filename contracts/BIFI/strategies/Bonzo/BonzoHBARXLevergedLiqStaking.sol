@@ -2,6 +2,7 @@
 pragma solidity ^0.8.23;
 
 import "@openzeppelin-4/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin-4/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin-4/contracts/security/Pausable.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
@@ -26,49 +27,54 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     address public borrowToken; // HBAR token
     address public aToken; // aHBARX token
     address public debtToken; // debtHBAR token
+    address public stakingContract; // HBAR staking contract
+    uint8 public wantTokenDecimals = 18; // Token decimals
+    uint8 public borrowTokenDecimals = 18; // Token decimals
 
     // Third party contracts
     address public lendingPool;
     address public rewardsController;
-    address public stakingContract; // HBAR staking contract
 
-    // Exchange rate tracking
-    uint256 public hbarToHbarxRate; // Rate of HBAR to HBARX (e.g., 1000 means 1 HBAR = 1.000 HBARX)
-    uint256 public constant RATE_PRECISION = 1e6; // 6 decimal precision for rates
-
-    // Leverage parameters
-    uint256 public maxLeverage; // Maximum leverage ratio (e.g., 300 for 3x)
-    uint256 public currentLeverage; // Current leverage ratio
-    uint256 public borrowAPY; // Current borrow APY
-    uint256 public stakingAPY; // Current staking APY
-    uint256 public supplyAPY; // Current supply APY from lending pool
-    uint256 public minAPYSpread; // Minimum spread between staking and borrow APY
-    uint256 public maxLTV; // Maximum Loan-to-Value ratio (e.g., 8000 for 80%)
+    // Yield loop parameters
+    uint256 public maxLoops = 2; // Maximum number of yield loops (e.g., 3 for 3x)
+    uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
+    uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
 
     bool public harvestOnDeposit;
     uint256 public lastHarvest;
     bool public isRewardsAvailable;
+    bool public isBonzoDeployer;
 
     // Events
     event StratHarvest(address indexed harvester, uint256 wantHarvested, uint256 tvl);
-    event Deposit(uint256 tvl);
-    event Withdraw(uint256 tvl);
+    event Deposit(uint256 totalCollateral, uint256 totalBorrowed);
+    event Withdraw(uint256 withdrawAmount);
     event ChargedFees(uint256 callFees, uint256 beefyFees, uint256 strategistFees);
-    event LeverageUpdated(uint256 oldLeverage, uint256 newLeverage);
-    event APYUpdated(uint256 borrowAPY, uint256 stakingAPY, uint256 supplyAPY);
+    event Staked(uint256 amount);
+    event Unstaked(uint256 amount);
+    event SlippageToleranceUpdated(uint256 oldValue, uint256 newValue);
+    event MaxLoopsUpdated(uint256 oldValue, uint256 newValue);
+    event MaxBorrowableUpdated(uint256 oldValue, uint256 newValue);
+    event RewardsAvailabilityUpdated(bool oldValue, bool newValue);
+    event HarvestOnDepositUpdated(bool oldValue, bool newValue);
+    event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
+    event StratPanicCalled();
+    event StrategyRetired();
+    event DebugValues(
+        uint256 collateralBase,
+        uint256 debtBase,
+        uint256 ltv,
+        uint256 maxBorrowBase,
+        uint256 desired
+    );
 
-    function updateExchangeRate() public {
-        // Get current exchange rate from Stader
-        uint256 hbarAmount = 1e18; // 1 HBAR
-        uint256 hbarxBefore = IERC20(want).balanceOf(address(this));
-        IStaking(stakingContract).stake{value: hbarAmount}();
-        uint256 hbarxAfter = IERC20(want).balanceOf(address(this));
-        uint256 hbarxReceived = hbarxAfter - hbarxBefore;
-        hbarToHbarxRate = (hbarxReceived * RATE_PRECISION) / hbarAmount;
-        
-        // Unstake immediately to get HBAR back
-        IStaking(stakingContract).unStake(hbarxReceived);
-    }
+    error MaxBorrowTokenIsZero(
+        uint256 baseCollateral,
+        uint256 baseDebt,
+        uint256 currentLtv
+    );
+
+    error InsufficientHBARForDebtRepayment(uint256 layerDebt, uint256 expectedHBAR, uint256 minHBAR);
 
     function initialize(
         address _want,
@@ -78,16 +84,25 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         address _lendingPool,
         address _rewardsController,
         address _stakingContract,
-        uint256 _maxLeverage,
-        uint256 _minAPYSpread,
-        uint256 _maxLTV,
+        uint256 _maxBorrowable,
+        uint256 _slippageTolerance,
         bool _isRewardsAvailable,
+        bool _isBonzoDeployer,
         CommonAddresses calldata _commonAddresses
     ) public initializer {
         __StratFeeManager_init(_commonAddresses);
         __Ownable_init();
         __Pausable_init();
-        
+        __ReentrancyGuard_init();
+
+        require(_want != address(0), "want cannot be zero address");
+        require(_borrowToken != address(0), "borrowToken cannot be zero address");
+        require(_aToken != address(0), "aToken cannot be zero address");
+        require(_debtToken != address(0), "debtToken cannot be zero address");
+        require(_lendingPool != address(0), "lendingPool cannot be zero address");
+        require(_stakingContract != address(0), "stakingContract cannot be zero address");
+        require(_maxBorrowable > 0 && _maxBorrowable <= 10000, "maxBorrowable must be between 0 and 10000");
+
         want = _want;
         borrowToken = _borrowToken;
         aToken = _aToken;
@@ -95,21 +110,18 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         lendingPool = _lendingPool;
         rewardsController = _rewardsController;
         stakingContract = _stakingContract;
-        maxLeverage = _maxLeverage;
-        minAPYSpread = _minAPYSpread;
-        maxLTV = _maxLTV;
+        maxBorrowable = _maxBorrowable;
+        slippageTolerance = _slippageTolerance;
         isRewardsAvailable = _isRewardsAvailable;
+        isBonzoDeployer = _isBonzoDeployer;
 
-        // Initialize exchange rate
-        updateExchangeRate();
-
+        // Associate HTS tokens
         _associateToken(_want);
         _associateToken(_borrowToken);
-
-        _giveAllowances();
     }
 
     function _associateToken(address token) internal {
+        require(token != address(0), "Invalid token address");
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
         );
@@ -117,191 +129,146 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         require(responseCode == HTS_SUCCESS, "HTS token association failed");
     }
 
-    function deposit() public whenNotPaused {
-        uint256 wantBal = IERC20(want).balanceOf(address(this));
-        if (wantBal > 0) {
-            _leveragePosition(wantBal);
-        }
-    }
-
-    function _leveragePosition(uint256 amount) internal {
-        // Calculate optimal leverage based on APY spread
-        uint256 optimalLeverage = _calculateOptimalLeverage();
-        currentLeverage = optimalLeverage > maxLeverage ? maxLeverage : optimalLeverage;
-
-        // Initial deposit
-        ILendingPool(lendingPool).deposit(want, amount, address(this), 0);
-        
-        // Calculate target total borrowed amount
-        uint256 targetBorrowed = (amount * currentLeverage * RATE_PRECISION) / (100 * hbarToHbarxRate);
-        uint256 currentBorrowed = 0;
-        uint256 currentCollateral = amount;
-        
-        // Keep borrowing until we reach target or can't borrow more
-        while (currentBorrowed < targetBorrowed) {
-            // Calculate how much we can borrow with current collateral
-            uint256 collateralInHbar = (currentCollateral * RATE_PRECISION) / hbarToHbarxRate;
-            uint256 borrowableAmount = (collateralInHbar * maxLTV) / 10000;
-            
-            // Calculate how much more we need to borrow
-            uint256 remainingBorrow = targetBorrowed - currentBorrowed;
-            
-            // Borrow the smaller of the two amounts
-            uint256 borrowAmount = borrowableAmount < remainingBorrow ? borrowableAmount : remainingBorrow;
-            
-            if (borrowAmount == 0) break; // Can't borrow more
-            
-            ILendingPool(lendingPool).borrow(borrowToken, borrowAmount, 2, 0, address(this));
-            
-            // Stake HBAR for HBARX
-            _stakeHBAR(borrowAmount);
-            
-            // Deposit HBARX
-            uint256 hbarxAmount = IERC20(want).balanceOf(address(this));
-            ILendingPool(lendingPool).deposit(want, hbarxAmount, address(this), 0);
-            
-            // Update our position
-            currentBorrowed += borrowAmount;
-            currentCollateral += hbarxAmount;
-        }
-
-        emit Deposit(balanceOf());
-    }
-
-    function _calculateOptimalLeverage() internal view returns (uint256) {
-        // Calculate optimal leverage based on total APY spread
-        uint256 totalAPY = stakingAPY + supplyAPY;
-        if (totalAPY <= borrowAPY) return 1;
-        
-        uint256 spread = totalAPY - borrowAPY;
-        if (spread < minAPYSpread) return 1;
-        
-        // Calculate leverage based on APY spread
-        uint256 apyBasedLeverage = (spread * 100) / borrowAPY;
-        
-        // Calculate maximum leverage based on LTV
-        // If maxLTV is 8000 (80%), we can borrow up to 4x our collateral
-        // because 80% LTV means we can borrow 0.8x per iteration
-        uint256 ltvBasedLeverage = (maxLTV * 100) / (10000 - maxLTV);
-        
-        // Return the lower of the two leverages
-        return apyBasedLeverage < ltvBasedLeverage ? apyBasedLeverage : ltvBasedLeverage;
-    }
-
-    function _stakeHBAR(uint256 amount) internal {
-        // Call Stader's Staking contract to stake HBAR
-        IStaking(stakingContract).stake{value: amount}();
-        
-        // Verify HBARX tokens were received
-        uint256 hbarxReceived = IERC20(want).balanceOf(address(this));
-        require(hbarxReceived > 0, "No HBARX received from staking");
-        
-        // Update exchange rate
-        hbarToHbarxRate = (hbarxReceived * RATE_PRECISION) / amount;
-    }
-
-    function withdraw(uint256 _amount) external {
-        require(msg.sender == vault, "!vault");
-
-        // Calculate total position value
-        uint256 totalPosition = balanceOf();
-        require(_amount <= totalPosition, "Withdraw amount too large");
-
-        // Unwind leverage
-        _unwindLeverage(_amount);
-
-        // Transfer to vault
-        uint256 wantBal = IERC20(want).balanceOf(address(this));
-        if (wantBal > _amount) {
-            wantBal = _amount;
-        }
-
-        if (tx.origin != owner() && !paused()) {
-            uint256 withdrawalFeeAmount = wantBal * withdrawalFee / WITHDRAWAL_MAX;
-            wantBal = wantBal - withdrawalFeeAmount;
-        }
-
-        _safeTransfer(want, address(this), vault, wantBal);
-        emit Withdraw(balanceOf());
-    }
-
-    function _unwindLeverage(uint256 amount) internal {
-        // Calculate how much to withdraw from each layer
-        uint256 layerAmount = amount / currentLeverage;
-        
-        for (uint256 i = 0; i < currentLeverage; i++) {
-            // Withdraw from lending pool
-            ILendingPool(lendingPool).withdraw(want, layerAmount, address(this));
-            
-            // Unstake HBARX to get HBAR back
-            if (layerAmount > 0) {
-                uint256 hbarReceived = IStaking(stakingContract).unStake(layerAmount);
-                require(hbarReceived > 0, "No HBAR received from unstaking");
-            }
-            
-            // If not the last layer, repay debt
-            if (i < currentLeverage - 1) {
-                uint256 debtAmount = IERC20(debtToken).balanceOf(address(this));
-                ILendingPool(lendingPool).repay(borrowToken, debtAmount, 2, address(this));
-            }
-        }
-    }
-
     function _safeTransfer(address token, address from, address to, uint256 amount) internal {
+        require(token != address(0), "Invalid token address");
+        require(from != address(0), "Invalid from address");
+        require(to != address(0), "Invalid to address");
+        require(amount > 0, "Amount must be greater than 0");
+        require(amount <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         _transferHTS(token, from, to, int64(uint64(amount)));
     }
 
     function _transferHTS(address token, address from, address to, int64 amount) internal {
+        require(token != address(0), "Invalid token address");
+        require(from != address(0), "Invalid from address");
+        require(to != address(0), "Invalid to address");
+        require(amount > 0, "Amount must be greater than 0");
+
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, amount)
         );
         int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
-        require(responseCode == HTS_SUCCESS, "HTS token transfer failed");
+        if (responseCode != HTS_SUCCESS) {
+            emit HTSTokenTransferFailed(token, from, to, responseCode);
+            revert("HTS token transfer failed");
+        }
     }
 
-    function balanceOf() public view returns (uint256) {
-        return balanceOfWant() + balanceOfPool();
+    function deposit() public whenNotPaused nonReentrant {
+        uint256 wantBal = IERC20(want).balanceOf(address(this));
+        require(wantBal > 0, "No funds to deposit");
+        _createYieldLoops(wantBal);
     }
 
-    function balanceOfWant() public view returns (uint256) {
-        return IERC20(want).balanceOf(address(this));
+    function _createYieldLoops(uint256 amount) internal {
+        require(amount > 0, "Amount must be > 0");
+
+        // Approve once for everything we'll need
+        uint256 approvalAmount = amount * (maxLoops * 2);
+        IERC20(want).approve(lendingPool, approvalAmount);
+        IERC20(borrowToken).approve(lendingPool, approvalAmount);
+
+        // Initial deposit
+        ILendingPool(lendingPool).deposit(want, amount, address(this), 0);
+        uint256 currentCollateral = amount;
+        uint256 totalBorrowed = 0;
+
+        for (uint256 i = 0; i < maxLoops; i++) {
+            // [1] get user data (all in 18-dec base units)
+            (uint256 baseCollateral, uint256 baseDebt, , , uint256 currentLtv, ) = ILendingPool(lendingPool)
+                .getUserAccountData(address(this));
+
+            // [2] compute max borrow in token-decimals
+            uint256 maxBorrowToken = ((baseCollateral * currentLtv) / 10_000) - baseDebt;
+            if (maxBorrowToken == 0)
+                revert MaxBorrowTokenIsZero(baseCollateral, baseDebt, currentLtv);
+
+            // [3] limit by your own desired factor
+            uint256 desired = (currentCollateral * maxBorrowable) / 10_000;
+            emit DebugValues(baseCollateral, baseDebt, currentLtv, maxBorrowToken, desired);
+
+            uint256 borrowAmt = desired < maxBorrowToken ? desired : maxBorrowToken;
+            if (borrowAmt == 0) break;
+
+            // [4] borrow & stake → HBARX
+            ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
+            uint256 xAmt = _stakeHBAR(borrowAmt);
+            require(xAmt > 0, "No HBARX received from staking");
+
+            // [5] update and re-deposit
+            currentCollateral += xAmt;
+            totalBorrowed += borrowAmt;
+            ILendingPool(lendingPool).deposit(want, xAmt, address(this), 0);
+        }
+
+        emit Deposit(currentCollateral, totalBorrowed);
     }
 
-    function balanceOfPool() public view returns (uint256) {
-        return IERC20(aToken).balanceOf(address(this));
+    function _stakeHBAR(uint256 amount) internal returns (uint256) {
+        require(amount > 0, "Amount must be greater than 0");
+        uint256 balanceBefore = IERC20(want).balanceOf(address(this));
+        IStaking(stakingContract).stake{value: amount}();
+        uint256 balanceAfter = IERC20(want).balanceOf(address(this));
+        uint256 received = balanceAfter - balanceBefore;
+        require(received > 0, "No HBARX received from staking");
+        emit Staked(received);
+        return received;
     }
 
-    function setMaxLeverage(uint256 _maxLeverage) external onlyManager {
-        require(_maxLeverage > 0, "Invalid leverage");
-        uint256 oldLeverage = maxLeverage;
-        maxLeverage = _maxLeverage;
-        emit LeverageUpdated(oldLeverage, _maxLeverage);
+    function _unwindYieldLoops(uint256 amount) internal {
+        require(amount > 0, "Amount must be greater than 0");
+        uint256 totalPosition = balanceOf();
+        require(amount <= totalPosition, "Amount exceeds total position");
+
+        // Calculate proportional amounts for each layer
+        uint256 layerAmount = amount / (maxLoops+1);
+        uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
+        uint256 layerDebt = (totalDebt * amount) / totalPosition / (maxLoops+1);
+        uint256 debtPaid = 0;
+
+        for (uint256 i = 0; i < maxLoops+1; i++) {
+            // Withdraw from lending pool
+            ILendingPool(lendingPool).withdraw(want, layerAmount, address(this));
+            uint256 debtBalance = IERC20(debtToken).balanceOf(address(this));
+            if(debtBalance == 0)
+                break;
+
+            // For all layers except the last one, repay proportional debt
+            if (i < maxLoops - 1) {
+                uint256 hbarAmount = _unstakeHBAR(layerAmount);
+                if (hbarAmount > 0) {
+                    IERC20(borrowToken).approve(lendingPool, hbarAmount);
+                    ILendingPool(lendingPool).repay(borrowToken, hbarAmount, 2, address(this));
+                    debtPaid += layerDebt;
+                }
+            } else {
+                // For the last layer, repay remaining debt
+                uint256 remainingDebt = totalDebt - debtPaid;
+                if (remainingDebt > 0) {
+                    uint256 hbarAmount = _unstakeHBAR(layerAmount);
+                    if (hbarAmount > 0) {
+                        IERC20(borrowToken).approve(lendingPool, hbarAmount);
+                        ILendingPool(lendingPool).repay(borrowToken, hbarAmount, 2, address(this));
+                    }
+                }
+            }
+        }
     }
 
-    function setHarvestOnDeposit(bool _harvestOnDeposit) external onlyManager {
-        harvestOnDeposit = _harvestOnDeposit;
+    function _unstakeHBAR(uint256 amount) internal returns (uint256) {
+        require(amount > 0, "Amount must be greater than 0");
+        uint256 balanceBefore = address(this).balance;
+        IStaking(stakingContract).unStake(amount);
+        uint256 balanceAfter = address(this).balance;
+        uint256 received = balanceAfter - balanceBefore;
+        require(received > 0, "No HBAR received from unstaking");
+        emit Unstaked(received);
+        return received;
     }
 
-    function setMinAPYSpread(uint256 _minAPYSpread) external onlyManager {
-        minAPYSpread = _minAPYSpread;
-    }
-
-    function setAPYs(uint256 _borrowAPY, uint256 _stakingAPY, uint256 _supplyAPY) external onlyManager {
-        borrowAPY = _borrowAPY;
-        stakingAPY = _stakingAPY;
-        supplyAPY = _supplyAPY;
-        emit APYUpdated(_borrowAPY, _stakingAPY, _supplyAPY);
-    }
-
-    function setMaxLTV(uint256 _maxLTV) external onlyManager {
-        require(_maxLTV > 0 && _maxLTV < 10000, "Invalid LTV");
-        maxLTV = _maxLTV;
-    }
-
-    function harvest() external whenNotPaused {
+    function harvest() external whenNotPaused nonReentrant {
         require(msg.sender == vault || msg.sender == owner() || msg.sender == keeper, "!authorized");
-        
-        // Claim rewards from rewards controller if available
+
         if (isRewardsAvailable) {
             address[] memory assets = new address[](1);
             assets[0] = aToken;
@@ -314,21 +281,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             deposit();
         }
 
-        // Check if rebalancing is needed based on APY spread
-        uint256 optimalLeverage = _calculateOptimalLeverage();
-        if (optimalLeverage != currentLeverage) {
-            // Unwind current position
-            uint256 totalPosition = balanceOf();
-            if (totalPosition > 0) {
-                _unwindLeverage(totalPosition);
-            }
-            // Rebalance with new leverage
-            uint256 wantBal = IERC20(want).balanceOf(address(this));
-            if (wantBal > 0) {
-                _leveragePosition(wantBal);
-            }
-        }
-
         lastHarvest = block.timestamp;
         emit StratHarvest(msg.sender, wantHarvested, balanceOf());
     }
@@ -337,64 +289,165 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal > 0) {
             IFeeConfig.FeeCategory memory fees = getFees();
-            uint256 callFeeAmount = wantBal * fees.call / 1e18;
-            uint256 beefyFeeAmount = wantBal * fees.beefy / 1e18;
-            uint256 strategistFeeAmount = wantBal * fees.strategist / 1e18;
-
-            _safeTransfer(want, address(this), msg.sender, callFeeAmount);
-            _safeTransfer(want, address(this), beefyFeeRecipient, beefyFeeAmount);
-            _safeTransfer(want, address(this), strategist, strategistFeeAmount);
+            uint256 callFeeAmount = (wantBal * fees.call) / 1e18;
+            uint256 beefyFeeAmount = (wantBal * fees.beefy) / 1e18;
+            uint256 strategistFeeAmount = isBonzoDeployer ? 0 : (wantBal * fees.strategist) / 1e18;
+            if (callFeeAmount > 0) {
+                _safeTransfer(want, address(this), msg.sender, callFeeAmount);
+            }
+            if (beefyFeeAmount > 0) {
+                _safeTransfer(want, address(this), beefyFeeRecipient, beefyFeeAmount);
+            }
+            if (strategistFeeAmount > 0) {
+                _safeTransfer(want, address(this), strategist, strategistFeeAmount);
+            }
 
             emit ChargedFees(callFeeAmount, beefyFeeAmount, strategistFeeAmount);
         }
     }
 
-    function _giveAllowances() internal {
-        IERC20(want).safeApprove(lendingPool, type(uint256).max);
-        IERC20(borrowToken).safeApprove(lendingPool, type(uint256).max);
+    function balanceOf() public view returns (uint256) {
+        return balanceOfWant() + balanceOfPool() + _getStakedBalance();
     }
 
-    function _removeAllowances() internal {
-        IERC20(want).safeApprove(lendingPool, 0);
-        IERC20(borrowToken).safeApprove(lendingPool, 0);
+    function balanceOfWant() public view returns (uint256) {
+        return IERC20(want).balanceOf(address(this));
+    }
+
+    function balanceOfPool() public view returns (uint256) {
+        return IERC20(aToken).balanceOf(address(this));
+    }
+
+    function _getStakedBalance() internal view returns (uint256) {
+        uint256 exchangeRate = IStaking(stakingContract).getExchangeRate();
+        uint256 hbarxBalance = IERC20(want).balanceOf(address(this));
+        return (hbarxBalance * exchangeRate) / 1e8; // Convert from tinybar to HBAR
+    }
+
+    function withdraw(uint256 _amount) external nonReentrant whenNotPaused {
+        require(msg.sender == vault, "!vault");
+        require(_amount > 0, "Amount must be greater than 0");
+
+        uint256 totalPosition = balanceOf();
+        require(_amount <= totalPosition, "Withdraw amount too large");
+
+        // Unwind yield loops
+        _unwindYieldLoops(_amount);
+
+        // Get the actual amount of want tokens we have
+        uint256 wantBal = IERC20(want).balanceOf(address(this));
+        if (wantBal > _amount) {
+            wantBal = _amount;
+        }
+
+        // Apply withdrawal fee if not owner and not paused
+        if (tx.origin != owner() && !paused()) {
+            uint256 withdrawalFeeAmount = (wantBal * withdrawalFee) / WITHDRAWAL_MAX;
+            wantBal = wantBal - withdrawalFeeAmount;
+        }
+
+        // Transfer want tokens to vault
+        _safeTransfer(want, address(this), vault, wantBal);
+
+        emit Withdraw(wantBal);
+    }
+
+    // Strategy metadata
+    function name() external pure returns (string memory) {
+        return "Strategy Bonzo HBARX Leveraged Liquidity Staking";
+    }
+
+    function symbol() external pure returns (string memory) {
+        return "strategy-bonzo-hbarx-leveraged";
+    }
+
+    function version() external pure returns (string memory) {
+        return "1.0";
+    }
+
+    function description() external pure returns (string memory) {
+        return "Strategy for Bonzo HBARX Leveraged Liquidity Staking";
+    }
+
+    function category() external pure returns (string memory) {
+        return "Leveraged Staking";
+    }
+
+    function riskLevel() external pure returns (uint8) {
+        return 3; // Medium risk due to leverage
+    }
+
+    // Strategy-specific getters and setters
+    function getMaxLoops() external view returns (uint256) {
+        return maxLoops;
+    }
+
+    function setMaxLoops(uint256 _maxLoops) external onlyManager {
+        require(_maxLoops > 0 && _maxLoops <= 10, "!range"); // Reasonable range: 1-10x
+        maxLoops = _maxLoops;
+        emit MaxLoopsUpdated(maxLoops, _maxLoops);
+    }
+
+    function getMaxBorrowable() external view returns (uint256) {
+        return maxBorrowable;
+    }
+
+    function setMaxBorrowable(uint256 _maxBorrowable) external onlyManager {
+        require(_maxBorrowable <= 10000, "!cap"); // Cannot be more than 100%
+        maxBorrowable = _maxBorrowable;
+        emit MaxBorrowableUpdated(maxBorrowable, _maxBorrowable);
+    }
+
+    function setHarvestOnDeposit(bool _harvestOnDeposit) external onlyManager {
+        harvestOnDeposit = _harvestOnDeposit;
+        emit HarvestOnDepositUpdated(harvestOnDeposit, _harvestOnDeposit);
+    }
+
+    function setRewardsAvailable(bool _isRewardsAvailable) external onlyManager {
+        isRewardsAvailable = _isRewardsAvailable;
+        emit RewardsAvailabilityUpdated(isRewardsAvailable, _isRewardsAvailable);
+    }
+
+    function setSlippageTolerance(uint256 _slippageTolerance) external onlyManager {
+        require(_slippageTolerance <= 500, "Slippage too high"); // Max 5%
+        emit SlippageToleranceUpdated(slippageTolerance, _slippageTolerance);
+        slippageTolerance = _slippageTolerance;
     }
 
     function panic() external onlyManager {
         _pause();
-        _removeAllowances();
+        emit StratPanicCalled();
     }
 
     function pause() external onlyManager {
         _pause();
-        _removeAllowances();
     }
 
     function unpause() external onlyManager {
         _unpause();
-        _giveAllowances();
     }
 
     function retireStrat() external {
         require(msg.sender == vault, "!vault");
-        
-        // Unwind all positions
+
         uint256 totalPosition = balanceOf();
         if (totalPosition > 0) {
-            _unwindLeverage(totalPosition);
+            _unwindYieldLoops(totalPosition);
         }
 
-        // Transfer all want tokens to vault
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal > 0) {
             _safeTransfer(want, address(this), vault, wantBal);
         }
-
-        _removeAllowances();
+        emit StrategyRetired();
     }
 
     function inCaseTokensGetStuck(address _token) external onlyManager {
-        require(_token != want && _token != borrowToken && _token != aToken && _token != debtToken, "!protected");
-        
+        require(_token != want, "!want");
+        require(_token != borrowToken, "!borrowToken");
+        require(_token != aToken, "!aToken");
+        require(_token != debtToken, "!debtToken");
+
         uint256 amount = IERC20(_token).balanceOf(address(this));
         if (amount > 0) {
             _safeTransfer(_token, address(this), msg.sender, amount);
@@ -408,8 +461,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         }
     }
 
-    function setRewardsAvailable(bool _isRewardsAvailable) external onlyManager {
-        isRewardsAvailable = _isRewardsAvailable;
-    }
+    receive() external payable {}
 }
 
