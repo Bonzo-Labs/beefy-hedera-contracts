@@ -13,6 +13,7 @@ import "../../Hedera/IHederaTokenService.sol";
 import "../../interfaces/beefy/IStrategyV7.sol";
 import "../../interfaces/common/IFeeConfig.sol";
 import "./Stader/IStaking.sol";
+import "../../Hedera/IWHBAR.sol";
 
 contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     using SafeERC20 for IERC20;
@@ -28,8 +29,10 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     address public aToken; // aHBARX token
     address public debtToken; // debtHBAR token
     address public stakingContract; // HBAR staking contract
-    uint8 public wantTokenDecimals = 18; // Token decimals
-    uint8 public borrowTokenDecimals = 18; // Token decimals
+    uint8 public wantTokenDecimals = 8; // Token decimals
+    uint8 public borrowTokenDecimals = 8; // Token decimals
+    // IWHBAR public whbarContract = IWHBAR(0x0000000000000000000000000000000000163B59);
+    address public whbarContract = 0x0000000000000000000000000000000000003aD1;
 
     // Third party contracts
     address public lendingPool;
@@ -67,6 +70,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         uint256 maxBorrowBase,
         uint256 desired
     );
+    event UnstakeDebug(uint256 hbarxAmount, uint256 expectedHbarAmount, uint256 actualHbarAmount);
 
     error MaxBorrowTokenIsZero(
         uint256 baseCollateral,
@@ -192,7 +196,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
             // [4] borrow & stake → HBARX
             ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
-            uint256 xAmt = _stakeHBAR(borrowAmt);
+            uint256 hbarBalance = address(this).balance;
+            uint256 xAmt = _stakeHBAR(hbarBalance);
             require(xAmt > 0, "No HBARX received from staking");
 
             // [5] update and re-deposit
@@ -207,6 +212,9 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     function _stakeHBAR(uint256 amount) internal returns (uint256) {
         require(amount > 0, "Amount must be greater than 0");
         uint256 balanceBefore = IERC20(want).balanceOf(address(this));
+        //need to swap WHBAR with HBAR before staking
+        // IERC20(borrowToken).approve(whbarContract, amount);
+        // IWHBAR(whbarContract).withdraw(address(this), address(this), amount);
         IStaking(stakingContract).stake{value: amount}();
         uint256 balanceAfter = IERC20(want).balanceOf(address(this));
         uint256 received = balanceAfter - balanceBefore;
@@ -235,8 +243,9 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
             // For all layers except the last one, repay proportional debt
             if (i < maxLoops - 1) {
-                uint256 hbarAmount = _unstakeHBAR(layerAmount);
+                uint256 hbarAmount = _unstakeHBARX(layerAmount);
                 if (hbarAmount > 0) {
+                    IWHBAR(whbarContract).deposit{value: hbarAmount}(address(this), address(this));
                     IERC20(borrowToken).approve(lendingPool, hbarAmount);
                     ILendingPool(lendingPool).repay(borrowToken, hbarAmount, 2, address(this));
                     debtPaid += layerDebt;
@@ -245,8 +254,9 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
                 // For the last layer, repay remaining debt
                 uint256 remainingDebt = totalDebt - debtPaid;
                 if (remainingDebt > 0) {
-                    uint256 hbarAmount = _unstakeHBAR(layerAmount);
+                    uint256 hbarAmount = _unstakeHBARX(layerAmount);
                     if (hbarAmount > 0) {
+                        IWHBAR(whbarContract).deposit{value: hbarAmount}(address(this), address(this));
                         IERC20(borrowToken).approve(lendingPool, hbarAmount);
                         ILendingPool(lendingPool).repay(borrowToken, hbarAmount, 2, address(this));
                     }
@@ -255,13 +265,23 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         }
     }
 
-    function _unstakeHBAR(uint256 amount) internal returns (uint256) {
+    function _unstakeHBARX(uint256 amount) internal returns (uint256) {
         require(amount > 0, "Amount must be greater than 0");
         uint256 balanceBefore = address(this).balance;
+        
+        // Calculate expected HBAR return based on exchange rate
+        uint256 exchangeRate = IStaking(stakingContract).getExchangeRate();
+        uint256 expectedHbar = (amount * exchangeRate) / 1e8;
+        
+        IERC20(want).approve(stakingContract, amount);
         IStaking(stakingContract).unStake(amount);
+        
         uint256 balanceAfter = address(this).balance;
         uint256 received = balanceAfter - balanceBefore;
+        emit UnstakeDebug(amount, expectedHbar, received);
+
         require(received > 0, "No HBAR received from unstaking");
+        
         emit Unstaked(received);
         return received;
     }
@@ -386,6 +406,10 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         require(_maxLoops > 0 && _maxLoops <= 10, "!range"); // Reasonable range: 1-10x
         maxLoops = _maxLoops;
         emit MaxLoopsUpdated(maxLoops, _maxLoops);
+    }
+
+    function setWhbarContract(address _whbarContract) external onlyManager {
+        whbarContract = _whbarContract;
     }
 
     function getMaxBorrowable() external view returns (uint256) {
