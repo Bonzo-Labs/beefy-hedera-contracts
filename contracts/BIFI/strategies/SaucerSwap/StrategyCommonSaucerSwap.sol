@@ -58,9 +58,9 @@ contract StrategyCommonSaucerSwap is StratFeeManagerInitializable, GasFeeThrottl
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
 
     function initialize(
-        // address _lpToken0,
-        // address _lpToken1,
-        address _pool,
+        address _lpToken0,
+        address _lpToken1,
+        // address _pool,
         address _positionManager,
         // address _saucerSwapRouter,
         address _poolFactory,
@@ -76,8 +76,8 @@ contract StrategyCommonSaucerSwap is StratFeeManagerInitializable, GasFeeThrottl
         positionManager = _positionManager;
         saucerSwapRouter = _commonAddresses.unirouter;
 
-        lpToken0 = IUniswapV3Pool(_pool).token0();
-        lpToken1 = IUniswapV3Pool(_pool).token1();
+        lpToken0 = _lpToken0;
+        lpToken1 = _lpToken1;
         native = _lp0ToNativeRoute[_lp0ToNativeRoute.length - 1];
         lp0ToNativeRoute = _lp0ToNativeRoute;
         lp1ToNativeRoute = _lp1ToNativeRoute;
@@ -233,9 +233,9 @@ contract StrategyCommonSaucerSwap is StratFeeManagerInitializable, GasFeeThrottl
         _harvest(callFeeRecipient);
     }
 
-    function managerHarvest() external onlyManager {
-        _harvest(tx.origin);
-    }
+    // function managerHarvest() external onlyManager {
+    //     _harvest(tx.origin);
+    // }
 
     // compounds earnings and charges performance fee
     function _harvest(address callFeeRecipient) internal whenNotPaused {
