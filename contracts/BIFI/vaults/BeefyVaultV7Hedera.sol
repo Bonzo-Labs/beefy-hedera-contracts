@@ -32,7 +32,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
     // The minimum time it has to pass before a strat candidate can be approved.
     uint256 public approvalDelay;
     // Flag to identify if the want token is a Hedera Token Service token
-    bool public isHederaToken;
+    bool private isHederaToken;
     // Address of the Hedera Token Service precompile
     address constant private HTS_PRECOMPILE = address(0x167);
     // HTS success response code
@@ -111,12 +111,12 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
         return totalSupply() == 0 ? 1e18 : balance() * 1e18 / totalSupply();
     }
 
-    /**
-     * @dev A helper function to call deposit() with all the sender's funds.
-     */
-    function depositAll() external {
-        deposit(want().balanceOf(msg.sender));
-    }
+    // /**
+    //  * @dev A helper function to call deposit() with all the sender's funds.
+    //  */
+    // function depositAll() external {
+    //     deposit(want().balanceOf(msg.sender));
+    // }
 
 
     /**
@@ -137,8 +137,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
         }
         
         earn();
-        uint256 _after = balance();
-        _amount = _after - _pool; // Additional check for deflationary tokens
+        _amount = balance() - _pool; // Additional check for deflationary tokens
         uint256 shares = 0;
         if (totalSupply() == 0) {
             shares = _amount;
@@ -167,11 +166,11 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
     }
 
     /**
-     * @dev A helper function to call withdraw() with all the sender's funds.
-     */
-    function withdrawAll() external {
-        withdraw(balanceOf(msg.sender));
-    }
+    //  * @dev A helper function to call withdraw() with all the sender's funds.
+    //  */
+    // function withdrawAll() external {
+    //     withdraw(balanceOf(msg.sender));
+    // }
 
     /**
      * @dev Function to exit the system. The vault will withdraw the required tokens
@@ -207,8 +206,8 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
      * @param _implementation The address of the candidate strategy.  
      */
     function proposeStrat(address _implementation) public onlyOwner {
-        require(address(this) == IStrategyV7(_implementation).vault(), "Proposal not valid for this Vault");
-        require(want() == IStrategyV7(_implementation).want(), "Different want");
+        require(address(this) == IStrategyV7(_implementation).vault(), "Inv vault");
+        require(want() == IStrategyV7(_implementation).want(), "Diff want");
         stratCandidate = StratCandidate({
             implementation: _implementation,
             proposedTime: block.timestamp
@@ -223,8 +222,8 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
      * happening in +100 years for safety. 
      */
     function upgradeStrat() public onlyOwner {
-        require(stratCandidate.implementation != address(0), "There is no candidate");
-        require(stratCandidate.proposedTime + approvalDelay < block.timestamp, "Delay has not passed");
+        require(stratCandidate.implementation != address(0), "No Cand");
+        require(stratCandidate.proposedTime + approvalDelay < block.timestamp, "Delay nt pass");
 
         emit UpgradeStrat(stratCandidate.implementation);
 
@@ -264,7 +263,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
         int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
         if (responseCode != HTS_SUCCESS) {
             emit HTSTokenTransferFailed(token, from, to, responseCode);
-            revert("HTS token transfer failed");
+            revert("HTS TRF F");
         }
     }
 
@@ -278,7 +277,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
             abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
         );
         int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
-        require(responseCode == HTS_SUCCESS, "HTS token association failed");
+        require(responseCode == HTS_SUCCESS, "HTS assoc fail");
     }
 
     /**
@@ -286,7 +285,7 @@ contract BeefyVaultV7Hedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyG
      * @param _token address of the token to rescue.
      */
     function inCaseTokensGetStuck(address _token) external onlyOwner {
-        require(_token != address(want()), "!token");
+        require(_token != address(want()), "!wnt");
 
         if (isHederaToken && _token != address(0)) {
             // For rescuing HTS tokens

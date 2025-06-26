@@ -19,6 +19,10 @@ const hardhatNetworkAccounts = buildHardhatNetworkAccounts(accounts);
 
 const config: DeploymentConfig = {
   defaultNetwork: "hardhat",
+  contractSizer: {
+    runOnCompile: true,
+    only: ["BeefyVaultV7HederaMultiToken", "BeefyVaultV7FactoryHedera", "BeefyVaultV7Hedera"],
+  },
   networks: {
     hardhat: {
       // accounts visible to hardhat network used by `hardhat node --fork` (yarn net <chainName>)

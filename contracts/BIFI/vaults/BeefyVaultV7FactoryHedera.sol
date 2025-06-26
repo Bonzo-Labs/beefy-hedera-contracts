@@ -13,12 +13,12 @@ contract BeefyVaultV7FactoryHedera {
 
   // Contract template for deploying proxied Beefy vaults
   BeefyVaultV7Hedera public instance;
-  BeefyVaultV7HederaMultiToken public instanceHederaMultiToken;
+  BeefyVaultV7HederaMultiToken  public  instanceHederaMultiToken;
 
   event ProxyCreated(address proxy);
 
   // Initializes the Factory with an instance of the Beefy Vault V7
-  constructor(address _instance, address _instanceHederaMultiToken) {
+  constructor(address _instance, address payable _instanceHederaMultiToken) {
     if (_instance == address(0)) {
       instance = new BeefyVaultV7Hedera();
     } else {
@@ -38,7 +38,7 @@ contract BeefyVaultV7FactoryHedera {
   }
 
   function cloneVaultMultiToken() external returns (BeefyVaultV7HederaMultiToken) {
-    return BeefyVaultV7HederaMultiToken(cloneContract(address(instanceHederaMultiToken)));
+    return BeefyVaultV7HederaMultiToken(payable(cloneContract(address(instanceHederaMultiToken))));
   }
 
   // Deploys and returns the address of a clone that mimics the behaviour of `implementation`

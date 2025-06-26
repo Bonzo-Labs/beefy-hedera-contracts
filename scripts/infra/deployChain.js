@@ -18,17 +18,17 @@ const ethers = hardhat.ethers;
 //       beefyFeeRecipient,
 //     } },
 // } = addressBook.;
-const keeper = "0xbe058ee0884696653e01cfc6f34678f2762d84db";
-const voter = "0xbe058ee0884696653e01cfc6f34678f2762d84db";
-const beefyFeeRecipient = "0xbe058ee0884696653e01cfc6f34678f2762d84db";
+const keeper = process.env.KEEPER_ADDRESS;
+const voter = process.env.KEEPER_ADDRESS;
+const beefyFeeRecipient = process.env.KEEPER_ADDRESS;
 const TIMELOCK_ADMIN_ROLE = "0x5f58e3a2316349923ce3780f8d587db2d72378aed66a8261c916544fa6846ca5";
 const STRAT_OWNER_DELAY = 21600;
 const VAULT_OWNER_DELAY = 0;
 const KEEPER = keeper;
 
 const config = {
-  devMultisig: "0xbe058ee0884696653e01cfc6f34678f2762d84db",
-  treasuryMultisig: "0xbe058ee0884696653e01cfc6f34678f2762d84db",
+  devMultisig: process.env.KEEPER_ADDRESS,
+  treasuryMultisig: process.env.KEEPER_ADDRESS,
   totalLimit: "95000000000000000",
   callFee: "500000000000000",
   strategist: "5000000000000000",
