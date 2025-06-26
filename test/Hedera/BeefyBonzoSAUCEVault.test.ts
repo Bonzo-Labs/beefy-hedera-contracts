@@ -1,13 +1,13 @@
 import { ethers } from "hardhat";
 import { expect } from "chai";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { BeefyVaultV7Hedera, BonzoUSDCSupplyStrategy, IERC20Upgradeable } from "../../typechain-types";
+import { BeefyVaultV7Hedera, BonzoSupplyStrategy, IERC20Upgradeable } from "../../typechain-types";
 import addresses from "../../scripts/deployed-addresses.json";
 
 // Using deployed addresses from deployed-addresses.json and specific Hedera contract addresses
 const VAULT_FACTORY_ADDRESS = addresses.vaultFactory;
-const USDC_TOKEN_ADDRESS = "0x0000000000000000000000000000000000001549"; // Hedera USDC token
-const AUSDC_TOKEN_ADDRESS = "0xee72C37fEc48C9FeC6bbD0982ecEb7d7a038841e"; // aUSDC token
+const SAUCE_TOKEN_ADDRESS = "0.0.1422666"; // Hedera SAUCE token
+const ASAUCE_TOKEN_ADDRESS = "0.0.1422667"; // aSAUCE token placeholder
 const LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool
 const REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller
 const UNIROUTER_ADDRESS = "0x00000000000000000000000000000000000026e7"; // Router address
@@ -17,12 +17,12 @@ const STRATEGY_OWNER = addresses.strategyOwner;
 const VAULT_OWNER = addresses.vaultOwner;
 const KEEPER = addresses.keeper;
 
-describe("BeefyBonzoUSDCVault", function () {
+describe("BeefyBonzoSAUCEVault", function () {
   // Set timeout to 60 seconds for all tests in this suite
   this.timeout(1000000);
 
   let vault: BeefyVaultV7Hedera | any;
-  let strategy: BonzoUSDCSupplyStrategy | any;
+  let strategy: BonzoSupplyStrategy | any;
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
@@ -41,11 +41,11 @@ describe("BeefyBonzoUSDCVault", function () {
 
     if (deployNewContract) {
       // Step 1: Deploy the strategy
-      console.log("Deploying BonzoUSDCSupplyStrategy...");
-      const BonzoUSDCSupplyStrategy = await ethers.getContractFactory("BonzoUSDCSupplyStrategy");
-      strategy = await BonzoUSDCSupplyStrategy.deploy();
+      console.log("Deploying BonzoSAUCESupplyStrategy...");
+      const BonzoSAUCESupplyStrategy = await ethers.getContractFactory("BonzoSAUCESupplyStrategy");
+      strategy = await BonzoSAUCESupplyStrategy.deploy();
       await strategy.deployed();
-      console.log("BonzoUSDCSupplyStrategy deployed to:", strategy.address);
+      console.log("BonzoSAUCESupplyStrategy deployed to:", strategy.address);
 
       // Step 2: Connect to the vault factory
       const vaultFactory = await ethers.getContractAt("BeefyVaultV7FactoryHedera", VAULT_FACTORY_ADDRESS);
@@ -78,11 +78,12 @@ describe("BeefyBonzoUSDCVault", function () {
       };
 
       await strategy.initialize(
-        USDC_TOKEN_ADDRESS,
-        AUSDC_TOKEN_ADDRESS,
+        SAUCE_TOKEN_ADDRESS,
+        ASAUCE_TOKEN_ADDRESS,
         LENDING_POOL_ADDRESS,
         REWARDS_CONTROLLER_ADDRESS,
-        USDC_TOKEN_ADDRESS, // Output is also USDC
+        SAUCE_TOKEN_ADDRESS, // Output is also SAUCE
+        true, // isHederaToken
         commonAddresses,
         { gasLimit: 3000000 }
       );
@@ -93,8 +94,8 @@ describe("BeefyBonzoUSDCVault", function () {
       const isHederaToken = true; // Set to true for HTS tokens
       await vault.initialize(
         strategy.address,
-        "Beefy USDC Bonzo",
-        "bvUSDC-BONZO",
+        "Beefy SAUCE Bonzo",
+        "bvSAUCE-BONZO",
         0, // Performance fee - set to 0 initially
         isHederaToken,
         { gasLimit: 3000000 }
@@ -102,19 +103,19 @@ describe("BeefyBonzoUSDCVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contracts
-      const VAULT_ADDRESS = "0x6966D5426F97e2B29ddd3517DE7aC00Da628e718";
-      const STRATEGY_ADDRESS = "0xB261cA394eA8aF0F8d4263A232b80b06654cC5Be";
+      const VAULT_ADDRESS = "YOUR_SAUCE_VAULT_ADDRESS_HERE";
+      const STRATEGY_ADDRESS = "YOUR_SAUCE_STRATEGY_ADDRESS_HERE";
 
       console.log("Using existing deployed contracts:");
       console.log("Vault address:", VAULT_ADDRESS);
       console.log("Strategy address:", STRATEGY_ADDRESS);
 
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
-      strategy = await ethers.getContractAt("BonzoUSDCSupplyStrategy", STRATEGY_ADDRESS);
+      strategy = await ethers.getContractAt("BonzoSAUCESupplyStrategy", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
     }
 
-    want = await ethers.getContractAt("IERC20Upgradeable", USDC_TOKEN_ADDRESS);
+    want = await ethers.getContractAt("IERC20Upgradeable", SAUCE_TOKEN_ADDRESS);
   });
 
   describe("Strategy Initialization", () => {
@@ -133,10 +134,10 @@ describe("BeefyBonzoUSDCVault", function () {
       console.log("Lending pool address:", lendingPoolAddr);
       console.log("Rewards controller address:", rewardsControllerAddr);
 
-      expect(wantAddress).to.be.eq(USDC_TOKEN_ADDRESS);
-      expect(outputAddress).to.be.eq(USDC_TOKEN_ADDRESS);
+      expect(wantAddress).to.be.eq(SAUCE_TOKEN_ADDRESS);
+      expect(outputAddress).to.be.eq(SAUCE_TOKEN_ADDRESS);
       expect(vaultAddr).to.be.eq(vaultAddress);
-      expect(aTokenAddr).to.be.eq(AUSDC_TOKEN_ADDRESS);
+      expect(aTokenAddr).to.be.eq(ASAUCE_TOKEN_ADDRESS);
       expect(lendingPoolAddr).to.be.eq(LENDING_POOL_ADDRESS);
       expect(rewardsControllerAddr).to.be.eq(REWARDS_CONTROLLER_ADDRESS);
     });
@@ -153,8 +154,8 @@ describe("BeefyBonzoUSDCVault", function () {
       console.log("Vault decimals:", vaultDecimals.toString());
 
       expect(vaultStrategy).to.be.eq(strategy.address);
-      expect(vaultName).to.be.eq("Beefy USDC Bonzo");
-      expect(vaultSymbol).to.be.eq("bvUSDC-BONZO");
+      expect(vaultName).to.be.eq("Beefy SAUCE Bonzo");
+      expect(vaultSymbol).to.be.eq("bvSAUCE-BONZO");
       expect(vaultDecimals).to.be.eq(18); // Vault uses 18 decimals regardless of underlying token
     });
 
@@ -183,16 +184,16 @@ describe("BeefyBonzoUSDCVault", function () {
     it("should handle deposits correctly", async function () {
       console.log("Testing deposit functionality...");
 
-      // Skip this test if we don't have USDC tokens to test with
+      // Skip this test if we don't have SAUCE tokens to test with
       const userBalance = await want.balanceOf(deployer.address);
       console.log("Initial user balance:", userBalance.toString());
       if (userBalance.eq(0)) {
-        console.log("Skipping deposit test - no USDC tokens available");
+        console.log("Skipping deposit test - no SAUCE tokens available");
         this.skip();
         return;
       }
 
-      const depositAmount = "1000000"; // 1 USDC (6 decimals)
+      const depositAmount = ethers.utils.parseEther("1"); // 1 SAUCE (18 decimals)
 
       // Approve the vault to spend tokens
       const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
@@ -251,12 +252,12 @@ describe("BeefyBonzoUSDCVault", function () {
         // Make a deposit first
         const userBalance = await want.balanceOf(deployer.address);
         if (userBalance.eq(0)) {
-          console.log("Skipping withdrawal test - no USDC tokens available for deposit");
+          console.log("Skipping withdrawal test - no SAUCE tokens available for deposit");
           this.skip();
           return;
         }
 
-        const depositAmount = "1000000";
+        const depositAmount = ethers.utils.parseEther("1");
         await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
         await vault.deposit(depositAmount, { gasLimit: 3000000 });
         console.log("Made initial deposit for withdrawal test");
@@ -389,9 +390,9 @@ describe("BeefyBonzoUSDCVault", function () {
       console.log("Lending pool:", lendingPool);
       console.log("Rewards controller:", rewardsController);
 
-      expect(wantToken).to.be.eq(USDC_TOKEN_ADDRESS);
-      expect(outputToken).to.be.eq(USDC_TOKEN_ADDRESS);
-      expect(aToken).to.be.eq(AUSDC_TOKEN_ADDRESS);
+      expect(wantToken).to.be.eq(SAUCE_TOKEN_ADDRESS);
+      expect(outputToken).to.be.eq(SAUCE_TOKEN_ADDRESS);
+      expect(aToken).to.be.eq(ASAUCE_TOKEN_ADDRESS);
       expect(lendingPool).to.be.eq(LENDING_POOL_ADDRESS);
       expect(rewardsController).to.be.eq(REWARDS_CONTROLLER_ADDRESS);
     });
@@ -595,12 +596,12 @@ describe("BeefyBonzoUSDCVault", function () {
           const strategyAsNonManager = strategy.connect(nonManager);
 
           // Should revert when called by non-manager
-          await expect(strategyAsNonManager.inCaseTokensGetStuck(USDC_TOKEN_ADDRESS)).to.be.reverted;
+          await expect(strategyAsNonManager.inCaseTokensGetStuck(SAUCE_TOKEN_ADDRESS)).to.be.reverted;
         }
 
         // Should revert when trying to recover protected tokens
-        await expect(strategy.inCaseTokensGetStuck(USDC_TOKEN_ADDRESS)).to.be.revertedWith("!want");
-        await expect(strategy.inCaseTokensGetStuck(AUSDC_TOKEN_ADDRESS)).to.be.revertedWith("!aToken");
+        await expect(strategy.inCaseTokensGetStuck(SAUCE_TOKEN_ADDRESS)).to.be.revertedWith("!want");
+        await expect(strategy.inCaseTokensGetStuck(ASAUCE_TOKEN_ADDRESS)).to.be.revertedWith("!aToken");
       } catch (error) {
         console.log("inCaseTokensGetStuck function not available on this strategy implementation");
         this.skip();
@@ -662,7 +663,7 @@ describe("BeefyBonzoUSDCVault", function () {
     it("should handle depositAll correctly", async function () {
       const userBalance = await want.balanceOf(deployer.address);
       if (userBalance.eq(0)) {
-        console.log("Skipping depositAll test - no USDC tokens available");
+        console.log("Skipping depositAll test - no SAUCE tokens available");
         this.skip();
         return;
       }
@@ -754,7 +755,7 @@ describe("BeefyBonzoUSDCVault", function () {
 
     it("should handle withdrawal of more shares than owned", async function () {
       const userShares = await vault.balanceOf(deployer.address);
-      const excessiveAmount = userShares.add(1000000);
+      const excessiveAmount = userShares.add(ethers.utils.parseEther("1"));
 
       if (userShares.gt(0)) {
         await expect(vault.withdraw(excessiveAmount)).to.be.reverted;
@@ -763,41 +764,30 @@ describe("BeefyBonzoUSDCVault", function () {
 
     it("should handle deposit when vault has existing balance", async function () {
       const userBalance = await want.balanceOf(deployer.address);
-      console.log("User balance before test:", userBalance.toString());
-
-      if (userBalance.lt(ethers.BigNumber.from("750000"))) {
-        // Need at least 0.75 USDC for this test
-        console.log("Skipping deposit test - insufficient USDC tokens available");
+      if (userBalance.lt(ethers.utils.parseEther("1.5"))) {
+        console.log("Skipping deposit test - insufficient SAUCE tokens available");
         this.skip();
         return;
       }
 
       // First, ensure the vault has some balance by making an initial deposit
-      const initialDeposit = "250000"; // 0.25 USDC
+      const initialDeposit = ethers.utils.parseEther("0.5");
       await want.approve(vault.address, initialDeposit, { gasLimit: 3000000 });
       await vault.deposit(initialDeposit, { gasLimit: 3000000 });
-      console.log("Initial deposit completed to set up test state.");
 
       // Now test additional deposit when vault has existing balance
-      const depositAmount = "500000"; // 0.5 USDC
+      const depositAmount = ethers.utils.parseEther("1");
       await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
 
       const initialTotalSupply = await vault.totalSupply();
       const initialVaultBalance = await vault.balance();
 
-      console.log("Before second deposit - Total supply:", initialTotalSupply.toString());
-      console.log("Before second deposit - Vault balance:", initialVaultBalance.toString());
-
-      // The vault must have a balance from the initial deposit
       expect(initialVaultBalance).to.be.gt(0);
 
       await vault.deposit(depositAmount, { gasLimit: 3000000 });
 
       const finalTotalSupply = await vault.totalSupply();
       const finalVaultBalance = await vault.balance();
-
-      console.log("After second deposit - Total supply:", finalTotalSupply.toString());
-      console.log("After second deposit - Vault balance:", finalVaultBalance.toString());
 
       expect(finalTotalSupply).to.be.gt(initialTotalSupply);
       expect(finalVaultBalance).to.be.gt(initialVaultBalance);
@@ -806,15 +796,15 @@ describe("BeefyBonzoUSDCVault", function () {
     it("should handle insufficient allowance", async function () {
       const userBalance = await want.balanceOf(deployer.address);
       if (userBalance.eq(0)) {
-        console.log("Skipping allowance test - no USDC tokens available");
+        console.log("Skipping allowance test - no SAUCE tokens available");
         this.skip();
         return;
       }
 
-      const depositAmount = "1000000";
+      const depositAmount = ethers.utils.parseEther("1");
 
-      // Approve less than deposit amount (approve only 100000 instead of 1000000)
-      await want.approve(vault.address, "100000", { gasLimit: 3000000 });
+      // Approve less than deposit amount
+      await want.approve(vault.address, ethers.utils.parseEther("0.5"), { gasLimit: 3000000 });
 
       // Test that deposit with insufficient allowance reverts
       try {
@@ -838,7 +828,7 @@ describe("BeefyBonzoUSDCVault", function () {
 
     it("should handle insufficient balance", async function () {
       const userBalance = await want.balanceOf(deployer.address);
-      const excessiveAmount = userBalance.add(1000000);
+      const excessiveAmount = userBalance.add(ethers.utils.parseEther("1"));
 
       await want.approve(vault.address, excessiveAmount, { gasLimit: 3000000 });
 
@@ -899,16 +889,16 @@ describe("BeefyBonzoUSDCVault", function () {
       const user1 = signers[0];
       const user2 = signers[1];
 
-      // Check if users have USDC
+      // Check if users have SAUCE
       const user1Balance = await want.balanceOf(user1.address);
       if (user1Balance.eq(0)) {
-        console.log("Skipping multi-user test - user1 has no USDC tokens");
+        console.log("Skipping multi-user test - user1 has no SAUCE tokens");
         this.skip();
         return;
       }
 
       // User 1 deposits
-      const depositAmount1 = "500000";
+      const depositAmount1 = ethers.utils.parseEther("0.5");
       await want.connect(user1).approve(vault.address, depositAmount1, { gasLimit: 3000000 });
       await vault.connect(user1).deposit(depositAmount1, { gasLimit: 3000000 });
 
@@ -921,7 +911,7 @@ describe("BeefyBonzoUSDCVault", function () {
     it("should maintain share price consistency across operations", async function () {
       const userBalance = await want.balanceOf(deployer.address);
       if (userBalance.eq(0)) {
-        console.log("Skipping share price test - no USDC tokens available");
+        console.log("Skipping share price test - no SAUCE tokens available");
         this.skip();
         return;
       }
@@ -930,7 +920,7 @@ describe("BeefyBonzoUSDCVault", function () {
       console.log("Initial price per share:", initialPricePerShare.toString());
 
       // Make a small deposit
-      const depositAmount = "100000";
+      const depositAmount = ethers.utils.parseEther("0.1");
       await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
       await vault.deposit(depositAmount, { gasLimit: 3000000 });
 
