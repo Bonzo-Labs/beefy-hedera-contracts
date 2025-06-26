@@ -70,13 +70,11 @@ contract StrategyCommonSaucerSwap is StratFeeManagerInitializable, GasFeeThrottl
     event HTSTokenDissociated(address token, int64 responseCode);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
     event Harvest(uint256 amount0, uint256 amount1);
-    
+
     function initialize(
         address _lpToken0,
         address _lpToken1,
-        // address _pool,
         address _positionManager,
-        // address _saucerSwapRouter,
         address _poolFactory,
         uint24 _poolFee,
         address[] calldata _lp0ToNativeRoute,
@@ -324,9 +322,22 @@ contract StrategyCommonSaucerSwap is StratFeeManagerInitializable, GasFeeThrottl
         });
         (uint256 amount0, uint256 amount1) = INonfungiblePositionManager(positionManager).collect(params);
         emit Harvest(amount0, amount1);
+        if(amount0 > 0 && isLpToken0Native) {
+            //unwrapp
+            uint256 balanceBefore = address(this).balance;
+            IERC20(lpToken0).approve(address(_whbarContract), amount0);
+            IWHBAR(_whbarContract).withdraw(address(this),address(this),amount0);
+            amount0 = address(this).balance - balanceBefore;
+        }
+        if(amount1 > 0 && isLpToken1Native) {
+            //unwrapp
+            uint256 balanceBefore = address(this).balance;
+            IERC20(lpToken1).approve(address(_whbarContract), amount1);
+            IWHBAR(_whbarContract).withdraw(address(this),address(this),amount1);
+            amount1 = address(this).balance - balanceBefore;
+        }
         if (amount0 > 0 || amount1 > 0) {
             chargeFees(callFeeRecipient, amount0, amount1);
-            addLiquidity();
             deposit();
             lastHarvest = block.timestamp;
             emit StratHarvest(msg.sender, balanceOfToken0(), balanceOfToken1());
@@ -358,16 +369,14 @@ contract StrategyCommonSaucerSwap is StratFeeManagerInitializable, GasFeeThrottl
             nativeBal += amount1 * fees.total / DIVISOR8;
         }
 
-        nativeBal += _getTokenBalance(address(0), true); // Native is always HTS
-
         uint256 callFeeAmount = nativeBal * fees.call / DIVISOR8;
-        _transferTokens(address(0), callFeeRecipient, callFeeAmount, isLpToken0HTS, isLpToken0Native); // Native uses native transfer
-
+        Address.sendValue(payable(callFeeRecipient), callFeeAmount);
+        
         uint256 beefyFeeAmount = nativeBal * fees.beefy / DIVISOR8;
-        _transferTokens(address(0), beefyFeeRecipient, beefyFeeAmount, isLpToken1HTS, isLpToken1Native); // Native uses native transfer
+        Address.sendValue(payable(beefyFeeRecipient), beefyFeeAmount);
 
         uint256 strategistFeeAmount = nativeBal * fees.strategist / DIVISOR8;
-        _transferTokens(address(0), strategist, strategistFeeAmount, isLpToken0HTS, isLpToken0Native); // Native uses native transfer
+        Address.sendValue(payable(strategist), strategistFeeAmount);
 
         emit ChargedFees(callFeeAmount, beefyFeeAmount, strategistFeeAmount);
     }
