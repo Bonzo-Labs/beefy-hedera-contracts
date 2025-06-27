@@ -15,7 +15,7 @@ describe("SaucerSwapCommonStrategy", function () {
   let deployer: SignerWithAddress | any;
   let positionManager: string;
   let saucerSwapRouter: string;
-  let deployNewContract = false;
+  let deployNewContract = true;
 
   // Test addresses - replace with actual addresses
   const POSITION_MANAGER_ADDRESS = "0x000000000000000000000000000000000013f618"; // Replace with actual
@@ -156,7 +156,7 @@ describe("SaucerSwapCommonStrategy", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it.skip("should handle deposit", async function () {
+    it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have tokens to test with
@@ -321,7 +321,7 @@ describe("SaucerSwapCommonStrategy", function () {
       console.log("✅ Deposit test passed!");
     });
 
-    it.skip("should handle withdrawal", async function () {
+    it("should handle withdrawal", async function () {
       console.log("Testing withdrawal functionality...");
 
       // Check if user has shares to withdraw
@@ -441,7 +441,7 @@ describe("SaucerSwapCommonStrategy", function () {
 
 
 
-  describe("Strategy Initialization", () => {
+  describe.skip("Strategy Initialization", () => {
     it.skip("should initialize with correct parameters", async function () {
       const lpToken0Address = await strategy.lpToken0();
       const lpToken1Address = await strategy.lpToken1();
@@ -479,7 +479,7 @@ describe("SaucerSwapCommonStrategy", function () {
   });
 
 
-  describe("Position Management", () => {
+  describe.skip("Position Management", () => {
     it.skip("should return correct position info", async function () {
       //deposit
       const depositAmount0 = 100000;  

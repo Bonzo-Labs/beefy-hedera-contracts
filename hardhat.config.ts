@@ -21,7 +21,7 @@ const config: DeploymentConfig = {
   defaultNetwork: "hardhat",
   contractSizer: {
     runOnCompile: true,
-    only: ["BeefyVaultV7HederaMultiToken", "BeefyVaultV7FactoryHedera", "BeefyVaultV7Hedera"],
+    only: ["SaucerSwapLariRewardsStrategy","BeefyVaultV7HederaMultiToken", "BeefyVaultV7FactoryHedera", "BeefyVaultV7Hedera"],
   },
   networks: {
     hardhat: {
