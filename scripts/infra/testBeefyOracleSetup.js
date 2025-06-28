@@ -9,9 +9,24 @@ const beefyOracleAddress = "0x3f1DDEd53Ab55520698d11e4D3295F8dAE2a834f"; // Beef
 async function main() {
   console.log("Testing BeefyOracle with Supra Oracle integration...");
   
+  const chainType = process.env.CHAIN_TYPE;
+  let DEPLOYER_PK;
+  let KEEPER_PK;
+  let HEDERA_RPC;
+  if (chainType !== "testnet") {
+    DEPLOYER_PK = process.env.DEPLOYER_PK;
+    KEEPER_PK = process.env.KEEPER_PK;
+    HEDERA_RPC = process.env.HEDERA_RPC;
+  } else {
+    DEPLOYER_PK = process.env.DEPLOYER_PK_TESTNET;
+    KEEPER_PK = process.env.KEEPER_PK_TESTNET;
+    HEDERA_RPC = process.env.HEDERA_MAINNET_RPC;
+  }
+
+
   // Create signer using private key from environment variables
-  const provider = new ethers.providers.JsonRpcProvider(process.env.HEDERA_TESTNET_RPC);
-  const deployer = new ethers.Wallet(process.env.DEPLOYER_PK, provider);
+  const provider = new ethers.providers.JsonRpcProvider(HEDERA_RPC);
+  const deployer = new ethers.Wallet(DEPLOYER_PK, provider);
   console.log("Deployer:", deployer.address);
 
   // Get the Beefy Oracle contract

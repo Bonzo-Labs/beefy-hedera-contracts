@@ -5,30 +5,34 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Script used to deploy the basic infrastructure needed to run Beefy.
+ * Script used to deploy the basic infrastructure needed to run Beefy-Bonzo on Hedera.
  */
 
 const ethers = hardhat.ethers;
 
-// const {
-//   platforms: {
-//     beefyfinance: {
-//       keeper,
-//       voter,
-//       beefyFeeRecipient,
-//     } },
-// } = addressBook.;
-const keeper = process.env.KEEPER_ADDRESS;
-const voter = process.env.KEEPER_ADDRESS;
-const beefyFeeRecipient = process.env.KEEPER_ADDRESS;
+//*******************SET CHAIN TYPE HERE*******************
+const CHAIN_TYPE = process.env.CHAIN_TYPE;
+//*******************SET CHAIN TYPE HERE*******************
+
+let keeper, voter, beefyFeeRecipient;
+if (CHAIN_TYPE === "testnet") {
+  keeper = process.env.KEEPER_ADDRESS;
+  voter = process.env.KEEPER_ADDRESS;
+  beefyFeeRecipient = process.env.KEEPER_ADDRESS;
+} else if (CHAIN_TYPE === "mainnet") {
+  keeper = process.env.KEEPER_ADDRESS_MAINNET;
+  voter = process.env.KEEPER_ADDRESS_MAINNET;
+  beefyFeeRecipient = process.env.KEEPER_ADDRESS_MAINNET;
+}
+
 const TIMELOCK_ADMIN_ROLE = "0x5f58e3a2316349923ce3780f8d587db2d72378aed66a8261c916544fa6846ca5";
 const STRAT_OWNER_DELAY = 21600;
 const VAULT_OWNER_DELAY = 0;
 const KEEPER = keeper;
 
 const config = {
-  devMultisig: process.env.KEEPER_ADDRESS,
-  treasuryMultisig: process.env.KEEPER_ADDRESS,
+  devMultisig: keeper,
+  treasuryMultisig: keeper,
   totalLimit: "95000000000000000",
   callFee: "500000000000000",
   strategist: "5000000000000000",
@@ -47,29 +51,44 @@ async function main() {
 
   console.log("Deploying vault owner.");
   let deployParams = [VAULT_OWNER_DELAY, timelockProposers, timelockExecutors];
-  const vaultOwner = await TimelockController.deploy(...deployParams);
-  await vaultOwner.deployed();
-  await vaultOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address);
-  console.log(`Vault owner deployed to ${vaultOwner.address}`);
+  // const vaultOwner = await TimelockController.deploy(...deployParams, {gasLimit:5000000});
+  // await vaultOwner.deployed();
+  // await vaultOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address, {gasLimit:5000000});
+  // console.log(`Vault owner deployed to ${vaultOwner.address}`);
 
-  console.log("Deploying strategy owner.");
-  const stratOwner = await TimelockController.deploy(STRAT_OWNER_DELAY, timelockProposers, timelockExecutors);
-  await stratOwner.deployed();
-  await stratOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address);
-  console.log(`Strategy owner deployed to ${stratOwner.address}`);
+  // console.log("Deploying strategy owner.");
+  // const stratOwner = await TimelockController.deploy(STRAT_OWNER_DELAY, timelockProposers, timelockExecutors, {gasLimit:5000000});
+  // await stratOwner.deployed();
+  // await stratOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address, {gasLimit:5000000});
+  // console.log(`Strategy owner deployed to ${stratOwner.address}`);
 
-  console.log("Deploying multicall");
-  const Multicall = await ethers.getContractFactory("Multicall");
-  const multicall = await Multicall.deploy();
-  await multicall.deployed();
-  console.log(`Multicall deployed to ${multicall.address}`);
+  // console.log("Deploying multicall");
+  // const Multicall = await ethers.getContractFactory("Multicall");
+  // const multicall = await Multicall.deploy({gasLimit:5000000});
+  // await multicall.deployed();
+  // console.log(`Multicall deployed to ${multicall.address}`);
 
   const BeefyFeeConfiguratorFactory = await ethers.getContractFactory("BeefyFeeConfigurator");
   console.log("Deploying BeefyFeeConfigurator");
 
   const constructorArguments = [keeper, config.totalLimit];
-  const transparentUpgradableProxy = await upgrades.deployProxy(BeefyFeeConfiguratorFactory, constructorArguments);
+  const transparentUpgradableProxy = await upgrades.deployProxy(BeefyFeeConfiguratorFactory, constructorArguments, {
+    kind: "transparent",
+    initializer: "initialize",
+    txOverrides: {
+      gasLimit: 1000000000,
+    },
+  });
+  console.log("BeefyFeeConfigurator deploying...");
   await transparentUpgradableProxy.deployed();
+  console.log(`BeefyFeeConfigurator deployed to ${transparentUpgradableProxy.address}`);
+  console.log("Setting BeefyFeeConfigurator fee category");
+  // const BeefyFeeConfigurator = await ethers.getContractFactory("BeefyFeeConfigurator");
+  // const beefyFeeConfigurator = await BeefyFeeConfigurator.deploy(keeper, config.totalLimit, { gasLimit: 5_000_000 });
+  // await beefyFeeConfigurator.deployed();
+  // console.log("Standalone at", beefyFeeConfigurator.address);
+ 
+  // const transparentUpgradableProxy = beefyFeeConfigurator;
 
   await transparentUpgradableProxy.setFeeCategory(
     0,
@@ -78,63 +97,63 @@ async function main() {
     BigInt(config.strategist),
     "default",
     true,
-    true
+    true,
+    {gasLimit:5000000}
   );
-  await transparentUpgradableProxy.transferOwnership(config.devMultisig);
-
+  console.log("Setting BeefyFeeConfigurator ownership");
+  await transparentUpgradableProxy.transferOwnership(config.devMultisig, {gasLimit:5000000});
+  console.log("BeefyFeeConfigurator ownership set");
   const implementationAddress = await upgrades.erc1967.getImplementationAddress(transparentUpgradableProxy.address);
-
-  console.log();
+  console.log("BeefyFeeConfigurator implementation address:", implementationAddress);
   console.log("BeefyFeeConfig:", transparentUpgradableProxy.address);
-  console.log(`Implementation address:`, implementationAddress);
 
   console.log("Deploying Vault Factory");
   const VaultFactory = await ethers.getContractFactory("BeefyVaultV7FactoryHedera");
   const VaultV7 = await ethers.getContractFactory("BeefyVaultV7Hedera");
-  const vault7 = await VaultV7.deploy();
+  const vault7 = await VaultV7.deploy({gasLimit:5000000});
   await vault7.deployed();
   console.log(`Vault V7 deployed to ${vault7.address}`);
 
   const VaultV7MultiToken = await ethers.getContractFactory("BeefyVaultV7HederaMultiToken");
-  const vault7MultiToken = await VaultV7MultiToken.deploy();
+  const vault7MultiToken = await VaultV7MultiToken.deploy({gasLimit:5000000});
   await vault7MultiToken.deployed();
   console.log(`Vault V7 MultiToken deployed to ${vault7MultiToken.address}`);
 
-  const vaultFactory = await VaultFactory.deploy(vault7.address, vault7MultiToken.address);
+  const vaultFactory = await VaultFactory.deploy(vault7.address, vault7MultiToken.address, {gasLimit:5000000});
   await vaultFactory.deployed();
   console.log(`Vault Factory deployed to ${vaultFactory.address}`);
 
   console.log("Deploying Beefy Swapper");
   const BeefySwapper = await ethers.getContractFactory("BeefySwapper");
-  const beefySwapper = await BeefySwapper.deploy();
+  const beefySwapper = await BeefySwapper.deploy({gasLimit:5000000});
   await beefySwapper.deployed();
 
   console.log(`Beefy Swapper deployed to ${beefySwapper.address}`);
 
   console.log("Deploying Beefy Oracle");
   const BeefyOracle = await ethers.getContractFactory("BeefyOracle");
-  const beefyOracle = await BeefyOracle.deploy();
+  const beefyOracle = await BeefyOracle.deploy({gasLimit:5000000});
   await beefyOracle.deployed();
   console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
 
   // Add 5 seconds timeout to ensure transactions are processed
   console.log("Waiting 5 seconds before initializing...");
   await new Promise(resolve => setTimeout(resolve, 5000));
-  beefySwapper.initialize(beefyOracle.address, config.totalLimit);
+  beefySwapper.initialize(beefyOracle.address, config.totalLimit, {gasLimit:5000000});
 
   console.log("Waiting 5 seconds before transferring ownership...");
   await new Promise(resolve => setTimeout(resolve, 10000));
-  beefySwapper.transferOwnership(keeper);
+  beefySwapper.transferOwnership(keeper, {gasLimit:5000000});
   console.log("Beefy Swapper ownership transferred to keeper");
 
   console.log("Waiting 5 seconds before initializing...");
   await new Promise(resolve => setTimeout(resolve, 30000));
-  beefyOracle.initialize();
+  beefyOracle.initialize({gasLimit:5000000});
   console.log("Beefy Oracle initialized");
 
   console.log("Waiting 5 seconds before transferring ownership...");
   await new Promise(resolve => setTimeout(resolve,10000));
-  await beefyOracle.transferOwnership(keeper);
+  await beefyOracle.transferOwnership(keeper, {gasLimit:5000000});
   console.log(`Beefy Oracle deployed to ${beefyOracle.address}`);
   await new Promise(resolve => setTimeout(resolve, 5000));
 
@@ -173,7 +192,7 @@ async function main() {
   };
 
   // Write addresses to JSON file
-  const addressesPath = path.join(__dirname, '..', 'deployed-addresses.json');
+  const addressesPath = CHAIN_TYPE === "mainnet" ? path.join(__dirname, '..', 'deployed-addresses-mainnet.json') : path.join(__dirname, '..', 'deployed-addresses.json');
   fs.writeFileSync(addressesPath, JSON.stringify(addresses, null, 2));
   console.log(`Addresses saved to ${addressesPath}`);
 

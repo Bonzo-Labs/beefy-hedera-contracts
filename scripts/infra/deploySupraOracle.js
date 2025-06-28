@@ -2,7 +2,7 @@ import hardhat, { ethers } from "hardhat";
 import BeefyOracleAbi from "../../data/abi/BeefyOracle.json";
 import addresses from "../deployed-addresses.json";
 
-// Configuration
+// Configuration TESTNET
 const supraOracleAddress = "0xA55d9ac9aca329f5687e1cC286d0847e3f02062e"; // Supra Oracle address
 const tokenAddress = "0x0000000000000000000000000000000000120f46"; // SAUCE token
 // const token2Address = "0x0000000000000000000000000000000000001549"; // USDC token
@@ -10,17 +10,33 @@ const tokenAddress = "0x0000000000000000000000000000000000120f46"; // SAUCE toke
 const token4Address = "0x0000000000000000000000000000000000003ad2"; // WHBAR token
 const tokenAddresses = [tokenAddress, token4Address];
 const beefyOracleAddress = addresses.beefyOracle;
-//"0x3f1DDEd53Ab55520698d11e4D3295F8dAE2a834f"; // Beefy Oracle address
 
 async function main() {
   console.log("Deploying BeefyOracleSupra library...");
+  const chainType = process.env.CHAIN_TYPE;
+  let DEPLOYER_PK;
+  let KEEPER_PK;
+  let HEDERA_RPC;
+  if (chainType !== "testnet") {
+    DEPLOYER_PK = process.env.DEPLOYER_PK;
+    KEEPER_PK = process.env.KEEPER_PK;
+    HEDERA_RPC = process.env.HEDERA_RPC;
+  } else {
+    DEPLOYER_PK = process.env.DEPLOYER_PK_TESTNET;
+    KEEPER_PK = process.env.KEEPER_PK_TESTNET;
+    HEDERA_RPC = process.env.HEDERA_MAINNET_RPC;
+  }
+
+  if (!DEPLOYER_PK || !KEEPER_PK) {
+    throw new Error("Missing environment variables");
+  }
   
   // Create signer using private key from environment variables
-  const provider = new ethers.providers.JsonRpcProvider(process.env.HEDERA_TESTNET_RPC);
-  const deployer = new ethers.Wallet(process.env.DEPLOYER_PK, provider);
+  const provider = new ethers.providers.JsonRpcProvider(HEDERA_RPC);
+  const deployer = new ethers.Wallet(DEPLOYER_PK, provider);
   console.log("Deployer:", deployer.address);
 
-  const keeper = new ethers.Wallet(process.env.KEEPER_PK, provider);
+  const keeper = new ethers.Wallet(KEEPER_PK, provider);
   console.log("Keeper:", keeper.address);
 
   // 1. Deploy BeefyOracleSupra library
