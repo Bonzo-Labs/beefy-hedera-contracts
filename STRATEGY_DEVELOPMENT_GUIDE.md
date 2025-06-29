@@ -90,6 +90,88 @@ function unpause() external;
 
 ```
 
+## Oracle Integration
+
+### Bonzo Vaults Oracle (Supra)
+
+For strategies that require price feeds for token swapping or valuation, Bonzo vaults provides oracle integration through the `BeefyOracleSupra` library. This oracle fetches price data from Supra Oracle feeds and scales them to 18 decimals for consistency.
+
+#### Key Features
+
+- **Price Fetching**: Retrieves asset prices from Supra Oracle feeds
+- **Automatic Scaling**: Scales prices to 18 decimals regardless of source decimals
+- **Data Validation**: Validates oracle data before use
+- **Error Handling**: Graceful failure handling for unavailable price feeds
+
+#### Usage in Strategies
+
+```solidity
+import "../../infra/BeefyOracle/BeefyOracleSupra.sol";
+
+contract YourStrategy is StratFeeManagerInitializable {
+  address public supraOracle;
+
+  function getTokenPrice(address token) public view returns (uint256 price, bool success) {
+    bytes memory data = abi.encode(supraOracle, token);
+    return BeefyOracleSupra.getPrice(data);
+  }
+
+  function _swapTokens(uint256 amount) internal {
+    // Get price for slippage calculation
+    (uint256 outputPrice, bool success) = getTokenPrice(output);
+    require(success, "Oracle price unavailable");
+
+    // Calculate minimum amount out with slippage protection
+    uint256 minAmountOut = (amount * outputPrice * (10000 - slippageTolerance)) / 10000;
+
+    // Perform swap with price protection
+    // ... swap logic
+  }
+}
+
+```
+
+#### Oracle Data Structure
+
+The oracle uses encoded data containing:
+
+- `address supraOracle`: The Supra Oracle contract address
+- `address asset`: The asset address to get price for
+
+#### Integration Example
+
+```solidity
+function initialize(
+  // ... other parameters
+  address _supraOracle,
+  CommonAddresses calldata _commonAddresses
+) public initializer {
+  // ... other initialization
+  supraOracle = _supraOracle;
+
+  // Validate oracle connection
+  bytes memory oracleData = abi.encode(_supraOracle, output);
+  BeefyOracleSupra.validateData(oracleData);
+}
+
+```
+
+#### Error Handling
+
+The oracle library includes proper error handling:
+
+```solidity
+function _getTokenPriceWithFallback(address token) internal view returns (uint256) {
+  (uint256 price, bool success) = getTokenPrice(token);
+  if (!success) {
+    // Fallback to alternative pricing method or revert
+    revert("Price feed unavailable");
+  }
+  return price;
+}
+
+```
+
 ## Step-by-Step Development
 
 ### Step 1: Choose Your Base Class

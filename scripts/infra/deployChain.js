@@ -38,7 +38,7 @@ const config = {
   strategist: "5000000000000000",
 };
 
-const proposer = config.devMultisig || TRUSTED_EOA;
+const proposer = config.devMultisig;
 const timelockProposers = [proposer];
 const timelockExecutors = [KEEPER];
 
@@ -51,22 +51,22 @@ async function main() {
 
   console.log("Deploying vault owner.");
   let deployParams = [VAULT_OWNER_DELAY, timelockProposers, timelockExecutors];
-  // const vaultOwner = await TimelockController.deploy(...deployParams, {gasLimit:5000000});
-  // await vaultOwner.deployed();
-  // await vaultOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address, {gasLimit:5000000});
-  // console.log(`Vault owner deployed to ${vaultOwner.address}`);
+  const vaultOwner = await TimelockController.deploy(...deployParams, {gasLimit:5000000});
+  await vaultOwner.deployed();
+  await vaultOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address, {gasLimit:5000000});
+  console.log(`Vault owner deployed to ${vaultOwner.address}`);
 
-  // console.log("Deploying strategy owner.");
-  // const stratOwner = await TimelockController.deploy(STRAT_OWNER_DELAY, timelockProposers, timelockExecutors, {gasLimit:5000000});
-  // await stratOwner.deployed();
-  // await stratOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address, {gasLimit:5000000});
-  // console.log(`Strategy owner deployed to ${stratOwner.address}`);
+  console.log("Deploying strategy owner.");
+  const stratOwner = await TimelockController.deploy(STRAT_OWNER_DELAY, timelockProposers, timelockExecutors, {gasLimit:5000000});
+  await stratOwner.deployed();
+  await stratOwner.renounceRole(TIMELOCK_ADMIN_ROLE, deployer.address, {gasLimit:5000000});
+  console.log(`Strategy owner deployed to ${stratOwner.address}`);
 
-  // console.log("Deploying multicall");
-  // const Multicall = await ethers.getContractFactory("Multicall");
-  // const multicall = await Multicall.deploy({gasLimit:5000000});
-  // await multicall.deployed();
-  // console.log(`Multicall deployed to ${multicall.address}`);
+  console.log("Deploying multicall");
+  const Multicall = await ethers.getContractFactory("Multicall");
+  const multicall = await Multicall.deploy({gasLimit:5000000});
+  await multicall.deployed();
+  console.log(`Multicall deployed to ${multicall.address}`);
 
   const BeefyFeeConfiguratorFactory = await ethers.getContractFactory("BeefyFeeConfigurator");
   console.log("Deploying BeefyFeeConfigurator");
