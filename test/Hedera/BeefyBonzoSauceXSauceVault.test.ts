@@ -706,7 +706,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
 
   // Keep the original deposit test for compatibility
   describe("Original Deposit Test", () => {
-    it.skip("should handle deposits and withdrawals correctly", async function () {
+    it("should handle deposits and withdrawals correctly", async function () {
       console.log("sender address", deployer.address);
 
       // Skip this test if we don't have xSAUCE tokens to test with
@@ -718,7 +718,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
         return;
       }
 
-      const depositAmount = "100000"; // 0.1 xSAUCE (assuming 6 decimals)
+      const depositAmount = "1000000"; // 0.1 xSAUCE (assuming 6 decimals)
 
       // Approve the vault to spend tokens
       const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
