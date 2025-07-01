@@ -21,7 +21,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     int64 constant PRECOMPILE_BIND_ERROR = -1;
 
     // BeefyOracle constants
-    address public BEEFY_ORACLE = 0x21091430A973E4df0B3f2C6580f59Fd9d24Ef788;
+    address public BEEFY_ORACLE = 0x0118768Ed8C48A4a88ed68a38D4703fE08449ab2;
 
     // Tokens used
     address public want; // xSAUCE token
