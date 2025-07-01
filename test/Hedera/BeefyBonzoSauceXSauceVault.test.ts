@@ -37,7 +37,7 @@ if (CHAIN_TYPE === "testnet") {
   LENDING_POOL_ADDRESS = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
   REWARDS_CONTROLLER_ADDRESS = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
   STAKING_POOL_ADDRESS = "0x00000000000000000000000000000000001647e7"; // SaucerSwap staking pool mainnet
-  UNIROUTER_ADDRESS = "0x00000000000000000000000000000000000026e7"; // Router address mainnet
+  UNIROUTER_ADDRESS = "0x00000000000000000000000000000000003c437a"; // Router address mainnet
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET!;
 }
 
@@ -131,8 +131,8 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0x144352Bbe7190eB939c6356982794739be7FfC90";
-      const STRATEGY_ADDRESS = "0x2E6148b6dF49dD161A9ff4BAdF34118DAFDd8160";
+      const VAULT_ADDRESS = "0x3599b6eB756ca419Da093fb5E9b5F0a7B3e04caa";
+      const STRATEGY_ADDRESS = "0x749C817dC2B4E5f6E49f7978f43A21f7D45c7bB0";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoSAUCELevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -243,7 +243,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it.skip("should handle deposit", async function () {
+    it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have xSAUCE tokens to test with
@@ -301,7 +301,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       console.log("✅ Deposit test passed!");
     });
 
-    it.skip("should handle withdrawal", async function () {
+    it("should handle withdrawal", async function () {
       console.log("Testing withdrawal functionality...");
 
       // Check if user has shares to withdraw
