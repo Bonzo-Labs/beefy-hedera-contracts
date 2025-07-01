@@ -13,7 +13,7 @@ async function main() {
   // Step 1: Deploy the strategy first
   console.log("Deploying BonzoHBARXLeveragedLiqStaking...");
   const BonzoHBARXLeveragedLiqStaking = await ethers.getContractFactory("BonzoHBARXLevergedLiqStaking");
-  const strategy = await BonzoHBARXLeveragedLiqStaking.deploy();
+  const strategy = await BonzoHBARXLeveragedLiqStaking.deploy({gasLimit: 5000000});
   await strategy.deployed();
   console.log("BonzoHBARXLeveragedLiqStaking deployed to:", strategy.address);
 
@@ -24,7 +24,7 @@ async function main() {
 
   // Step 3: Create a new vault using the factory
   console.log("Creating new vault...");
-  const tx = await vaultFactory.cloneVault();
+  const tx = await vaultFactory.cloneVault({gasLimit: 3000000});
   const receipt = await tx.wait();
 
   // Get the new vault address from the ProxyCreated event
