@@ -1,20 +1,58 @@
 import { ethers } from "hardhat";
 import { expect } from "chai";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { BeefyVaultV7Hedera, BonzoHBARXLevergedLiqStaking, IERC20Upgradeable, MockStaking } from "../../typechain-types";
-import addresses from "../../scripts/deployed-addresses.json";
+import {
+  BeefyVaultV7Hedera,
+  BonzoHBARXLevergedLiqStaking,
+  IERC20Upgradeable,
+  MockStaking,
+} from "../../typechain-types";
+//*******************SET CHAIN TYPE HERE*******************
+const CHAIN_TYPE = process.env.CHAIN_TYPE;
+//*******************SET CHAIN TYPE HERE*******************
 
-// Hardcoded values from the deployment
+let addresses,
+  HBARX_TOKEN_ADDRESS: string,
+  HBAR_TOKEN_ADDRESS: string,
+  AHBARX_TOKEN_ADDRESS: string,
+  DEBT_TOKEN_ADDRESS: string,
+  LENDING_POOL_ADDRESS: string,
+  REWARDS_CONTROLLER_ADDRESS: string,
+  UNIROUTER_ADDRESS: string,
+  STAKING_CONTRACT_ADDRESS: string;
+let nonManagerPK: string;
+
+if (CHAIN_TYPE === "testnet") {
+  addresses = require("../../scripts/deployed-addresses.json");
+  HBARX_TOKEN_ADDRESS = "0x0000000000000000000000000000000000220ced"; // HBARX token
+  HBAR_TOKEN_ADDRESS = "0x0000000000000000000000000000000000003ad2"; // WHBAR token
+  AHBARX_TOKEN_ADDRESS = "0x37FfB9d2c91ef6858E54DD5B05805339A1aEA207"; // aHBARX token
+  DEBT_TOKEN_ADDRESS = "0xacE6c84d8737e377c1f85BE5f7BC82E4fF3248E6"; // debtWHBAR token
+  LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool
+  REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller
+  UNIROUTER_ADDRESS = "0x00000000000000000000000000000000000026e7"; // Router address
+  STAKING_CONTRACT_ADDRESS = ""; // Will be set by mock deployment
+  nonManagerPK = process.env.NON_MANAGER_PK!;
+} else if (CHAIN_TYPE === "mainnet") {
+  addresses = require("../../scripts/deployed-addresses-mainnet.json");
+  HBARX_TOKEN_ADDRESS = "0x00000000000000000000000000000000000cba44"; // Hedera HBARX token mainnet
+  HBAR_TOKEN_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // WHBAR token mainnet
+  AHBARX_TOKEN_ADDRESS = "0x40EBC87627Fe4689567C47c8C9C84EDC4Cf29132"; // aHBARX token mainnet
+  DEBT_TOKEN_ADDRESS = "0xCD5A1FF3AD6EDd7e85ae6De3854f3915dD8c9103"; // debtWHBAR token mainnet
+  LENDING_POOL_ADDRESS = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
+  REWARDS_CONTROLLER_ADDRESS = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
+  UNIROUTER_ADDRESS = "0x00000000000000000000000000000000003c437a"; // Router address mainnet
+  STAKING_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000158d97"; // Stader staking contract mainnet
+  nonManagerPK = process.env.NON_MANAGER_PK_MAINNET!;
+}
+
+// Using deployed addresses from deployed-addresses.json and specific Hedera contract addresses
 const VAULT_FACTORY_ADDRESS = addresses.vaultFactory;
-const HBARX_TOKEN_ADDRESS = "0x0000000000000000000000000000000000220ced"; // HBARX token
-const HBAR_TOKEN_ADDRESS = "0x0000000000000000000000000000000000003ad2"; // WHBAR token
-const AHBARX_TOKEN_ADDRESS = "0x37FfB9d2c91ef6858E54DD5B05805339A1aEA207"; // aHBARX token
-const DEBT_TOKEN_ADDRESS = "0xacE6c84d8737e377c1f85BE5f7BC82E4fF3248E6"; // debtWHBAR token
-const LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool
-const REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller
-let STAKING_CONTRACT_ADDRESS = ""; // Stader staking contract
-const UNIROUTER_ADDRESS = "0x00000000000000000000000000000000000026e7"; // Router address
-const FEE_CONFIG_ADDRESS = addresses.beefyFeeConfig; // Fee config address
+const FEE_CONFIG_ADDRESS = addresses.beefyFeeConfig;
+const BEEFY_FEE_RECIPIENT = addresses.beefyFeeRecipient;
+const STRATEGY_OWNER = addresses.strategyOwner;
+const VAULT_OWNER = addresses.vaultOwner;
+const KEEPER = addresses.keeper;
 
 describe("BeefyBonzoHbarXHbarVault", function () {
   // Set timeout to 60 seconds for all tests in this suite
@@ -25,25 +63,36 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = true;
+  let deployNewContract = false;
   let staking: MockStaking | any;
 
   before(async () => {
     [deployer] = await ethers.getSigners();
     console.log("Testing with account:", deployer.address);
+    console.log("Using deployed addresses from scripts/deployed-addresses.json:");
+    console.log("- Vault Factory:", VAULT_FACTORY_ADDRESS);
+    console.log("- Beefy Fee Config:", FEE_CONFIG_ADDRESS);
+    console.log("- Beefy Fee Recipient:", BEEFY_FEE_RECIPIENT);
+    console.log("- Strategy Owner:", STRATEGY_OWNER);
+    console.log("- Vault Owner:", VAULT_OWNER);
+    console.log("- Keeper:", KEEPER);
 
     if (deployNewContract) {
-      //Step 0: Deploy the staking contract
-      console.log("Deploying staking contract...");
-      const Staking = await ethers.getContractFactory("MockStaking");
-      staking = await Staking.deploy(HBARX_TOKEN_ADDRESS);
-      await staking.deployed();
-      console.log("Staking contract deployed to:", staking.address);
-      STAKING_CONTRACT_ADDRESS = staking.address;
-      //transfer hbarx to the staking contract
-      const hbarx = await ethers.getContractAt("IERC20Upgradeable", HBARX_TOKEN_ADDRESS);
-      await hbarx.transfer(staking.address, "100000000");
-      console.log("HBARX transferred to staking contract");
+      //Step 0: Deploy the staking contract (only for testnet)
+      if (CHAIN_TYPE === "testnet") {
+        console.log("Deploying staking contract...");
+        const Staking = await ethers.getContractFactory("MockStaking");
+        staking = await Staking.deploy(HBARX_TOKEN_ADDRESS);
+        await staking.deployed();
+        console.log("Staking contract deployed to:", staking.address);
+        STAKING_CONTRACT_ADDRESS = staking.address;
+        //transfer hbarx to the staking contract
+        const hbarx = await ethers.getContractAt("IERC20Upgradeable", HBARX_TOKEN_ADDRESS);
+        await hbarx.transfer(staking.address, "100000000");
+        console.log("HBARX transferred to staking contract");
+      } else {
+        console.log("Using mainnet staking contract:", STAKING_CONTRACT_ADDRESS);
+      }
 
       // Step 1: Deploy the strategy
       console.log("Deploying BonzoHBARXLevergedLiqStaking...");
@@ -71,12 +120,14 @@ describe("BeefyBonzoHbarXHbarVault", function () {
 
       // Step 5: Initialize the strategy
       console.log("Initializing strategy...");
+      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait for 5 seconds
+
       const commonAddresses = {
         vault: vaultAddress,
-        keeper: deployer.address,
-        strategist: deployer.address,
+        keeper: KEEPER,
+        strategist: STRATEGY_OWNER,
         unirouter: UNIROUTER_ADDRESS,
-        beefyFeeRecipient: deployer.address,
+        beefyFeeRecipient: BEEFY_FEE_RECIPIENT,
         beefyFeeConfig: FEE_CONFIG_ADDRESS,
       };
       console.log("Staking contract address:", STAKING_CONTRACT_ADDRESS);
@@ -102,8 +153,8 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       const isHederaToken = true; // Set to true for HTS tokens
       await vault.initialize(
         strategy.address,
-        "Beefy HBARX Bonzo Leveraged",
-        "bvHBARX-BONZO-LEV",
+        "Beefy HBARX Bonzo Leveraged Test",
+        "bvHBARX-BONZO-LEV-TEST",
         0, // Performance fee - set to 0 initially
         isHederaToken,
         { gasLimit: 3000000 }
@@ -111,12 +162,11 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0x9F846865c2cF56994e285a2939479845C7f2bb05";
-      const STRATEGY_ADDRESS = "0x88D9808d3Aa3ecCf015f4a2A47f153727a40f019";
+      const VAULT_ADDRESS = "0x73BAaEe7F131Ab7D534EfB7D29a1D7612b16907b";
+      const STRATEGY_ADDRESS = "0x04316318F7A7fDbF2CEEA4B3C035cEdd68B40548";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
-      deployNewContract = false;
     }
     want = await ethers.getContractAt("IERC20Upgradeable", HBARX_TOKEN_ADDRESS);
 
@@ -153,14 +203,15 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       healthFactor: userAccountData.healthFactor.toString(),
     });
 
-    //withdraw all hbarx from the staking contract
-    await staking.withdrawHbarx();
-    console.log("HBARX withdrawn from staking contract");
-  
+    //withdraw all hbarx from the staking contract (only for testnet)
+    if (CHAIN_TYPE === "testnet" && staking) {
+      await staking.withdrawHbarx();
+      console.log("HBARX withdrawn from staking contract");
+    }
   });
 
   describe("Strategy Initialization", () => {
-    it.skip("should have correct initial parameters", async function () {
+    it("should have correct initial parameters", async function () {
       const maxBorrowable = await strategy.getMaxBorrowable();
       const slippageTolerance = await strategy.slippageTolerance();
       const maxLoops = await strategy.getMaxLoops();
@@ -187,7 +238,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Rewards controller:", rewardsControllerAddr);
       console.log("Staking contract:", stakingContractAddr);
 
-      expect(maxBorrowable).to.be.eq(1000); // 10%
+      expect(maxBorrowable).to.be.eq(4000); // 10%
       expect(slippageTolerance).to.be.eq(50); // 0.5%
       expect(maxLoops).to.be.eq(2);
       expect(isRewardsAvailable).to.be.eq(false);
@@ -201,7 +252,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       expect(stakingContractAddr.toLowerCase()).to.be.eq(STAKING_CONTRACT_ADDRESS.toLowerCase());
     });
 
-    it.skip("should have correct metadata", async function () {
+    it("should have correct metadata", async function () {
       const name = await strategy.name();
       const symbol = await strategy.symbol();
       const version = await strategy.version();
@@ -363,352 +414,352 @@ describe("BeefyBonzoHbarXHbarVault", function () {
     });
   });
 
-//   describe("Strategy Parameters", () => {
-//     it("should allow updating max borrowable", async function () {
-//       const currentMaxBorrowable = await strategy.getMaxBorrowable();
-//       console.log("Current max borrowable:", currentMaxBorrowable.toString());
+  //   describe("Strategy Parameters", () => {
+  //     it("should allow updating max borrowable", async function () {
+  //       const currentMaxBorrowable = await strategy.getMaxBorrowable();
+  //       console.log("Current max borrowable:", currentMaxBorrowable.toString());
 
-//       const newMaxBorrowable = 1500; // 15%
-//       await strategy.setMaxBorrowable(newMaxBorrowable);
-//       const updatedMaxBorrowable = await strategy.getMaxBorrowable();
-
-//       console.log("Updated max borrowable:", updatedMaxBorrowable.toString());
-//       expect(updatedMaxBorrowable).to.be.eq(newMaxBorrowable);
-
-//       // Reset to original value
-//       await strategy.setMaxBorrowable(currentMaxBorrowable);
-//     });
-
-//     it("should not allow excessive max borrowable", async function () {
-//       const excessiveMaxBorrowable = 10001; // > 100%
-//       await expect(strategy.setMaxBorrowable(excessiveMaxBorrowable)).to.be.revertedWith("!cap");
-//     });
-
-//     it("should allow updating slippage tolerance", async function () {
-//       const currentSlippage = await strategy.slippageTolerance();
-//       console.log("Current slippage tolerance:", currentSlippage.toString());
-
-//       const newSlippage = 100; // 1%
-//       await strategy.setSlippageTolerance(newSlippage);
-//       const updatedSlippage = await strategy.slippageTolerance();
-
-//       console.log("Updated slippage tolerance:", updatedSlippage.toString());
-//       expect(updatedSlippage).to.be.eq(newSlippage);
-
-//       // Reset to original value
-//       await strategy.setSlippageTolerance(currentSlippage);
-//     });
-
-//     it("should not allow excessive slippage tolerance", async function () {
-//       const excessiveSlippage = 1000; // 10% > 5% max
-//       await expect(strategy.setSlippageTolerance(excessiveSlippage)).to.be.revertedWith("Slippage too high");
-//     });
-
-//     it("should allow updating max loops", async function () {
-//       const currentMaxLoops = await strategy.getMaxLoops();
-//       console.log("Current max loops:", currentMaxLoops.toString());
-
-//       const newMaxLoops = 3;
-//       await strategy.setMaxLoops(newMaxLoops);
-//       const updatedMaxLoops = await strategy.getMaxLoops();
-
-//       console.log("Updated max loops:", updatedMaxLoops.toString());
-//       expect(updatedMaxLoops).to.be.eq(newMaxLoops);
-
-//       // Reset to original value
-//       await strategy.setMaxLoops(currentMaxLoops);
-//     });
-
-//     it("should not allow invalid max loops", async function () {
-//       // Test zero loops
-//       await expect(strategy.setMaxLoops(0)).to.be.revertedWith("!range");
-
-//       // Test excessive loops
-//       const excessiveLoops = 11;
-//       await expect(strategy.setMaxLoops(excessiveLoops)).to.be.revertedWith("!range");
-//     });
-
-//     it("should allow updating harvest on deposit", async function () {
-//       const currentHarvestOnDeposit = await strategy.harvestOnDeposit();
-//       console.log("Current harvest on deposit:", currentHarvestOnDeposit);
-
-//       await strategy.setHarvestOnDeposit(!currentHarvestOnDeposit);
-//       const updatedHarvestOnDeposit = await strategy.harvestOnDeposit();
-
-//       console.log("Updated harvest on deposit:", updatedHarvestOnDeposit);
-//       expect(updatedHarvestOnDeposit).to.be.eq(!currentHarvestOnDeposit);
-
-//       // Reset to original value
-//       await strategy.setHarvestOnDeposit(currentHarvestOnDeposit);
-//     });
-
-//     it("should allow updating rewards availability", async function () {
-//       const currentRewardsAvailable = await strategy.isRewardsAvailable();
-//       console.log("Current rewards available:", currentRewardsAvailable);
-
-//       await strategy.setRewardsAvailable(!currentRewardsAvailable);
-//       const updatedRewardsAvailable = await strategy.isRewardsAvailable();
-
-//       console.log("Updated rewards available:", updatedRewardsAvailable);
-//       expect(updatedRewardsAvailable).to.be.eq(!currentRewardsAvailable);
-
-//       // Reset to original value
-//       await strategy.setRewardsAvailable(currentRewardsAvailable);
-//     });
-//   });
-
-//   describe("View Functions", () => {
-//     it("should return correct balance information", async function () {
-//       const totalBalance = await strategy.balanceOf();
-//       const wantBalance = await strategy.balanceOfWant();
-//       const poolBalance = await strategy.balanceOfPool();
-
-//       console.log("Total balance:", totalBalance.toString());
-//       console.log("Want balance:", wantBalance.toString());
-//       console.log("Pool balance:", poolBalance.toString());
-
-//       expect(totalBalance).to.be.gte(0);
-//       expect(wantBalance).to.be.gte(0);
-//       expect(poolBalance).to.be.gte(0);
-//     });
-
-//     it("should return correct token addresses", async function () {
-//       const wantToken = await strategy.want();
-//       const borrowToken = await strategy.borrowToken();
-//       const aToken = await strategy.aToken();
-//       const debtToken = await strategy.debtToken();
-//       const stakingContract = await strategy.stakingContract();
-
-//       console.log("Want token:", wantToken);
-//       console.log("Borrow token:", borrowToken);
-//       console.log("aToken:", aToken);
-//       console.log("Debt token:", debtToken);
-//       console.log("Staking contract:", stakingContract);
-
-//       expect(wantToken).to.be.eq(HBARX_TOKEN_ADDRESS);
-//       expect(borrowToken).to.be.eq(HBAR_TOKEN_ADDRESS);
-//       expect(aToken).to.be.eq(AHBARX_TOKEN_ADDRESS);
-//       expect(debtToken).to.be.eq(DEBT_TOKEN_ADDRESS);
-//       expect(stakingContract).to.be.eq(STAKING_CONTRACT_ADDRESS);
-//     });
-
-//     it("should return correct protocol addresses", async function () {
-//       const lendingPool = await strategy.lendingPool();
-//       const rewardsController = await strategy.rewardsController();
-
-//       console.log("Lending pool:", lendingPool);
-//       console.log("Rewards controller:", rewardsController);
-
-//       expect(lendingPool).to.be.eq(LENDING_POOL_ADDRESS);
-//       expect(rewardsController).to.be.eq(REWARDS_CONTROLLER_ADDRESS);
-//     });
-
-//     it("should return correct strategy configuration", async function () {
-//       const maxLoops = await strategy.getMaxLoops();
-//       const maxBorrowable = await strategy.getMaxBorrowable();
-//       const slippageTolerance = await strategy.slippageTolerance();
-//       const harvestOnDeposit = await strategy.harvestOnDeposit();
-//       const isRewardsAvailable = await strategy.isRewardsAvailable();
-//       const isBonzoDeployer = await strategy.isBonzoDeployer();
-//       const lastHarvest = await strategy.lastHarvest();
-
-//       console.log("Max loops:", maxLoops.toString());
-//       console.log("Max borrowable:", maxBorrowable.toString());
-//       console.log("Slippage tolerance:", slippageTolerance.toString());
-//       console.log("Harvest on deposit:", harvestOnDeposit);
-//       console.log("Is rewards available:", isRewardsAvailable);
-//       console.log("Is Bonzo deployer:", isBonzoDeployer);
-//       console.log("Last harvest:", lastHarvest.toString());
-
-//       expect(maxLoops).to.be.gte(1);
-//       expect(maxBorrowable).to.be.lte(10000);
-//       expect(slippageTolerance).to.be.lte(500);
-//       expect(lastHarvest).to.be.gte(0);
-//     });
-//   });
-
-//   describe("Harvest Functionality", () => {
-//     it("should allow harvest", async function () {
-//       console.log("Testing harvest functionality...");
-
-//       const initialBalance = await strategy.balanceOf();
-//       const initialLastHarvest = await strategy.lastHarvest();
-
-//       console.log("Initial strategy balance:", initialBalance.toString());
-//       console.log("Initial last harvest:", initialLastHarvest.toString());
-
-//       // Call harvest
-//       const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
-//       const harvestReceipt = await harvestTx.wait();
-//       console.log("Harvest transaction:", harvestReceipt.transactionHash);
-
-//       const finalBalance = await strategy.balanceOf();
-//       const finalLastHarvest = await strategy.lastHarvest();
-
-//       console.log("Final strategy balance:", finalBalance.toString());
-//       console.log("Final last harvest:", finalLastHarvest.toString());
-
-//       // Harvest should complete without reverting
-//       expect(harvestReceipt.status).to.be.eq(1);
-//       expect(finalLastHarvest).to.be.gte(initialLastHarvest);
-//     });
-//   });
-
-//   describe("Emergency Functions", () => {
-//     it("should allow manager to pause strategy", async function () {
-//       const initialPaused = await strategy.paused();
-//       console.log("Initial paused state:", initialPaused);
-
-//       await strategy.pause();
-//       const isPaused = await strategy.paused();
-//       console.log("Paused state after pause:", isPaused);
-
-//       expect(isPaused).to.be.eq(true);
-
-//       // Unpause for other tests
-//       await strategy.unpause();
-//       const finalPaused = await strategy.paused();
-//       console.log("Final paused state:", finalPaused);
-//       expect(finalPaused).to.be.eq(false);
-//     });
-
-//     it("should allow manager to call panic", async function () {
-//       const initialPaused = await strategy.paused();
-//       console.log("Initial paused state before panic:", initialPaused);
-
-//       const panicTx = await strategy.panic();
-//       const panicReceipt = await panicTx.wait();
-//       console.log("Panic transaction:", panicReceipt.transactionHash);
-
-//       const isPaused = await strategy.paused();
-//       console.log("Paused state after panic:", isPaused);
-//       expect(isPaused).to.be.eq(true);
-
-//       // Unpause for other tests
-//       await strategy.unpause();
-//     });
-
-//     it("should allow manager to unpause strategy", async function () {
-//       // First ensure it's paused
-//       if (!(await strategy.paused())) {
-//         await strategy.pause();
-//       }
-
-//       const pausedBeforeUnpause = await strategy.paused();
-//       console.log("Paused before unpause:", pausedBeforeUnpause);
-
-//       await strategy.unpause();
-//       const isPaused = await strategy.paused();
-//       console.log("Paused after unpause:", isPaused);
-
-//       expect(isPaused).to.be.eq(false);
-//     });
-//   });
-
-//   describe("Access Control", () => {
-//     it("should only allow vault to call withdraw", async function () {
-//       const withdrawAmount = 1000;
-//       await expect(strategy.withdraw(withdrawAmount)).to.be.revertedWith("!vault");
-//     });
-
-//     it("should only allow vault to call retireStrat", async function () {
-//       await expect(strategy.retireStrat()).to.be.revertedWith("!vault");
-//     });
-
-//     it("should only allow manager to update parameters", async function () {
-//       const signers = await ethers.getSigners();
-//       if (signers.length > 1) {
-//         const nonManager = signers[1];
-//         const strategyAsNonManager = strategy.connect(nonManager);
-
-//         await expect(strategyAsNonManager.setMaxBorrowable(2000)).to.be.reverted;
-//         await expect(strategyAsNonManager.setMaxLoops(3)).to.be.reverted;
-//         await expect(strategyAsNonManager.setSlippageTolerance(100)).to.be.reverted;
-//         await expect(strategyAsNonManager.setHarvestOnDeposit(true)).to.be.reverted;
-//         await expect(strategyAsNonManager.setRewardsAvailable(true)).to.be.reverted;
-//       } else {
-//         console.log("⚠️ Skipping access control test - only one signer available");
-//         this.skip();
-//       }
-//     });
-
-//     it("should only allow manager to call emergency functions", async function () {
-//       const signers = await ethers.getSigners();
-//       if (signers.length > 1) {
-//         const nonManager = signers[1];
-//         const strategyAsNonManager = strategy.connect(nonManager);
-
-//         await expect(strategyAsNonManager.pause()).to.be.reverted;
-//         await expect(strategyAsNonManager.panic()).to.be.reverted;
-//         await expect(strategyAsNonManager.unpause()).to.be.reverted;
-//       } else {
-//         console.log("⚠️ Skipping access control test - only one signer available");
-//         this.skip();
-//       }
-//     });
-
-//     it("should only allow authorized addresses to harvest", async function () {
-//       // Note: The harvest function allows vault, owner, or keeper to call it
-//       // Since we're using deployer as all roles in tests, this should pass
-//       const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
-//       const harvestReceipt = await harvestTx.wait();
-//       expect(harvestReceipt.status).to.be.eq(1);
-//     });
-//   });
-
-//   describe("Token Management", () => {
-//     it("should handle stuck tokens recovery", async function () {
-//       // This test would require sending some random tokens to the strategy first
-//       // For now, we just test that the function exists and has proper access control
-//       const signers = await ethers.getSigners();
-//       if (signers.length > 1) {
-//         const nonManager = signers[1];
-//         const strategyAsNonManager = strategy.connect(nonManager);
-
-//         // Should revert when called by non-manager
-//         await expect(strategyAsNonManager.inCaseTokensGetStuck(HBARX_TOKEN_ADDRESS)).to.be.reverted;
-//       }
-
-//       // Should revert when trying to recover protected tokens
-//       await expect(strategy.inCaseTokensGetStuck(HBARX_TOKEN_ADDRESS)).to.be.revertedWith("!want");
-//       await expect(strategy.inCaseTokensGetStuck(HBAR_TOKEN_ADDRESS)).to.be.revertedWith("!borrowToken");
-//       await expect(strategy.inCaseTokensGetStuck(AHBARX_TOKEN_ADDRESS)).to.be.revertedWith("!aToken");
-//       await expect(strategy.inCaseTokensGetStuck(DEBT_TOKEN_ADDRESS)).to.be.revertedWith("!debtToken");
-//     });
-//   });
-
-//   describe("Strategy Safety", () => {
-//     it("should not allow deposit when paused", async function () {
-//       // Pause the strategy
-//       await strategy.pause();
-
-//       // Try to deposit - should fail
-//       await expect(strategy.deposit()).to.be.revertedWith("Pausable: paused");
-
-//       // Unpause for other tests
-//       await strategy.unpause();
-//     });
-
-//     it("should not allow withdraw when paused", async function () {
-//       // Pause the strategy
-//       await strategy.pause();
-
-//       // Try to withdraw - should fail
-//       await expect(strategy.withdraw(1000)).to.be.revertedWith("Pausable: paused");
-
-//       // Unpause for other tests
-//       await strategy.unpause();
-//     });
-
-//     it("should not allow harvest when paused", async function () {
-//       // Pause the strategy
-//       await strategy.pause();
-
-//       // Try to harvest - should fail
-//       await expect(strategy.harvest()).to.be.revertedWith("Pausable: paused");
-
-//       // Unpause for other tests
-//       await strategy.unpause();
-//     });
-//   });
+  //       const newMaxBorrowable = 1500; // 15%
+  //       await strategy.setMaxBorrowable(newMaxBorrowable);
+  //       const updatedMaxBorrowable = await strategy.getMaxBorrowable();
+
+  //       console.log("Updated max borrowable:", updatedMaxBorrowable.toString());
+  //       expect(updatedMaxBorrowable).to.be.eq(newMaxBorrowable);
+
+  //       // Reset to original value
+  //       await strategy.setMaxBorrowable(currentMaxBorrowable);
+  //     });
+
+  //     it("should not allow excessive max borrowable", async function () {
+  //       const excessiveMaxBorrowable = 10001; // > 100%
+  //       await expect(strategy.setMaxBorrowable(excessiveMaxBorrowable)).to.be.revertedWith("!cap");
+  //     });
+
+  //     it("should allow updating slippage tolerance", async function () {
+  //       const currentSlippage = await strategy.slippageTolerance();
+  //       console.log("Current slippage tolerance:", currentSlippage.toString());
+
+  //       const newSlippage = 100; // 1%
+  //       await strategy.setSlippageTolerance(newSlippage);
+  //       const updatedSlippage = await strategy.slippageTolerance();
+
+  //       console.log("Updated slippage tolerance:", updatedSlippage.toString());
+  //       expect(updatedSlippage).to.be.eq(newSlippage);
+
+  //       // Reset to original value
+  //       await strategy.setSlippageTolerance(currentSlippage);
+  //     });
+
+  //     it("should not allow excessive slippage tolerance", async function () {
+  //       const excessiveSlippage = 1000; // 10% > 5% max
+  //       await expect(strategy.setSlippageTolerance(excessiveSlippage)).to.be.revertedWith("Slippage too high");
+  //     });
+
+  //     it("should allow updating max loops", async function () {
+  //       const currentMaxLoops = await strategy.getMaxLoops();
+  //       console.log("Current max loops:", currentMaxLoops.toString());
+
+  //       const newMaxLoops = 3;
+  //       await strategy.setMaxLoops(newMaxLoops);
+  //       const updatedMaxLoops = await strategy.getMaxLoops();
+
+  //       console.log("Updated max loops:", updatedMaxLoops.toString());
+  //       expect(updatedMaxLoops).to.be.eq(newMaxLoops);
+
+  //       // Reset to original value
+  //       await strategy.setMaxLoops(currentMaxLoops);
+  //     });
+
+  //     it("should not allow invalid max loops", async function () {
+  //       // Test zero loops
+  //       await expect(strategy.setMaxLoops(0)).to.be.revertedWith("!range");
+
+  //       // Test excessive loops
+  //       const excessiveLoops = 11;
+  //       await expect(strategy.setMaxLoops(excessiveLoops)).to.be.revertedWith("!range");
+  //     });
+
+  //     it("should allow updating harvest on deposit", async function () {
+  //       const currentHarvestOnDeposit = await strategy.harvestOnDeposit();
+  //       console.log("Current harvest on deposit:", currentHarvestOnDeposit);
+
+  //       await strategy.setHarvestOnDeposit(!currentHarvestOnDeposit);
+  //       const updatedHarvestOnDeposit = await strategy.harvestOnDeposit();
+
+  //       console.log("Updated harvest on deposit:", updatedHarvestOnDeposit);
+  //       expect(updatedHarvestOnDeposit).to.be.eq(!currentHarvestOnDeposit);
+
+  //       // Reset to original value
+  //       await strategy.setHarvestOnDeposit(currentHarvestOnDeposit);
+  //     });
+
+  //     it("should allow updating rewards availability", async function () {
+  //       const currentRewardsAvailable = await strategy.isRewardsAvailable();
+  //       console.log("Current rewards available:", currentRewardsAvailable);
+
+  //       await strategy.setRewardsAvailable(!currentRewardsAvailable);
+  //       const updatedRewardsAvailable = await strategy.isRewardsAvailable();
+
+  //       console.log("Updated rewards available:", updatedRewardsAvailable);
+  //       expect(updatedRewardsAvailable).to.be.eq(!currentRewardsAvailable);
+
+  //       // Reset to original value
+  //       await strategy.setRewardsAvailable(currentRewardsAvailable);
+  //     });
+  //   });
+
+  //   describe("View Functions", () => {
+  //     it("should return correct balance information", async function () {
+  //       const totalBalance = await strategy.balanceOf();
+  //       const wantBalance = await strategy.balanceOfWant();
+  //       const poolBalance = await strategy.balanceOfPool();
+
+  //       console.log("Total balance:", totalBalance.toString());
+  //       console.log("Want balance:", wantBalance.toString());
+  //       console.log("Pool balance:", poolBalance.toString());
+
+  //       expect(totalBalance).to.be.gte(0);
+  //       expect(wantBalance).to.be.gte(0);
+  //       expect(poolBalance).to.be.gte(0);
+  //     });
+
+  //     it("should return correct token addresses", async function () {
+  //       const wantToken = await strategy.want();
+  //       const borrowToken = await strategy.borrowToken();
+  //       const aToken = await strategy.aToken();
+  //       const debtToken = await strategy.debtToken();
+  //       const stakingContract = await strategy.stakingContract();
+
+  //       console.log("Want token:", wantToken);
+  //       console.log("Borrow token:", borrowToken);
+  //       console.log("aToken:", aToken);
+  //       console.log("Debt token:", debtToken);
+  //       console.log("Staking contract:", stakingContract);
+
+  //       expect(wantToken).to.be.eq(HBARX_TOKEN_ADDRESS);
+  //       expect(borrowToken).to.be.eq(HBAR_TOKEN_ADDRESS);
+  //       expect(aToken).to.be.eq(AHBARX_TOKEN_ADDRESS);
+  //       expect(debtToken).to.be.eq(DEBT_TOKEN_ADDRESS);
+  //       expect(stakingContract).to.be.eq(STAKING_CONTRACT_ADDRESS);
+  //     });
+
+  //     it("should return correct protocol addresses", async function () {
+  //       const lendingPool = await strategy.lendingPool();
+  //       const rewardsController = await strategy.rewardsController();
+
+  //       console.log("Lending pool:", lendingPool);
+  //       console.log("Rewards controller:", rewardsController);
+
+  //       expect(lendingPool).to.be.eq(LENDING_POOL_ADDRESS);
+  //       expect(rewardsController).to.be.eq(REWARDS_CONTROLLER_ADDRESS);
+  //     });
+
+  //     it("should return correct strategy configuration", async function () {
+  //       const maxLoops = await strategy.getMaxLoops();
+  //       const maxBorrowable = await strategy.getMaxBorrowable();
+  //       const slippageTolerance = await strategy.slippageTolerance();
+  //       const harvestOnDeposit = await strategy.harvestOnDeposit();
+  //       const isRewardsAvailable = await strategy.isRewardsAvailable();
+  //       const isBonzoDeployer = await strategy.isBonzoDeployer();
+  //       const lastHarvest = await strategy.lastHarvest();
+
+  //       console.log("Max loops:", maxLoops.toString());
+  //       console.log("Max borrowable:", maxBorrowable.toString());
+  //       console.log("Slippage tolerance:", slippageTolerance.toString());
+  //       console.log("Harvest on deposit:", harvestOnDeposit);
+  //       console.log("Is rewards available:", isRewardsAvailable);
+  //       console.log("Is Bonzo deployer:", isBonzoDeployer);
+  //       console.log("Last harvest:", lastHarvest.toString());
+
+  //       expect(maxLoops).to.be.gte(1);
+  //       expect(maxBorrowable).to.be.lte(10000);
+  //       expect(slippageTolerance).to.be.lte(500);
+  //       expect(lastHarvest).to.be.gte(0);
+  //     });
+  //   });
+
+  //   describe("Harvest Functionality", () => {
+  //     it("should allow harvest", async function () {
+  //       console.log("Testing harvest functionality...");
+
+  //       const initialBalance = await strategy.balanceOf();
+  //       const initialLastHarvest = await strategy.lastHarvest();
+
+  //       console.log("Initial strategy balance:", initialBalance.toString());
+  //       console.log("Initial last harvest:", initialLastHarvest.toString());
+
+  //       // Call harvest
+  //       const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
+  //       const harvestReceipt = await harvestTx.wait();
+  //       console.log("Harvest transaction:", harvestReceipt.transactionHash);
+
+  //       const finalBalance = await strategy.balanceOf();
+  //       const finalLastHarvest = await strategy.lastHarvest();
+
+  //       console.log("Final strategy balance:", finalBalance.toString());
+  //       console.log("Final last harvest:", finalLastHarvest.toString());
+
+  //       // Harvest should complete without reverting
+  //       expect(harvestReceipt.status).to.be.eq(1);
+  //       expect(finalLastHarvest).to.be.gte(initialLastHarvest);
+  //     });
+  //   });
+
+  //   describe("Emergency Functions", () => {
+  //     it("should allow manager to pause strategy", async function () {
+  //       const initialPaused = await strategy.paused();
+  //       console.log("Initial paused state:", initialPaused);
+
+  //       await strategy.pause();
+  //       const isPaused = await strategy.paused();
+  //       console.log("Paused state after pause:", isPaused);
+
+  //       expect(isPaused).to.be.eq(true);
+
+  //       // Unpause for other tests
+  //       await strategy.unpause();
+  //       const finalPaused = await strategy.paused();
+  //       console.log("Final paused state:", finalPaused);
+  //       expect(finalPaused).to.be.eq(false);
+  //     });
+
+  //     it("should allow manager to call panic", async function () {
+  //       const initialPaused = await strategy.paused();
+  //       console.log("Initial paused state before panic:", initialPaused);
+
+  //       const panicTx = await strategy.panic();
+  //       const panicReceipt = await panicTx.wait();
+  //       console.log("Panic transaction:", panicReceipt.transactionHash);
+
+  //       const isPaused = await strategy.paused();
+  //       console.log("Paused state after panic:", isPaused);
+  //       expect(isPaused).to.be.eq(true);
+
+  //       // Unpause for other tests
+  //       await strategy.unpause();
+  //     });
+
+  //     it("should allow manager to unpause strategy", async function () {
+  //       // First ensure it's paused
+  //       if (!(await strategy.paused())) {
+  //         await strategy.pause();
+  //       }
+
+  //       const pausedBeforeUnpause = await strategy.paused();
+  //       console.log("Paused before unpause:", pausedBeforeUnpause);
+
+  //       await strategy.unpause();
+  //       const isPaused = await strategy.paused();
+  //       console.log("Paused after unpause:", isPaused);
+
+  //       expect(isPaused).to.be.eq(false);
+  //     });
+  //   });
+
+  //   describe("Access Control", () => {
+  //     it("should only allow vault to call withdraw", async function () {
+  //       const withdrawAmount = 1000;
+  //       await expect(strategy.withdraw(withdrawAmount)).to.be.revertedWith("!vault");
+  //     });
+
+  //     it("should only allow vault to call retireStrat", async function () {
+  //       await expect(strategy.retireStrat()).to.be.revertedWith("!vault");
+  //     });
+
+  //     it("should only allow manager to update parameters", async function () {
+  //       const signers = await ethers.getSigners();
+  //       if (signers.length > 1) {
+  //         const nonManager = signers[1];
+  //         const strategyAsNonManager = strategy.connect(nonManager);
+
+  //         await expect(strategyAsNonManager.setMaxBorrowable(2000)).to.be.reverted;
+  //         await expect(strategyAsNonManager.setMaxLoops(3)).to.be.reverted;
+  //         await expect(strategyAsNonManager.setSlippageTolerance(100)).to.be.reverted;
+  //         await expect(strategyAsNonManager.setHarvestOnDeposit(true)).to.be.reverted;
+  //         await expect(strategyAsNonManager.setRewardsAvailable(true)).to.be.reverted;
+  //       } else {
+  //         console.log("⚠️ Skipping access control test - only one signer available");
+  //         this.skip();
+  //       }
+  //     });
+
+  //     it("should only allow manager to call emergency functions", async function () {
+  //       const signers = await ethers.getSigners();
+  //       if (signers.length > 1) {
+  //         const nonManager = signers[1];
+  //         const strategyAsNonManager = strategy.connect(nonManager);
+
+  //         await expect(strategyAsNonManager.pause()).to.be.reverted;
+  //         await expect(strategyAsNonManager.panic()).to.be.reverted;
+  //         await expect(strategyAsNonManager.unpause()).to.be.reverted;
+  //       } else {
+  //         console.log("⚠️ Skipping access control test - only one signer available");
+  //         this.skip();
+  //       }
+  //     });
+
+  //     it("should only allow authorized addresses to harvest", async function () {
+  //       // Note: The harvest function allows vault, owner, or keeper to call it
+  //       // Since we're using deployer as all roles in tests, this should pass
+  //       const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
+  //       const harvestReceipt = await harvestTx.wait();
+  //       expect(harvestReceipt.status).to.be.eq(1);
+  //     });
+  //   });
+
+  //   describe("Token Management", () => {
+  //     it("should handle stuck tokens recovery", async function () {
+  //       // This test would require sending some random tokens to the strategy first
+  //       // For now, we just test that the function exists and has proper access control
+  //       const signers = await ethers.getSigners();
+  //       if (signers.length > 1) {
+  //         const nonManager = signers[1];
+  //         const strategyAsNonManager = strategy.connect(nonManager);
+
+  //         // Should revert when called by non-manager
+  //         await expect(strategyAsNonManager.inCaseTokensGetStuck(HBARX_TOKEN_ADDRESS)).to.be.reverted;
+  //       }
+
+  //       // Should revert when trying to recover protected tokens
+  //       await expect(strategy.inCaseTokensGetStuck(HBARX_TOKEN_ADDRESS)).to.be.revertedWith("!want");
+  //       await expect(strategy.inCaseTokensGetStuck(HBAR_TOKEN_ADDRESS)).to.be.revertedWith("!borrowToken");
+  //       await expect(strategy.inCaseTokensGetStuck(AHBARX_TOKEN_ADDRESS)).to.be.revertedWith("!aToken");
+  //       await expect(strategy.inCaseTokensGetStuck(DEBT_TOKEN_ADDRESS)).to.be.revertedWith("!debtToken");
+  //     });
+  //   });
+
+  //   describe("Strategy Safety", () => {
+  //     it("should not allow deposit when paused", async function () {
+  //       // Pause the strategy
+  //       await strategy.pause();
+
+  //       // Try to deposit - should fail
+  //       await expect(strategy.deposit()).to.be.revertedWith("Pausable: paused");
+
+  //       // Unpause for other tests
+  //       await strategy.unpause();
+  //     });
+
+  //     it("should not allow withdraw when paused", async function () {
+  //       // Pause the strategy
+  //       await strategy.pause();
+
+  //       // Try to withdraw - should fail
+  //       await expect(strategy.withdraw(1000)).to.be.revertedWith("Pausable: paused");
+
+  //       // Unpause for other tests
+  //       await strategy.unpause();
+  //     });
+
+  //     it("should not allow harvest when paused", async function () {
+  //       // Pause the strategy
+  //       await strategy.pause();
+
+  //       // Try to harvest - should fail
+  //       await expect(strategy.harvest()).to.be.revertedWith("Pausable: paused");
+
+  //       // Unpause for other tests
+  //       await strategy.unpause();
+  //     });
+  //   });
 });
