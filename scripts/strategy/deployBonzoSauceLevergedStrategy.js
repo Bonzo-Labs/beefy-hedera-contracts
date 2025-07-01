@@ -1,6 +1,11 @@
 const hardhat = require("hardhat");
 const { ethers } = hardhat;
-const addresses = require("../deployed-addresses.json");
+let addresses;
+if(process.env.CHAIN_TYPE === "mainnet") {
+  addresses = require("../deployed-addresses-mainnet.json");
+} else {
+  addresses = require("../deployed-addresses.json");
+}
 
 async function main() {
   await hardhat.run("compile");
@@ -11,7 +16,7 @@ async function main() {
   // Step 1: Deploy the strategy first
   console.log("Deploying BonzoSAUCELevergedLiqStaking...");
   const BonzoSAUCELevergedLiqStaking = await ethers.getContractFactory("BonzoSAUCELevergedLiqStaking");
-  const strategy = await BonzoSAUCELevergedLiqStaking.deploy();
+  const strategy = await BonzoSAUCELevergedLiqStaking.deploy({ gasLimit:5000000 });
   await strategy.deployed();
   console.log("BonzoSAUCELevergedLiqStaking deployed to:", strategy.address);
 
@@ -22,9 +27,9 @@ async function main() {
 
   // Step 3: Create a new vault using the factory
   console.log("Creating new vault...");
-  const tx = await vaultFactory.cloneVault();
+  const tx = await vaultFactory.cloneVault({ gasLimit: 3000000 });
   const receipt = await tx.wait();
-
+  
   // Get the new vault address from the ProxyCreated event
   const proxyCreatedEvent = receipt.events?.find(e => e.event === "ProxyCreated");
   const vaultAddress = proxyCreatedEvent?.args?.proxy;
