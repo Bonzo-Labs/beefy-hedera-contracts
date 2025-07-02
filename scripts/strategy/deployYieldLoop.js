@@ -50,10 +50,10 @@ async function main() {
   let want, aToken, debtToken, lendingPool, rewardsController, output;
 
   if (CHAIN_TYPE === "testnet") {
-    want = "0x0000000000000000000000000000000000001549";
-    aToken = "0xdab629eC837F84a08146B384f46F9a45272E922e";
-    debtToken = "0x8577209f831B41439793746DCAECE56809DEAbe2";
-    lendingPool = "0x3b779E5efAf4C46E1389f2F83071b3446F018CF1"; // Bonzo lending pool testnet
+    want = "0x0000000000000000000000000000000000120f46";
+    aToken = "0xC4d4315Ac919253b8bA48D5e609594921eb5525c";
+    debtToken = "0x65be417A48511d2f20332673038e5647a4ED194D";
+    lendingPool = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool testnet
     rewardsController = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller testnet
     output = want; // Output is same as want
   } else if (CHAIN_TYPE === "mainnet") {
@@ -90,11 +90,13 @@ async function main() {
 
   const commonAddresses = {
     vault: vaultAddress,
+    unirouter: "0x00000000000000000000000000000000000026e7", // Router address
     keeper: addresses.keeper,
     strategist: deployer.address,
     beefyFeeRecipient: addresses.beefyFeeRecipient,
     beefyFeeConfig: addresses.beefyFeeConfig,
   };
+  console.log("Common addresses:", commonAddresses);
 
   // Add a delay before initialization
   console.log("Waiting for 5 seconds before strategy initialization...");
