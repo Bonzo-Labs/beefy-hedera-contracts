@@ -47,7 +47,7 @@ async function main() {
   console.log("Initializing strategy...");
 
   // Dynamic addresses based on chain type
-  let want, aToken, debtToken, lendingPool, rewardsController, output;
+  let want, aToken, debtToken, lendingPool, rewardsController, output, unirouter;
 
   if (CHAIN_TYPE === "testnet") {
     want = "0x0000000000000000000000000000000000120f46";
@@ -56,6 +56,7 @@ async function main() {
     lendingPool = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool testnet
     rewardsController = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller testnet
     output = want; // Output is same as want
+    unirouter = "0x00000000000000000000000000000000000026e7"; // SaucerSwap router
   } else if (CHAIN_TYPE === "mainnet") {
     want = "0x00000000000000000000000000000000007e545e"; // BONZO token mainnet
     aToken = "0xC5aa104d5e7D9baE3A69Ddd5A722b8F6B69729c9"; // aBONZO token mainnet
@@ -63,6 +64,7 @@ async function main() {
     lendingPool = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
     rewardsController = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
     output = want; // Output is same as want
+    unirouter = "0x00000000000000000000000000000000003c437a"; // SaucerSwap router
   } else {
     throw new Error(`Unsupported CHAIN_TYPE: ${CHAIN_TYPE}. Use 'testnet' or 'mainnet'`);
   }
@@ -90,7 +92,7 @@ async function main() {
 
   const commonAddresses = {
     vault: vaultAddress,
-    unirouter: "0x00000000000000000000000000000000000026e7", // Router address
+    unirouter: unirouter, // Router address
     keeper: addresses.keeper,
     strategist: deployer.address,
     beefyFeeRecipient: addresses.beefyFeeRecipient,
