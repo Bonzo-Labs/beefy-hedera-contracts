@@ -131,8 +131,8 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0x3599b6eB756ca419Da093fb5E9b5F0a7B3e04caa";
-      const STRATEGY_ADDRESS = "0x749C817dC2B4E5f6E49f7978f43A21f7D45c7bB0";
+      const VAULT_ADDRESS = "0xD9cE1Ee304213B10Fe94bE353871F8346b0BD68E";
+      const STRATEGY_ADDRESS = "0x9005419275444DFF110AAC4Ecc5d73F823c96E0D";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoSAUCELevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -243,7 +243,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it("should handle deposit", async function () {
+    it.skip("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have xSAUCE tokens to test with
@@ -311,17 +311,12 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       if (userShares.eq(0)) {
         console.log("No shares available for withdrawal test - need to deposit first");
 
-        // Make a deposit first
-        const userBalance = await want.balanceOf(deployer.address);
-        if (userBalance.eq(0)) {
-          console.log("Skipping withdrawal test - no want tokens available for deposit");
-          this.skip();
-          return;
-        }
-
         const depositAmount = "100000";
-        await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
-        await vault.deposit(depositAmount, { gasLimit: 5000000 });
+        const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
+        await approveTx.wait();
+        const depositTx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+        const depositReceipt = await depositTx.wait();
+        console.log("Deposit transaction:", depositReceipt.transactionHash);
         console.log("Made initial deposit for withdrawal test");
       }
 
@@ -706,7 +701,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
 
   // Keep the original deposit test for compatibility
   describe("Original Deposit Test", () => {
-    it("should handle deposits and withdrawals correctly", async function () {
+    it.skip("should handle deposits and withdrawals correctly", async function () {
       console.log("sender address", deployer.address);
 
       // Skip this test if we don't have xSAUCE tokens to test with

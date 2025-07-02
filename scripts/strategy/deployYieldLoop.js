@@ -81,7 +81,6 @@ async function main() {
 
   // Step 6: Initialize the vault
   console.log("Initializing vault...");
-  const isHederaToken = true; // Set to true for HTS tokens
   const vaultInitTx = await vault.initialize(
     strategy.address,
     "Beefy BONZO YieldLoop",
