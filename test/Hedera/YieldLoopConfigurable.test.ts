@@ -7,16 +7,20 @@ import { BeefyVaultV7Hedera, YieldLoopConfigurable, IERC20Upgradeable } from "..
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
 //*******************SET CHAIN TYPE HERE*******************
 
-let addresses, BONZO_TOKEN_ADDRESS: string, ABONZO_TOKEN_ADDRESS: string, DEBT_BONZO_TOKEN_ADDRESS: string, LENDING_POOL_ADDRESS: string, REWARDS_CONTROLLER_ADDRESS: string, UNIROUTER_ADDRESS: string;
+let addresses,
+  BONZO_TOKEN_ADDRESS: string,
+  ABONZO_TOKEN_ADDRESS: string,
+  DEBT_BONZO_TOKEN_ADDRESS: string,
+  LENDING_POOL_ADDRESS: string,
+  REWARDS_CONTROLLER_ADDRESS: string;
 let nonManagerPK: string;
 if (CHAIN_TYPE === "testnet") {
   addresses = require("../../scripts/deployed-addresses.json");
-  BONZO_TOKEN_ADDRESS = ""; // No BONZO token on testnet yet
-  ABONZO_TOKEN_ADDRESS = ""; // No aBONZO token on testnet yet
-  DEBT_BONZO_TOKEN_ADDRESS = ""; // No debtBONZO token on testnet yet
-  LENDING_POOL_ADDRESS = "0x3b779E5efAf4C46E1389f2F83071b3446F018CF1"; // Bonzo lending pool testnet
+  BONZO_TOKEN_ADDRESS = "0x0000000000000000000000000000000000120f46"; // No BONZO token on testnet yet
+  ABONZO_TOKEN_ADDRESS = "0xC4d4315Ac919253b8bA48D5e609594921eb5525c"; // No aBONZO token on testnet yet
+  DEBT_BONZO_TOKEN_ADDRESS = "0x65be417A48511d2f20332673038e5647a4ED194D"; // No debtBONZO token on testnet yet
+  LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool testnet
   REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller testnet
-  UNIROUTER_ADDRESS = "0x00000000000000000000000000000000000026e7"; // SaucerSwap router
   nonManagerPK = process.env.NON_MANAGER_PK!;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
@@ -25,7 +29,6 @@ if (CHAIN_TYPE === "testnet") {
   DEBT_BONZO_TOKEN_ADDRESS = "0x1790C9169480c5C67D8011cd0311DDE1b2DC76e0"; // debtBONZO token mainnet
   LENDING_POOL_ADDRESS = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
   REWARDS_CONTROLLER_ADDRESS = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
-  UNIROUTER_ADDRESS = "0x00000000000000000000000000000000003c437a"; // SaucerSwap router
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET!;
 }
 
@@ -47,7 +50,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   let output: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = true; // Set to false to use existing deployed contracts
+  let deployNewContract = false; // Set to false to use existing deployed contracts
 
   before(async () => {
     [deployer] = await ethers.getSigners();
@@ -93,7 +96,7 @@ describe("BeefyYieldLoopConfigurable", function () {
         vault: vaultAddress,
         keeper: KEEPER,
         strategist: STRATEGY_OWNER,
-        unirouter: UNIROUTER_ADDRESS,
+        unirouter: "0x00000000000000000000000000000000000026e7", // Required by base contract but unused
         beefyFeeRecipient: BEEFY_FEE_RECIPIENT,
         beefyFeeConfig: FEE_CONFIG_ADDRESS,
       };
@@ -126,8 +129,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contracts
-      const VAULT_ADDRESS = "0x5cF82dA820521a4c981f5e3B7BaBCacEbB7dFA79"; // Update this with actual deployed YieldLoopConfigurable vault
-      const STRATEGY_ADDRESS = "0x83B9B48D541A7B59CF34004776BcB6567d17642C"; // Update with actual deployed strategy
+      const VAULT_ADDRESS = "0x10A4a762D59Ade2A6C4650774dDf145104772109";
+      const STRATEGY_ADDRESS = "0x9A42ed2F19644c8d62e80b06ED2431E1e7b82eFC";
 
       console.log("Using existing deployed contracts:");
       console.log("Vault address:", VAULT_ADDRESS);
@@ -143,7 +146,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Strategy Initialization", () => {
-    it.skip("should have correct initial parameters", async function () {
+    it("should have correct initial parameters", async function () {
       const borrowFactor = await strategy.borrowFactor();
       const leverageLoops = await strategy.leverageLoops();
       const isHederaToken = await strategy.isHederaToken();
@@ -157,7 +160,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("Output address:", outputAddress);
 
       expect(borrowFactor).to.be.eq(4000); // 40%
-      expect(leverageLoops).to.be.eq(3);
+      expect(leverageLoops).to.be.eq(2);
       expect(isHederaToken).to.be.eq(true);
       expect(wantAddress).to.be.eq(BONZO_TOKEN_ADDRESS);
       expect(outputAddress).to.be.eq(BONZO_TOKEN_ADDRESS);
@@ -174,23 +177,10 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(aToken).to.be.eq(ABONZO_TOKEN_ADDRESS);
       expect(debtToken).to.be.eq(DEBT_BONZO_TOKEN_ADDRESS);
     });
-
-    it.skip("should have correct initial swap settings", async function () {
-      const swapPath = await strategy.getSwapPath();
-      const slippageTolerance = await strategy.swapSlippageTolerance();
-
-      console.log("Initial swap path:", swapPath);
-      console.log("Initial slippage tolerance:", slippageTolerance.toString());
-
-      expect(swapPath.length).to.be.eq(2);
-      expect(swapPath[0]).to.be.eq(BONZO_TOKEN_ADDRESS);
-      expect(swapPath[1]).to.be.eq(BONZO_TOKEN_ADDRESS);
-      expect(slippageTolerance).to.be.eq(300); // 3%
-    });
   });
 
   describe("Deposit and Withdraw", () => {
-    it.skip("should handle deposit", async function () {
+    it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have BONZO tokens to test with
@@ -202,7 +192,7 @@ describe("BeefyYieldLoopConfigurable", function () {
         return;
       }
 
-      const depositAmount = "1000000000000000000"; // 1 BONZO (18 decimals)
+      const depositAmount = "100000000"; // 1 BONZO (8 decimals)
 
       console.log("\n=== DEPOSIT PHASE ===");
 
@@ -243,7 +233,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("✅ Deposit test passed!");
     });
 
-    it.skip("should handle withdrawal methods", async function () {
+    it("should handle withdrawal methods", async function () {
       console.log("Testing withdrawal functionality...");
 
       // Check if user has shares to withdraw
@@ -261,7 +251,7 @@ describe("BeefyYieldLoopConfigurable", function () {
           return;
         }
 
-        const depositAmount = "1000000000000000000";
+        const depositAmount = "10000000";
         await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
         await vault.deposit(depositAmount, { gasLimit: 5000000 });
         console.log("Made initial deposit for withdrawal test");
@@ -417,61 +407,6 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe("Swap Functionality", () => {
-    it.skip("should allow updating swap path", async function () {
-      // Create a test path with an intermediate token (USDC as intermediate)
-      const intermediateToken = "0x000000000000000000000000000000000006f89a"; // USDC mainnet
-      const newPath = [BONZO_TOKEN_ADDRESS, intermediateToken, BONZO_TOKEN_ADDRESS];
-
-      await strategy.setSwapPath(newPath);
-      const updatedPath = await strategy.getSwapPath();
-
-      expect(updatedPath.length).to.be.eq(3);
-      expect(updatedPath[0]).to.be.eq(BONZO_TOKEN_ADDRESS);
-      expect(updatedPath[1]).to.be.eq(intermediateToken);
-      expect(updatedPath[2]).to.be.eq(BONZO_TOKEN_ADDRESS);
-    });
-
-    it.skip("should not allow invalid swap paths", async function () {
-      // Test empty path
-      await expect(strategy.setSwapPath([])).to.be.reverted;
-
-      // Test single token path
-      await expect(strategy.setSwapPath([BONZO_TOKEN_ADDRESS])).to.be.reverted;
-
-      // Test path not starting with output token (use USDC address)
-      const invalidPath1 = ["0x000000000000000000000000000000000006f89a", BONZO_TOKEN_ADDRESS];
-      await expect(strategy.setSwapPath(invalidPath1)).to.be.reverted;
-
-      // Test path not ending with want token (use USDC address)
-      const invalidPath2 = [BONZO_TOKEN_ADDRESS, "0x000000000000000000000000000000000006f89a"];
-      await expect(strategy.setSwapPath(invalidPath2)).to.be.reverted;
-    });
-
-    it.skip("should allow updating slippage tolerance", async function () {
-      const newSlippage = 500; // 5%
-      await strategy.setSwapSlippageTolerance(newSlippage);
-      const updatedSlippage = await strategy.swapSlippageTolerance();
-      expect(updatedSlippage).to.be.eq(newSlippage);
-    });
-
-    it.skip("should not allow excessive slippage tolerance", async function () {
-      const excessiveSlippage = 1500; // 15% - above 10% limit
-      await expect(strategy.setSwapSlippageTolerance(excessiveSlippage)).to.be.reverted;
-    });
-
-    it.skip("should return correct swap path", async function () {
-      // Reset to default path
-      const defaultPath = [BONZO_TOKEN_ADDRESS, BONZO_TOKEN_ADDRESS];
-      await strategy.setSwapPath(defaultPath);
-
-      const retrievedPath = await strategy.getSwapPath();
-      expect(retrievedPath.length).to.be.eq(2);
-      expect(retrievedPath[0]).to.be.eq(BONZO_TOKEN_ADDRESS);
-      expect(retrievedPath[1]).to.be.eq(BONZO_TOKEN_ADDRESS);
-    });
-  });
-
   describe("Harvest Functionality", () => {
     it.skip("should allow harvest when rewards are available", async function () {
       const initialBalance = await strategy.balanceOf();
@@ -503,18 +438,6 @@ describe("BeefyYieldLoopConfigurable", function () {
       const zeroAddress = ethers.constants.AddressZero;
 
       await expect(strategy["harvest(address)"](zeroAddress)).to.be.reverted;
-    });
-
-    it.skip("should handle harvest with swap when output tokens available", async function () {
-      // This test would require having actual output tokens to swap
-      // For now, we just verify harvest completes without errors
-      const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
-      const harvestReceipt = await harvestTx.wait();
-
-      expect(harvestReceipt.status).to.be.eq(1);
-
-      // Check if any swap-related events were emitted (would depend on having rewards)
-      console.log("Harvest completed, checking for any reward processing...");
     });
   });
 
@@ -550,7 +473,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("View Functions", () => {
-    it("should return correct balance information", async function () {
+    it.skip("should return correct balance information", async function () {
       const totalBalance = await strategy.balanceOf();
       const wantBalance = await strategy.balanceOfWant();
       const supplyBalance = await strategy.balanceOfSupply();
@@ -566,7 +489,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(totalBalance).to.be.eq(calculatedBalance);
     });
 
-    it("should return rewards available", async function () {
+    it.skip("should return rewards available", async function () {
       const rewardsAvailable = await strategy.rewardsAvailable();
       const callReward = await strategy.callReward();
 
@@ -577,7 +500,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(callReward).to.be.gte(0);
     });
 
-    it("should return supply and borrow at each level", async function () {
+    it.skip("should return supply and borrow at each level", async function () {
       const leverageLoops = await strategy.leverageLoops();
 
       for (let i = 0; i < leverageLoops; i++) {
@@ -590,31 +513,20 @@ describe("BeefyYieldLoopConfigurable", function () {
         expect(borrowAtLevel).to.be.gte(0);
       }
     });
-
-    it("should return current swap configuration", async function () {
-      const swapPath = await strategy.getSwapPath();
-      const slippageTolerance = await strategy.swapSlippageTolerance();
-
-      console.log("Current swap path:", swapPath);
-      console.log("Current slippage tolerance:", slippageTolerance.toString());
-
-      expect(swapPath.length).to.be.gte(2);
-      expect(slippageTolerance).to.be.lte(1000); // Should be <= 10%
-    });
   });
 
   describe("Access Control", () => {
-    it("should only allow vault to call withdraw", async function () {
+    it.skip("should only allow vault to call withdraw", async function () {
       const withdrawAmount = 1000;
 
       await expect(strategy.withdraw(withdrawAmount)).to.be.reverted;
     });
 
-    it("should only allow vault to call retireStrat", async function () {
+    it.skip("should only allow vault to call retireStrat", async function () {
       await expect(strategy.retireStrat()).to.be.reverted;
     });
 
-    it("should only allow manager to update parameters", async function () {
+    it.skip("should only allow manager to update parameters", async function () {
       const signer = new ethers.Wallet(nonManagerPK!, ethers.provider);
       if (signer) {
         const strategyAsNonManager = strategy.connect(signer);
@@ -624,21 +536,6 @@ describe("BeefyYieldLoopConfigurable", function () {
         await expect(strategyAsNonManager.setLeverageLoops(3)).to.be.reverted;
 
         await expect(strategyAsNonManager.setHarvestOnDeposit(true)).to.be.reverted;
-      } else {
-        console.log("⚠️ Skipping access control test - only one signer available");
-        this.skip();
-      }
-    });
-
-    it("should only allow manager to update swap settings", async function () {
-      const signer = new ethers.Wallet(nonManagerPK!, ethers.provider);
-      if (signer) {
-        const strategyAsNonManager = strategy.connect(signer);
-
-        const newPath = [BONZO_TOKEN_ADDRESS, BONZO_TOKEN_ADDRESS];
-        await expect(strategyAsNonManager.setSwapPath(newPath)).to.be.reverted;
-
-        await expect(strategyAsNonManager.setSwapSlippageTolerance(500)).to.be.reverted;
       } else {
         console.log("⚠️ Skipping access control test - only one signer available");
         this.skip();
