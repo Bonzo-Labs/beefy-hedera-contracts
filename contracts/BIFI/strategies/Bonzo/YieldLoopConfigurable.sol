@@ -9,7 +9,6 @@ import "../Common/StratFeeManagerInitializable.sol";
 import "../../utils/GasFeeThrottler.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../interfaces/beefy/IStrategyV7.sol";
-import "../../interfaces/common/IUniswapRouterETH.sol";
 
 /**
  * @title YieldLoopConfigurable
@@ -49,10 +48,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     uint256[] public supplyAmounts; // Track supply at each level
     uint256[] public borrowAmounts; // Track borrow at each level
 
-    // Swap settings
-    address[] public outputToWantPath; // Swap path from output to want
-    uint256 public swapSlippageTolerance = 300; // 3% slippage tolerance in basis points
-
     // Events
     event StratHarvest(address indexed harvester, uint256 wantHarvested, uint256 tvl);
     event Deposit(uint256 tvl);
@@ -63,8 +58,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     event BorrowFactorUpdated(uint256 newBorrowFactor);
     event LeverageLoopsUpdated(uint256 newLoops);
     event EmergencyDeleveraged(uint256 totalRepaid, uint256 totalWithdrawn);
-    event SwapPathUpdated(address[] oldPath, address[] newPath);
-    event SlippageToleranceUpdated(uint256 oldTolerance, uint256 newTolerance);
 
     // Custom errors for gas efficiency
     error InvalidAmount();
@@ -110,11 +103,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
                 _associateToken(_output);
             }
         }
-
-        // Initialize swap path (direct swap by default)
-        outputToWantPath = new address[](2);
-        outputToWantPath[0] = _output;
-        outputToWantPath[1] = _want;
 
         _giveAllowances();
     }
@@ -280,12 +268,7 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
             if (outputBal > 0) {
                 chargeFees(callFeeRecipient);
 
-                // Swap remaining output tokens to want tokens for compounding
-                uint256 remainingOutput = IERC20(output).balanceOf(address(this));
-                if (remainingOutput > 0) {
-                    _swapOutputToWant(remainingOutput);
-                }
-
+                // Since output == want, no swapping needed - tokens are already in desired form
                 uint256 wantHarvested = balanceOfWant();
                 if (wantHarvested > 0) {
                     deposit();
@@ -314,23 +297,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         emit ChargedFees(callFeeAmount, beefyFeeAmount, strategistFeeAmount);
     }
 
-    function _swapOutputToWant(uint256 _outputAmount) internal {
-        if (_outputAmount == 0 || output == want) return;
-
-        // Get expected output amount with slippage protection
-        uint256[] memory amountsOut = IUniswapRouterETH(unirouter).getAmountsOut(_outputAmount, outputToWantPath);
-        uint256 expectedOut = amountsOut[amountsOut.length - 1];
-        uint256 minOut = (expectedOut * (10000 - swapSlippageTolerance)) / 10000;
-
-        // Execute swap
-        IUniswapRouterETH(unirouter).swapExactTokensForTokens(
-            _outputAmount,
-            minOut,
-            outputToWantPath,
-            address(this),
-            block.timestamp + 300 // 5 minute deadline
-        );
-    }
 
     // ===== Management Functions =====
 
@@ -366,22 +332,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         }
     }
 
-    function setSwapPath(address[] calldata _outputToWantPath) external onlyManager {
-        require(_outputToWantPath.length >= 2, "Invalid path length");
-        require(_outputToWantPath[0] == output, "Path must start with output token");
-        require(_outputToWantPath[_outputToWantPath.length - 1] == want, "Path must end with want token");
-
-        address[] memory oldPath = outputToWantPath;
-        outputToWantPath = _outputToWantPath;
-        emit SwapPathUpdated(oldPath, _outputToWantPath);
-    }
-
-    function setSwapSlippageTolerance(uint256 _swapSlippageTolerance) external onlyManager {
-        require(_swapSlippageTolerance <= 1000, "Slippage too high"); // Max 10%
-        uint256 oldTolerance = swapSlippageTolerance;
-        swapSlippageTolerance = _swapSlippageTolerance;
-        emit SlippageToleranceUpdated(oldTolerance, _swapSlippageTolerance);
-    }
 
     // ===== Emergency Functions =====
 
@@ -501,14 +451,12 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     function _giveAllowances() internal {
         if (!isHederaToken) {
             IERC20(want).approve(lendingPool, type(uint).max);
-            IERC20(output).approve(unirouter, type(uint).max);
         }
     }
 
     function _removeAllowances() internal {
         if (!isHederaToken) {
             IERC20(want).approve(lendingPool, 0);
-            IERC20(output).approve(unirouter, 0);
         }
     }
 
@@ -552,7 +500,4 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         return borrowAmounts[level];
     }
 
-    function getSwapPath() public view returns (address[] memory) {
-        return outputToWantPath;
-    }
 }

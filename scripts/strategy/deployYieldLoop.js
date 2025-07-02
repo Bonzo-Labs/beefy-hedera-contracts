@@ -1,7 +1,12 @@
 const hardhat = require("hardhat");
 const { ethers } = hardhat;
+
+//*******************SET CHAIN TYPE HERE*******************
+const CHAIN_TYPE = process.env.CHAIN_TYPE;
+//*******************SET CHAIN TYPE HERE*******************
+
 let addresses;
-if (process.env.CHAIN_TYPE === "mainnet") {
+if (CHAIN_TYPE === "mainnet") {
   addresses = require("../deployed-addresses-mainnet.json");
 } else {
   addresses = require("../deployed-addresses.json");
@@ -41,13 +46,45 @@ async function main() {
   // Step 5: Initialize the strategy
   console.log("Initializing strategy...");
 
-  // Mainnet addresses for BONZO token YieldLoop strategy
-  const want = "0x00000000000000000000000000000000007e545e"; // BONZO token as collateral
-  const aToken = "0xC5aa104d5e7D9baE3A69Ddd5A722b8F6B69729c9"; // aBONZO token
-  const debtToken = "0x1790C9169480c5C67D8011cd0311DDE1b2DC76e0"; // debtBONZO token
-  const lendingPool = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool
-  const rewardsController = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller
-  const output = "0x00000000000000000000000000000000007e545e"; // BONZO token as reward
+  // Dynamic addresses based on chain type
+  let want, aToken, debtToken, lendingPool, rewardsController, output;
+
+  if (CHAIN_TYPE === "testnet") {
+    want = "0x0000000000000000000000000000000000001549";
+    aToken = "0xdab629eC837F84a08146B384f46F9a45272E922e";
+    debtToken = "0x8577209f831B41439793746DCAECE56809DEAbe2";
+    lendingPool = "0x3b779E5efAf4C46E1389f2F83071b3446F018CF1"; // Bonzo lending pool testnet
+    rewardsController = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller testnet
+    output = want; // Output is same as want
+  } else if (CHAIN_TYPE === "mainnet") {
+    want = "0x00000000000000000000000000000000007e545e"; // BONZO token mainnet
+    aToken = "0xC5aa104d5e7D9baE3A69Ddd5A722b8F6B69729c9"; // aBONZO token mainnet
+    debtToken = "0x1790C9169480c5C67D8011cd0311DDE1b2DC76e0"; // debtBONZO token mainnet
+    lendingPool = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
+    rewardsController = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
+    output = want; // Output is same as want
+  } else {
+    throw new Error(`Unsupported CHAIN_TYPE: ${CHAIN_TYPE}. Use 'testnet' or 'mainnet'`);
+  }
+
+  // Validate required addresses
+  if (!want || !aToken || !debtToken) {
+    console.log("⚠️ Warning: Some token addresses are empty. This may be expected for testnet.");
+    console.log(`CHAIN_TYPE: ${CHAIN_TYPE}`);
+    console.log(`Want: ${want}`);
+    console.log(`aToken: ${aToken}`);
+    console.log(`debtToken: ${debtToken}`);
+
+    if (CHAIN_TYPE === "mainnet") {
+      throw new Error("All token addresses must be provided for mainnet deployment");
+    }
+
+    if (CHAIN_TYPE === "testnet") {
+      console.log("Skipping deployment for testnet - token addresses not available yet");
+      return;
+    }
+  }
+
   const isHederaToken = true; // All tokens are HTS tokens
   const leverageLoops = 2; // Number of leverage loops (2-5)
 
@@ -55,7 +92,6 @@ async function main() {
     vault: vaultAddress,
     keeper: addresses.keeper,
     strategist: deployer.address,
-    unirouter: "0x00000000000000000000000000000000000026e7", // SaucerSwap router
     beefyFeeRecipient: addresses.beefyFeeRecipient,
     beefyFeeConfig: addresses.beefyFeeConfig,
   };
@@ -81,7 +117,6 @@ async function main() {
 
   // Step 6: Initialize the vault
   console.log("Initializing vault...");
-  const isHederaToken = true; // Set to true for HTS tokens
   const vaultInitTx = await vault.initialize(
     strategy.address,
     "Beefy BONZO YieldLoop",

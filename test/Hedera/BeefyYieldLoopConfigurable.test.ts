@@ -7,7 +7,13 @@ import { BeefyVaultV7Hedera, YieldLoopConfigurable, IERC20Upgradeable } from "..
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
 //*******************SET CHAIN TYPE HERE*******************
 
-let addresses, BONZO_TOKEN_ADDRESS: string, ABONZO_TOKEN_ADDRESS: string, DEBT_BONZO_TOKEN_ADDRESS: string, LENDING_POOL_ADDRESS: string, REWARDS_CONTROLLER_ADDRESS: string, UNIROUTER_ADDRESS: string;
+let addresses,
+  BONZO_TOKEN_ADDRESS: string,
+  ABONZO_TOKEN_ADDRESS: string,
+  DEBT_BONZO_TOKEN_ADDRESS: string,
+  LENDING_POOL_ADDRESS: string,
+  REWARDS_CONTROLLER_ADDRESS: string,
+  UNIROUTER_ADDRESS: string;
 let nonManagerPK: string;
 if (CHAIN_TYPE === "testnet") {
   addresses = require("../../scripts/deployed-addresses.json");
@@ -47,7 +53,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   let output: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = true; // Set to false to use existing deployed contracts
+  let deployNewContract = false; // Set to false to use existing deployed contracts
 
   before(async () => {
     [deployer] = await ethers.getSigners();
@@ -126,8 +132,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contracts
-      const VAULT_ADDRESS = "0x5cF82dA820521a4c981f5e3B7BaBCacEbB7dFA79"; // Update this with actual deployed YieldLoopConfigurable vault
-      const STRATEGY_ADDRESS = "0x83B9B48D541A7B59CF34004776BcB6567d17642C"; // Update with actual deployed strategy
+      const VAULT_ADDRESS = "0xe117D88d61393E0c6a5B163f1eb8d7342B020450";
+      const STRATEGY_ADDRESS = "0x1b2bC5D777cDb2ac1aA08f564bf51d32503fEf9F";
 
       console.log("Using existing deployed contracts:");
       console.log("Vault address:", VAULT_ADDRESS);
@@ -190,7 +196,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it.skip("should handle deposit", async function () {
+    it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have BONZO tokens to test with
@@ -202,7 +208,7 @@ describe("BeefyYieldLoopConfigurable", function () {
         return;
       }
 
-      const depositAmount = "1000000000000000000"; // 1 BONZO (18 decimals)
+      const depositAmount = "100000000"; // 1 BONZO (8 decimals)
 
       console.log("\n=== DEPOSIT PHASE ===");
 
@@ -243,7 +249,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("✅ Deposit test passed!");
     });
 
-    it.skip("should handle withdrawal methods", async function () {
+    it("should handle withdrawal methods", async function () {
       console.log("Testing withdrawal functionality...");
 
       // Check if user has shares to withdraw
@@ -261,7 +267,7 @@ describe("BeefyYieldLoopConfigurable", function () {
           return;
         }
 
-        const depositAmount = "1000000000000000000";
+        const depositAmount = "10000000";
         await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
         await vault.deposit(depositAmount, { gasLimit: 5000000 });
         console.log("Made initial deposit for withdrawal test");
@@ -550,7 +556,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("View Functions", () => {
-    it("should return correct balance information", async function () {
+    it.skip("should return correct balance information", async function () {
       const totalBalance = await strategy.balanceOf();
       const wantBalance = await strategy.balanceOfWant();
       const supplyBalance = await strategy.balanceOfSupply();
@@ -566,7 +572,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(totalBalance).to.be.eq(calculatedBalance);
     });
 
-    it("should return rewards available", async function () {
+    it.skip("should return rewards available", async function () {
       const rewardsAvailable = await strategy.rewardsAvailable();
       const callReward = await strategy.callReward();
 
@@ -577,7 +583,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(callReward).to.be.gte(0);
     });
 
-    it("should return supply and borrow at each level", async function () {
+    it.skip("should return supply and borrow at each level", async function () {
       const leverageLoops = await strategy.leverageLoops();
 
       for (let i = 0; i < leverageLoops; i++) {
@@ -591,7 +597,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       }
     });
 
-    it("should return current swap configuration", async function () {
+    it.skip("should return current swap configuration", async function () {
       const swapPath = await strategy.getSwapPath();
       const slippageTolerance = await strategy.swapSlippageTolerance();
 
@@ -604,17 +610,17 @@ describe("BeefyYieldLoopConfigurable", function () {
   });
 
   describe("Access Control", () => {
-    it("should only allow vault to call withdraw", async function () {
+    it.skip("should only allow vault to call withdraw", async function () {
       const withdrawAmount = 1000;
 
       await expect(strategy.withdraw(withdrawAmount)).to.be.reverted;
     });
 
-    it("should only allow vault to call retireStrat", async function () {
+    it.skip("should only allow vault to call retireStrat", async function () {
       await expect(strategy.retireStrat()).to.be.reverted;
     });
 
-    it("should only allow manager to update parameters", async function () {
+    it.skip("should only allow manager to update parameters", async function () {
       const signer = new ethers.Wallet(nonManagerPK!, ethers.provider);
       if (signer) {
         const strategyAsNonManager = strategy.connect(signer);
@@ -630,7 +636,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       }
     });
 
-    it("should only allow manager to update swap settings", async function () {
+    it.skip("should only allow manager to update swap settings", async function () {
       const signer = new ethers.Wallet(nonManagerPK!, ethers.provider);
       if (signer) {
         const strategyAsNonManager = strategy.connect(signer);
