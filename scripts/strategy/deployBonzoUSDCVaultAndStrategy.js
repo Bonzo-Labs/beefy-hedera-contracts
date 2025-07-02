@@ -47,7 +47,7 @@ async function main() {
     vault: vaultAddress, // Set the vault address
     keeper: addresses.keeper,
     strategist: deployer.address,
-    unirouter: "0x00000000000000000000000000000000000026e7", // Router address
+    unirouter: "0x00000000000000000000000000000000003c437a", // Router address
     beefyFeeRecipient: addresses.beefyFeeRecipient,
     beefyFeeConfig: addresses.beefyFeeConfig,
   };

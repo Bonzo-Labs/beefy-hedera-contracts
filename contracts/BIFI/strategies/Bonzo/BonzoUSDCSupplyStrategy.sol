@@ -135,16 +135,16 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
         }
     }
 
-    function harvest() external  virtual nonReentrant {
+    function harvest() external virtual whenNotPaused{
         _harvest(tx.origin);
     }
 
-    function harvest(address callFeeRecipient) external virtual nonReentrant {
+    function harvest(address callFeeRecipient) external virtual whenNotPaused{
         require(callFeeRecipient != address(0), "Invalid fee recipient");
         _harvest(callFeeRecipient);
     }
 
-    function _harvest(address callFeeRecipient) internal whenNotPaused {
+    function _harvest(address callFeeRecipient) internal whenNotPaused nonReentrant {
         require(callFeeRecipient != address(0), "Invalid fee recipient");
         
         // Create array with aToken address for rewards claiming
@@ -278,7 +278,6 @@ contract BonzoUSDCSupplyStrategy is StratFeeManagerInitializable {
 
     function unpause() external onlyManager {
         _unpause();
-        deposit();
     }
 
     function name() external pure returns (string memory) {

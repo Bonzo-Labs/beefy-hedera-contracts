@@ -13,6 +13,10 @@ import "../../interfaces/beefy/IStrategyV7.sol";
 contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     using SafeERC20 for IERC20;
 
+    //update while deploying new strategy
+    string public constant NAME = "Strategy Bonzo Supply";
+    string public constant SYMBOL = "strategy-bonzo-supply";
+
     // Tokens used
     address public want; // Deposit token
     address public aToken; // Receipt token
@@ -109,10 +113,7 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "No funds to deposit");
 
-        if (isHederaToken) {
-            require(wantBal <= uint256(uint64(type(int64).max)), "Amount too large for int64");
-            _transferHTS(want, address(this), lendingPool, int64(uint64(wantBal)));
-        }
+        IERC20(want).approve(lendingPool, wantBal);
         ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);
         emit Deposit(balanceOf());
     }
@@ -149,16 +150,16 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         }
     }
 
-    function harvest() external virtual nonReentrant {
+    function harvest() external virtual  {
         _harvest(tx.origin);
     }
 
-    function harvest(address callFeeRecipient) external virtual nonReentrant {
+    function harvest(address callFeeRecipient) external virtual  {
         require(callFeeRecipient != address(0), "Invalid fee recipient");
         _harvest(callFeeRecipient);
     }
 
-    function _harvest(address callFeeRecipient) internal whenNotPaused {
+    function _harvest(address callFeeRecipient) internal whenNotPaused nonReentrant {
         require(callFeeRecipient != address(0), "Invalid fee recipient");
         
         address[] memory assets = new address[](1);
@@ -194,13 +195,19 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         uint256 toNative = outputBal * fees.total / DIVISOR;
 
         uint256 callFeeAmount = toNative * fees.call / DIVISOR;
-        _safeTransfer(output, address(this), callFeeRecipient, callFeeAmount);
+        if(callFeeAmount > 0) {
+            _safeTransfer(output, address(this), callFeeRecipient, callFeeAmount);
+        }
 
         uint256 beefyFeeAmount = toNative * fees.beefy / DIVISOR;
-        _safeTransfer(output, address(this), beefyFeeRecipient, beefyFeeAmount);
+        if(beefyFeeAmount > 0) {
+            _safeTransfer(output, address(this), beefyFeeRecipient, beefyFeeAmount);
+        }
 
         uint256 strategistFeeAmount = toNative * fees.strategist / DIVISOR;
-        _safeTransfer(output, address(this), strategist, strategistFeeAmount);
+        if(strategistFeeAmount > 0) {
+            _safeTransfer(output, address(this), strategist, strategistFeeAmount);
+        }
 
         emit ChargedFees(callFeeAmount, beefyFeeAmount, strategistFeeAmount);
     }
@@ -274,7 +281,6 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
 
     function unpause() external onlyManager {
         _unpause();
-        deposit();
     }
 
     function _giveAllowances() internal {
@@ -284,11 +290,4 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         }
     }
 
-    function name() external pure returns (string memory) {
-        return "Strategy Bonzo Supply";
-    }
-
-    function symbol() external pure returns (string memory) {
-        return "strategy-bonzo-supply";
-    }
 }
