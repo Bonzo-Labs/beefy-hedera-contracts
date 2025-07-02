@@ -25,7 +25,7 @@ async function main() {
 
   // Get the new vault address from the ProxyCreated event
   const proxyCreatedEvent = receipt.events?.find(e => e.event === "ProxyCreated");
-  const vaultAddress = proxyCreatedEvent?.args?.proxy;
+  let vaultAddress = proxyCreatedEvent?.args?.proxy;
   console.log("New vault deployed to:", vaultAddress);
 
   // Step 3: Deploy the strategy first
@@ -37,6 +37,12 @@ async function main() {
 
 
   // Step 4: Connect to the newly created vault
+
+  // note: used in case deployment fails inbetween
+  // let vaultAddress="0xb1Ba4210fd85e33c6036353201f79eA5aa77ed6F";
+  // let strategyAddress="0xd02C7503B3D81e249C09bD427DA821535c376EC0";
+  // const strategy = await ethers.getContractAt("BonzoSAUCELevergedLiqStaking", strategyAddress);
+  
   const vault = await ethers.getContractAt("BeefyVaultV7Hedera", vaultAddress);
 
   // Step 5: Initialize the strategy

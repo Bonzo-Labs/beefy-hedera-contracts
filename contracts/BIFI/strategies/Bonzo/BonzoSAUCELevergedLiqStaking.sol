@@ -279,26 +279,22 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
                 break;
             }
             // For all layers except the last one, repay proportional debt
+            uint256 requiredXSauce = 0;
             if (i < maxLoops - 1) {
                 // Convert SAUCE debt to xSAUCE amount needed
-                uint256 requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(layerDebt);
-                uint256 sauceAmount = _leave(requiredXSauce);
-                ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
+                requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(layerDebt);
                 debtPaid += layerDebt;
             } else {
                 // For the last layer, repay remaining debt
                 uint256 remainingDebt = totalDebt - debtPaid;
                 if (remainingDebt > 0) {
-                    // Convert SAUCE debt to xSAUCE amount needed
-                    uint256 requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(remainingDebt);
-                    uint256 sauceAmount = _leave(requiredXSauce);
-                    if (sauceAmount > 0) {
-                        //approve
-                        // IERC20(borrowToken).approve(lendingPool, sauceAmount);
-                        ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
-                    }
+                    requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(remainingDebt);
                 }
             }
+            uint256 sauceAmount = _leave(requiredXSauce); //leave xSauce and get sauce
+            if (sauceAmount > 0) {
+                ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
+            }   
         }
     }
 
