@@ -1,3 +1,4 @@
+
 import { ethers } from "hardhat";
 import { expect } from "chai";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
@@ -19,13 +20,13 @@ let nonManagerPK: string;
 
 if (CHAIN_TYPE === "testnet") {
   addresses = require("../../scripts/deployed-addresses.json");
-  XSAUCE_TOKEN_ADDRESS = "0x00000000000000000000000000000000001647e8"; // xSAUCE token
-  SAUCE_TOKEN_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE token
-  AXSAUCE_TOKEN_ADDRESS = "0xEc9CEF1167b4673726B1e5f5A978150e63cDf23b"; // axSAUCE token
-  DEBT_TOKEN_ADDRESS = "0x736c5dbB8ADC643f04c1e13a9C25f28d3D4f0503"; // debtSAUCE token
+  XSAUCE_TOKEN_ADDRESS = "0x000000000000000000000000000000000015a59b"; // xSAUCE token
+  SAUCE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000120f46"; // SAUCE token
+  AXSAUCE_TOKEN_ADDRESS = "0x2217F55E2056C15a21ED7a600446094C36720f29"; // axSAUCE token
+  DEBT_TOKEN_ADDRESS = "0x65be417A48511d2f20332673038e5647a4ED194D"; // debtSAUCE token
   LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool
   REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller
-  STAKING_POOL_ADDRESS = "0x00000000000000000000000000000000001647e7"; // SaucerSwap staking pool
+  STAKING_POOL_ADDRESS = "0x000000000000000000000000000000000015A59A"; // SaucerSwap staking pool
   UNIROUTER_ADDRESS = "0x00000000000000000000000000000000000026e7"; // Router address
   nonManagerPK = process.env.NON_MANAGER_PK!;
 } else if (CHAIN_TYPE === "mainnet") {
@@ -131,8 +132,8 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0xD9cE1Ee304213B10Fe94bE353871F8346b0BD68E";
-      const STRATEGY_ADDRESS = "0x9005419275444DFF110AAC4Ecc5d73F823c96E0D";
+      const VAULT_ADDRESS = "0x9a3ff4e7c82dd6c6D0777FfC06852244265aA603";
+      const STRATEGY_ADDRESS = "0x8a07219D904da5b793B018eBE8465a4EB76947D2";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoSAUCELevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -313,7 +314,8 @@ describe("BeefyBonzoSauceXSauceVault", function () {
 
         const depositAmount = "100000";
         const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
-        await approveTx.wait();
+        const approveReceipt = await approveTx.wait();
+        console.log("Approve transaction:", approveReceipt.transactionHash);
         const depositTx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
         const depositReceipt = await depositTx.wait();
         console.log("Deposit transaction:", depositReceipt.transactionHash);
@@ -393,8 +395,8 @@ describe("BeefyBonzoSauceXSauceVault", function () {
 
       console.log("Executing withdrawal...");
       const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 5000000 });
-      await withdrawTx.wait();
-      console.log("Withdrawal completed");
+      const withdrawReceipt = await withdrawTx.wait();
+      console.log("Withdrawal completed:", withdrawReceipt.transactionHash);
 
       const postWithdrawBalance = await want.balanceOf(deployer.address);
       const postWithdrawShares = await vault.balanceOf(deployer.address);
