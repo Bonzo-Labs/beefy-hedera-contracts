@@ -96,7 +96,7 @@ contract StratFeeManagerInitializable is OwnableUpgradeable, PausableUpgradeable
     }
 
     // set new unirouter
-    function setUnirouter(address _unirouter) external onlyOwner {
+    function setUnirouter(address _unirouter) external virtual onlyOwner {
         unirouter = _unirouter;
         emit SetUnirouter(_unirouter);
     }
