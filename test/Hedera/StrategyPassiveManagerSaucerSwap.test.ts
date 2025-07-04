@@ -26,7 +26,7 @@ if (CHAIN_TYPE === "testnet") {
   QUOTER_ADDRESS = "0x00000000000000000000000000000000001535b2"; // SaucerSwap quoter testnet
   FACTORY_ADDRESS = "0x00000000000000000000000000000000001243ee"; // SaucerSwap factory testnet
   TOKEN0_ADDRESS = "0x0000000000000000000000000000000000003ad2"; // WHBAR testnet
-  TOKEN1_ADDRESS = "0x0000000000000000000000000000000000120f46"; // USDC testnet
+  TOKEN1_ADDRESS = "0x0000000000000000000000000000000000120f46"; // SAUCE testnet
   NATIVE_ADDRESS = "0x0000000000000000000000000000000000003ad2"; // WHBAR testnet
   nonManagerPK = process.env.NON_MANAGER_PK!;
 } else if (CHAIN_TYPE === "mainnet") {
@@ -55,19 +55,11 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
   let user1: SignerWithAddress;
   let vaultAddress: string;
 
-  //*******************SET DEPLOY NEW CONTRACT FLAG HERE*******************
-  let deployNewContract = false; // Set to false to use existing deployed contracts
-  //*******************SET DEPLOY NEW CONTRACT FLAG HERE*******************
-
   // Position configuration
   const positionConfig = {
     positionWidth: 200,
     maxTickDeviation: 200,
     twapInterval: 120,
-    
-    // Paths (empty for testing, to be set by owner after deployment)
-    lpToken0ToNativePath: "0x",
-    lpToken1ToNativePath: "0x",
     
     // Vault configuration
     vaultName: `Beefy CLM SaucerSwap ${CHAIN_TYPE}`,
@@ -79,7 +71,6 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     console.log("Testing with deployer:", deployer.address);
     console.log("Testing with keeper:", keeper.address);
     console.log("Chain type:", CHAIN_TYPE);
-    console.log("Deploy new contract:", deployNewContract);
 
     // Validate infrastructure addresses
     if (!addresses.beefyFeeConfig || addresses.beefyFeeConfig === ethers.constants.AddressZero) {
@@ -90,106 +81,23 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       console.log("Warning: BeefyOracle address not found, some tests may fail");
     }
 
-    if (deployNewContract) {
-      // Deploy new contracts branch
-      console.log("=== Deploying New Contracts ===");
-      
-      // Deploy the strategy
-      console.log("Deploying StrategyPassiveManagerSaucerSwap...");
-      const StrategyFactory = await ethers.getContractFactory("StrategyPassiveManagerSaucerSwap");
-      strategy = await StrategyFactory.deploy({ gasLimit: 3000000 });
-      await strategy.deployed();
-      console.log("Strategy deployed to:", strategy.address);
+    // Use existing deployed contracts
+    console.log("=== Using Existing Deployed Contracts ===");
+    
+    // Hardcoded addresses for existing deployed contracts
+    const EXISTING_VAULT_ADDRESS = addresses.clmVault || "0x07Be2b7CeF513C5e8347d825dD1E9c4BFe54e44b"; // CLM vault address
+    const EXISTING_STRATEGY_ADDRESS = "0x1b76e2ddA5D44d594cfD435113da598AA6742648"; // Strategy address
 
-      // Deploy vault using CLM vault instance (not factory pattern for CLM)
-      console.log("Deploying BeefyVaultConcLiqHedera...");
-      const VaultConcLiq = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
-      vault = await VaultConcLiq.deploy({ gasLimit: 3000000 });
-      await vault.deployed();
-      vaultAddress = vault.address;
-      console.log("CLM Vault deployed to:", vaultAddress);
-
-      // Initialize the strategy
-      console.log("Initializing strategy...");
-      const commonAddresses = {
-        vault: vaultAddress,
-        keeper: keeper.address,
-        strategist: deployer.address,
-        unirouter: addresses.beefySwapper || ethers.constants.AddressZero,
-        beefyFeeRecipient: deployer.address,
-        beefyFeeConfig: addresses.beefyFeeConfig,
-      };
-
-      const initParams = {
-        pool: POOL_ADDRESS,
-        quoter: QUOTER_ADDRESS,
-        positionWidth: positionConfig.positionWidth,
-        lpToken0ToNativePath: positionConfig.lpToken0ToNativePath,
-        lpToken1ToNativePath: positionConfig.lpToken1ToNativePath,
-        native: NATIVE_ADDRESS,
-        factory: FACTORY_ADDRESS,
-        beefyOracle: addresses.beefyOracle,
-      };
-
-      try {
-        await strategy.initialize(
-          initParams,
-          commonAddresses,
-          { gasLimit: 3000000 }
-        );
-        console.log("Strategy initialized");
-
-        // Initialize the vault
-        console.log("Initializing vault...");
-        await vault.initialize(
-          strategy.address,
-          positionConfig.vaultName,
-          positionConfig.vaultSymbol,
-          addresses.beefyOracle,
-          { gasLimit: 3000000 }
-        );
-        console.log("Vault initialized");
-
-        // Update strategy vault address
-        console.log("Setting strategy vault address...");
-        await strategy.setVault(vaultAddress, { gasLimit: 1000000 });
-        console.log("Strategy vault address updated");
-
-        // Set recommended parameters
-        console.log("Setting recommended parameters...");
-        await strategy.setDeviation(positionConfig.maxTickDeviation, { gasLimit: 1000000 });
-        await strategy.setTwapInterval(positionConfig.twapInterval, { gasLimit: 1000000 });
-        console.log("Parameters set");
-
-      } catch (error) {
-        console.log("Contract initialization failed (expected in test environment):", error);
-      }
-
-    } else {
-      // Use existing deployed contracts branch
-      console.log("=== Using Existing Deployed Contracts ===");
-      
-      // TODO: Update these addresses with actual deployed contract addresses
-      const EXISTING_VAULT_ADDRESS = "0x0000000000000000000000000000000000000000"; // Update with actual CLM vault
-      const EXISTING_STRATEGY_ADDRESS = "0x0000000000000000000000000000000000000000"; // Update with actual strategy
-
-      if (EXISTING_VAULT_ADDRESS === ethers.constants.AddressZero || 
-          EXISTING_STRATEGY_ADDRESS === ethers.constants.AddressZero) {
-        console.log("Warning: Using zero addresses for existing contracts - tests will likely fail");
-        console.log("Update EXISTING_VAULT_ADDRESS and EXISTING_STRATEGY_ADDRESS with real deployed addresses");
-      }
-
-      console.log("Vault address:", EXISTING_VAULT_ADDRESS);
-      console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
-      
-      try {
-        vault = await ethers.getContractAt("BeefyVaultConcLiqHedera", EXISTING_VAULT_ADDRESS);
-        strategy = await ethers.getContractAt("StrategyPassiveManagerSaucerSwap", EXISTING_STRATEGY_ADDRESS);
-        vaultAddress = EXISTING_VAULT_ADDRESS;
-        console.log("Connected to existing contracts");
-      } catch (error) {
-        console.log("Failed to connect to existing contracts:", error);
-      }
+    console.log("Vault address:", EXISTING_VAULT_ADDRESS);
+    console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
+    
+    try {
+      vault = await ethers.getContractAt("BeefyVaultConcLiqHedera", EXISTING_VAULT_ADDRESS);
+      strategy = await ethers.getContractAt("StrategyPassiveManagerSaucerSwap", EXISTING_STRATEGY_ADDRESS);
+      vaultAddress = EXISTING_VAULT_ADDRESS;
+      console.log("Connected to existing contracts");
+    } catch (error) {
+      console.log("Failed to connect to existing contracts:", error);
     }
 
     // Get token contracts for testing
@@ -282,7 +190,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       console.log("  Token0 Address:", TOKEN0_ADDRESS);
       console.log("  Token1 Address:", TOKEN1_ADDRESS);
       console.log("  Native Address:", NATIVE_ADDRESS);
-      console.log("  Deploy New Contract:", deployNewContract);
+      console.log("  Using Existing Contracts: true");
     });
   });
 
@@ -636,15 +544,15 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it("Should return token to native paths", async function () {
+    it("Should return token addresses", async function () {
       try {
-        const path0 = await strategy.lpToken0ToNative();
-        const path1 = await strategy.lpToken1ToNative();
-        expect(Array.isArray(path0)).to.be.true;
-        expect(Array.isArray(path1)).to.be.true;
-        console.log("Token paths lengths - Token0:", path0.length, "Token1:", path1.length);
+        const token0 = await strategy.lpToken0();
+        const token1 = await strategy.lpToken1();
+        expect(token0).to.be.a("string");
+        expect(token1).to.be.a("string");
+        console.log("Token addresses - Token0:", token0, "Token1:", token1);
       } catch (error) {
-        console.log("Token path check failed (expected in test environment):", error);
+        console.log("Token address check failed (expected in test environment):", error);
       }
     });
   });
@@ -879,7 +787,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       console.log("\n=== COMPREHENSIVE TEST SUMMARY ===");
       console.log("Chain Configuration:");
       console.log("  • Chain Type:", CHAIN_TYPE);
-      console.log("  • Deploy New Contract:", deployNewContract);
+      console.log("  • Using Existing Contracts: true");
       console.log("  • Pool Address:", POOL_ADDRESS);
       console.log("  • Quoter Address:", QUOTER_ADDRESS);
       console.log("  • Factory Address:", FACTORY_ADDRESS);
@@ -913,8 +821,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       console.log("\nUsage Instructions:");
       console.log("  To run with testnet: CHAIN_TYPE=testnet npm test");
       console.log("  To run with mainnet: CHAIN_TYPE=mainnet npm test");
-      console.log("  To deploy new contracts: Set deployNewContract = true");
-      console.log("  To use existing contracts: Set deployNewContract = false and update addresses");
+      console.log("  Tests use existing deployed contracts for consistency");
       console.log("=== END TEST SUMMARY ===\n");
       
       // This test always passes as it's informational
@@ -957,7 +864,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
   after(async () => {
     console.log("\n=== Strategy Test Cleanup ===");
     console.log("• Chain Type:", CHAIN_TYPE);
-    console.log("• Deploy New Contract:", deployNewContract);
+    console.log("• Using Existing Contracts: true");
     if (strategy) {
       console.log("• Strategy Address:", strategy.address);
     }
