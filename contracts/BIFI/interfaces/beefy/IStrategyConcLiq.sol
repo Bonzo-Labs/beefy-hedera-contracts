@@ -9,6 +9,7 @@ interface IStrategyConcLiq {
     function pool() external view returns (address);
     function lpToken0() external view returns (address);
     function lpToken1() external view returns (address);
+    function native() external view returns (address);
     function isCalm() external view returns (bool);
     function swapFee() external view returns (uint256);
 

@@ -394,7 +394,7 @@ const config: DeploymentConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200,
+            runs: 1, // Minimum runs for smallest bytecode for Hedera
           },
         },
       },
@@ -403,7 +403,7 @@ const config: DeploymentConfig = {
         settings: {
           optimizer: {
             enabled: true,
-            runs: 200,
+            runs: 1, // Minimum runs for smallest bytecode for Hedera
           },
         },
       },

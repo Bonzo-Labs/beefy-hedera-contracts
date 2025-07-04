@@ -111,6 +111,7 @@ async function main() {
     clmStrategyFactory: ethers.constants.AddressZero,
     clmRewardPoolFactory: ethers.constants.AddressZero,
     positionMulticall: ethers.constants.AddressZero,
+    clmVault: ethers.constants.AddressZero,
     beefyOracleChainlink: ethers.constants.AddressZero,
     beefyOracleUniswapV2: ethers.constants.AddressZero,
     beefyOracleUniswapV3: ethers.constants.AddressZero,
@@ -234,6 +235,19 @@ async function main() {
     console.log(`Vault V7 MultiToken already deployed at ${addresses.vaultV7MultiToken}`);
   }
 
+  // Deploy CLM Vault if not already deployed
+  if (!isContractDeployed(addresses.clmVault)) {
+    console.log("Deploying CLM Vault (BeefyVaultConcLiqHedera)");
+    const CLMVault = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
+    const clmVault = await CLMVault.deploy({ gasLimit: 5000000 });
+    await clmVault.deployed();
+    console.log(`CLM Vault deployed to ${clmVault.address}`);
+    addresses.clmVault = clmVault.address;
+    saveAddresses(addresses);
+  } else {
+    console.log(`CLM Vault already deployed at ${addresses.clmVault}`);
+  }
+
   // Deploy vault factory if not already deployed
   if (!isContractDeployed(addresses.vaultFactory)) {
     console.log("Deploying Vault Factory");
@@ -344,6 +358,7 @@ async function main() {
       clmStrategyFactory: '${ethers.constants.AddressZero}',
       clmRewardPoolFactory: '${ethers.constants.AddressZero}',
       positionMulticall: '${ethers.constants.AddressZero}',
+      clmVault: '${addresses.clmVault}',
     
       /// Beefy Swapper Contracts
       beefySwapper: '${addresses.beefySwapper}',
