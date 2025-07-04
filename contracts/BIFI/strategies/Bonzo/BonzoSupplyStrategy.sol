@@ -192,19 +192,19 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         
         IFeeConfig.FeeCategory memory fees = getFees();
         uint256 outputBal = IERC20(output).balanceOf(address(this));
-        uint256 toNative = outputBal * fees.total / DIVISOR;
+        uint256 totalFees = outputBal * fees.total / DIVISOR;
 
-        uint256 callFeeAmount = toNative * fees.call / DIVISOR;
+        uint256 callFeeAmount = totalFees * fees.call / DIVISOR;
         if(callFeeAmount > 0) {
             _safeTransfer(output, address(this), callFeeRecipient, callFeeAmount);
         }
 
-        uint256 beefyFeeAmount = toNative * fees.beefy / DIVISOR;
+        uint256 beefyFeeAmount = totalFees * fees.beefy / DIVISOR;
         if(beefyFeeAmount > 0) {
             _safeTransfer(output, address(this), beefyFeeRecipient, beefyFeeAmount);
         }
 
-        uint256 strategistFeeAmount = toNative * fees.strategist / DIVISOR;
+        uint256 strategistFeeAmount = totalFees * fees.strategist / DIVISOR;
         if(strategistFeeAmount > 0) {
             _safeTransfer(output, address(this), strategist, strategistFeeAmount);
         }
