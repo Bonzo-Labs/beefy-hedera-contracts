@@ -1,11 +1,15 @@
 const hardhat = require("hardhat");
 
 /**
- * Script to deploy StrategyPassiveManagerSaucerSwap for CLM (Concentrated Liquidity Management)
+ * Script to deploy or initialize StrategyPassiveManagerSaucerSwap for CLM (Concentrated Liquidity Management)
  *
  * Usage:
+ * Deploy new contracts:
  * CHAIN_TYPE=testnet npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_testnet
  * CHAIN_TYPE=mainnet npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_mainnet
+ * 
+ * Initialize existing contract:
+ * CHAIN_TYPE=testnet INITIALIZE_EXISTING=true npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_testnet
  *
  * Note: All tokens on Hedera are automatically detected as HTS tokens except native HBAR.
  * No need to specify token types manually.
@@ -15,7 +19,12 @@ const ethers = hardhat.ethers;
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
+const INITIALIZE_EXISTING = process.env.INITIALIZE_EXISTING === "true";
 //*******************SET CHAIN TYPE HERE*******************
+
+// Existing deployed contract addresses (for initialization mode)
+const EXISTING_STRATEGY_ADDRESS = "0x1b76e2ddA5D44d594cfD435113da598AA6742648";
+const EXISTING_VAULT_ADDRESS = "0xb6B12E09dF6B245E4C2DC612F610a8eC2AdebC5F";
 
 // Load addresses based on chain type
 let addresses;
@@ -77,9 +86,10 @@ async function main() {
   await hardhat.run("compile");
 
   const deployer = await ethers.getSigner();
-  console.log("Deploying with account:", deployer.address);
+  console.log("Account:", deployer.address);
   console.log("Account balance:", (await deployer.getBalance()).toString());
   console.log("Chain type:", CHAIN_TYPE);
+  console.log("Mode:", INITIALIZE_EXISTING ? "Initialize Existing" : "Deploy New");
 
   // Validate infrastructure addresses
   if (!addresses.beefyFeeConfig || addresses.beefyFeeConfig === ethers.constants.AddressZero) {
@@ -88,10 +98,6 @@ async function main() {
 
   if (!addresses.beefyOracle || addresses.beefyOracle === ethers.constants.AddressZero) {
     throw new Error("BeefyOracle address not found. Please run deployChain.js first.");
-  }
-
-  if (!addresses.clmVault || addresses.clmVault === ethers.constants.AddressZero) {
-    throw new Error("CLM Vault address not found. Please run deployChain.js first.");
   }
 
   // Validate configuration
@@ -110,12 +116,150 @@ async function main() {
   console.log("  Position Width:", config.positionWidth);
   console.log("  Native Token:", config.native);
 
+  // Force deployment of new strategy
+  return await deployNewStrategy();
+}
+
+async function initializeExistingStrategy() {
+  const deployer = await ethers.getSigner();
+  console.log("\n=== Initializing Existing Strategy ===");
+  console.log("Strategy Address:", EXISTING_STRATEGY_ADDRESS);
+  console.log("Vault Address:", EXISTING_VAULT_ADDRESS);
+
+  // Connect to existing strategy
+  const strategy = await ethers.getContractAt("StrategyPassiveManagerSaucerSwap", EXISTING_STRATEGY_ADDRESS);
+  console.log("Connected to strategy at:", strategy.address);
+
+  // Check current state
+  console.log("\n=== Current Strategy State ===");
+  try {
+    console.log("Current pool:", await strategy.pool());
+    console.log("Current vault:", await strategy.vault());
+    console.log("Current position width:", (await strategy.positionWidth()).toString());
+    console.log("Current owner:", await strategy.owner());
+  } catch (error) {
+    console.log("Error reading current state:", error.message);
+  }
+
+  // Check if already initialized by reading current state
+  console.log("\n=== Checking Initialization Status ===");
+  
+  let isAlreadyInitialized = false;
+  let currentOwner = ethers.constants.AddressZero;
+  
+  try {
+    // Try to read owner to check if initialized
+    currentOwner = await strategy.owner();
+    if (currentOwner !== ethers.constants.AddressZero) {
+      isAlreadyInitialized = true;
+      console.log("✓ Strategy is already initialized");
+      console.log("Reading current configuration...");
+      
+      const currentPool = await strategy.pool();
+      const currentVault = await strategy.vault();
+      const currentWidth = await strategy.positionWidth();
+      const currentTwap = await strategy.twapInterval();
+      const currentNative = await strategy.native();
+      
+      console.log("Current Configuration:");
+      console.log("  Pool:", currentPool);
+      console.log("  Vault:", currentVault);
+      console.log("  Position Width:", currentWidth.toString());
+      console.log("  TWAP Interval:", currentTwap.toString());
+      console.log("  Native:", currentNative);
+      console.log("  Owner:", currentOwner);
+      
+      // Check if we are the owner
+      if (currentOwner.toLowerCase() === deployer.address.toLowerCase()) {
+        console.log("\n✓ We are the owner, we can update parameters if needed");
+      } else {
+        console.log(`\n⚠️ Strategy owner is ${currentOwner}, but we are ${deployer.address}`);
+        console.log("Cannot update parameters - not the owner");
+      }
+    }
+  } catch (error) {
+    console.log("Could not read owner - contract may not be initialized");
+    isAlreadyInitialized = false;
+  }
+
+  if (!isAlreadyInitialized) {
+    // Initialize strategy
+    console.log("\n=== Initializing Strategy ===");
+    
+    // InitParams struct: pool, quoter, positionWidth, native, factory, beefyOracle
+    const initParams = [
+      config.pool,
+      config.quoter,
+      config.positionWidth,
+      config.native,
+      config.factory,
+      addresses.beefyOracle,
+    ];
+
+    // CommonAddresses struct: vault, unirouter, keeper, strategist, beefyFeeRecipient, beefyFeeConfig
+    const commonAddresses = [
+      EXISTING_VAULT_ADDRESS,
+      addresses.beefySwapper || ethers.constants.AddressZero,
+      deployer.address,
+      deployer.address,
+      deployer.address,
+      addresses.beefyFeeConfig,
+    ];
+
+    console.log("Initialization parameters:");
+    console.log("  InitParams:", initParams);
+    console.log("  CommonAddresses:", commonAddresses);
+
+    try {
+      const tx = await strategy.initialize(initParams, commonAddresses, { gasLimit: 5000000 });
+      await tx.wait();
+      console.log("✓ Strategy initialized successfully!");
+      console.log("Transaction hash:", tx.hash);
+    } catch (error) {
+      console.error("Initialization failed:", error);
+      throw error;
+    }
+  }
+
+  // Verify final state
+  console.log("\n=== Final Strategy State ===");
+  try {
+    console.log("Pool:", await strategy.pool());
+    console.log("Vault:", await strategy.vault());
+    console.log("Position Width:", (await strategy.positionWidth()).toString());
+    console.log("TWAP Interval:", (await strategy.twapInterval()).toString());
+    console.log("Native:", await strategy.native());
+    console.log("Owner:", await strategy.owner());
+    console.log("Quoter:", await strategy.quoter());
+  } catch (error) {
+    console.log("Error reading final state:", error.message);
+  }
+
+  console.log("\n=== Initialization Complete ===");
+  return { strategy: EXISTING_STRATEGY_ADDRESS, vault: EXISTING_VAULT_ADDRESS };
+}
+
+async function deployNewStrategy() {
+  const deployer = await ethers.getSigner();
+  console.log("\n=== Deploying New Strategy ===");
+
+  if (!addresses.clmVault || addresses.clmVault === ethers.constants.AddressZero) {
+    throw new Error("CLM Vault address not found. Please run deployChain.js first.");
+  }
+
   // Deploy library first
   console.log("\n=== Deploying SaucerSwapCLMLib ===");
   const LibraryFactory = await ethers.getContractFactory("SaucerSwapCLMLib");
   const library = await LibraryFactory.deploy({ gasLimit: 3000000 });
   await library.deployed();
   console.log("Library deployed to:", library.address);
+
+  // Deploy vault instance first
+  console.log("\n=== Creating CLM Vault Instance ===");
+  const VaultConcLiq = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
+  const vaultInstance = await VaultConcLiq.deploy({ gasLimit: 5000000 });
+  await vaultInstance.deployed();
+  console.log("Vault instance deployed to:", vaultInstance.address);
 
   // Deploy strategy with library linking
   console.log("\n=== Deploying StrategyPassiveManagerSaucerSwap ===");
@@ -129,47 +273,60 @@ async function main() {
   await strategy.deployed();
   console.log("Strategy deployed to:", strategy.address);
 
-  // Initialize strategy
+  // Initialize strategy with proper vault address
   console.log("\n=== Initializing Strategy ===");
-  const commonAddresses = {
-    vault: ethers.constants.AddressZero, // Will be set after vault initialization
-    keeper: deployer.address,
-    strategist: deployer.address,
-    unirouter: addresses.beefySwapper || ethers.constants.AddressZero,
-    beefyFeeRecipient: deployer.address,
-    beefyFeeConfig: addresses.beefyFeeConfig,
-  };
+  
+  // InitParams struct: pool, quoter, positionWidth, native, factory, beefyOracle
+  const initParams = [
+    config.pool,
+    config.quoter,
+    config.positionWidth,
+    config.native,
+    config.factory,
+    addresses.beefyOracle,
+  ];
 
-  const initParams = {
-    pool: config.pool,
-    quoter: config.quoter,
-    positionWidth: config.positionWidth,
-    native: config.native,
-    factory: config.factory,
-    beefyOracle: addresses.beefyOracle,
-  };
+  // CommonAddresses struct: vault, unirouter, keeper, strategist, beefyFeeRecipient, beefyFeeConfig
+  const commonAddresses = [
+    vaultInstance.address, // vault - use actual vault address
+    addresses.beefySwapper || ethers.constants.AddressZero, // unirouter
+    deployer.address, // keeper
+    deployer.address, // strategist
+    deployer.address, // beefyFeeRecipient
+    addresses.beefyFeeConfig, // beefyFeeConfig
+  ];
 
-  await strategy.initialize(initParams, commonAddresses, { gasLimit: 5000000 });
-  console.log("Strategy initialized");
+  console.log("Initialization parameters:");
+  console.log("  InitParams:", initParams);
+  console.log("  CommonAddresses:", commonAddresses);
 
-  // Deploy vault instance using factory pattern (similar to existing pattern)
-  console.log("\n=== Creating CLM Vault Instance ===");
-  const VaultConcLiq = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
-  const vaultInstance = await VaultConcLiq.deploy({ gasLimit: 5000000 });
-  await vaultInstance.deployed();
-  console.log("Vault instance deployed to:", vaultInstance.address);
+  try {
+    console.log("Calling strategy.initialize...");
+    const initTx = await strategy.initialize(initParams, commonAddresses, { gasLimit: 5000000 });
+    console.log("Initialization transaction hash:", initTx.hash);
+    const receipt = await initTx.wait();
+    console.log("Initialization transaction confirmed, status:", receipt.status);
+    console.log("Strategy initialized with vault:", vaultInstance.address);
+    
+    // Verify initialization
+    console.log("Verifying strategy initialization...");
+    console.log("  Pool:", await strategy.pool());
+    console.log("  Vault:", await strategy.vault());
+    console.log("  Position Width:", (await strategy.positionWidth()).toString());
+    console.log("  TWAP Interval:", (await strategy.twapInterval()).toString());
+    console.log("  Native:", await strategy.native());
+    console.log("  Owner:", await strategy.owner());
+  } catch (error) {
+    console.error("Strategy initialization failed:", error);
+    throw error;
+  }
 
-  // Initialize vault
+  // Initialize vault with strategy address
   console.log("\n=== Initializing Vault ===");
   await vaultInstance.initialize(strategy.address, config.vaultName, config.vaultSymbol, addresses.beefyOracle, {
     gasLimit: 5000000,
   });
-  console.log("Vault initialized");
-
-  // Update strategy vault address
-  console.log("\n=== Updating Strategy Vault Address ===");
-  await strategy.setVault(vaultInstance.address, { gasLimit: 1000000 });
-  console.log("Strategy vault address updated");
+  console.log("Vault initialized with strategy:", strategy.address);
 
   // Set recommended parameters
   console.log("\n=== Setting Recommended Parameters ===");
@@ -226,6 +383,8 @@ async function main() {
 
   console.log("\n=== Deployment Info (JSON) ===");
   console.log(JSON.stringify(deploymentInfo, null, 2));
+  
+  return { strategy: strategy.address, vault: vaultInstance.address };
 }
 
 main()

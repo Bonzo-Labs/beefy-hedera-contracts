@@ -1,0 +1,7 @@
+{
+  "remappings": [
+    "@openzeppelin-4/contracts/=node_modules/@openzeppelin-4/contracts/",
+    "@openzeppelin/contracts-upgradeable/=node_modules/@openzeppelin/contracts-upgradeable/",
+    "@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/"
+  ]
+}

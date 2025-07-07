@@ -45,6 +45,25 @@ library SaucerSwapCLMLib {
     }
 
     /**
+     * @notice Get pool price directly from slot0 data
+     * @param pool The pool address
+     * @return _price The current pool price
+     */
+    function getPoolPrice(address pool) external view returns (uint256 _price) {
+        (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
+        _price = FullMath.mulDiv(uint256(sqrtPriceX96), SQRT_PRECISION, (2 ** 96)) ** 2;
+    }
+
+    /**
+     * @notice Get pool sqrt price directly from slot0 data
+     * @param pool The pool address
+     * @return sqrtPriceX96 The current pool sqrt price
+     */
+    function getPoolSqrtPrice(address pool) external view returns (uint160 sqrtPriceX96) {
+        (sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
+    }
+
+    /**
      * @notice Get pool slot0 data
      * @param pool The pool address
      * @return sqrtPriceX96 The sqrt price
@@ -79,14 +98,14 @@ library SaucerSwapCLMLib {
         uint160 sqrtPriceX96
     ) external view returns (uint256 amount0, uint256 amount1) {
         (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(positionKey);
-        
+
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPriceX96,
             TickMath.getSqrtRatioAtTick(positionData.tickLower),
             TickMath.getSqrtRatioAtTick(positionData.tickUpper),
             liquidity
         );
-        
+
         amount0 += owed0;
         amount1 += owed1;
     }
@@ -155,20 +174,16 @@ library SaucerSwapCLMLib {
      * @param maxDeviation Maximum allowed deviation
      * @return isCalm True if within acceptable deviation
      */
-    function isPoolCalm(
-        address pool,
-        uint32 twapInterval,
-        int56 maxDeviation
-    ) external view returns (bool isCalm) {
+    function isPoolCalm(address pool, uint32 twapInterval, int56 maxDeviation) external view returns (bool isCalm) {
         (, int24 tick, , , , , ) = IUniswapV3Pool(pool).slot0();
-        
+
         uint32[] memory secondsAgo = new uint32[](2);
         secondsAgo[0] = twapInterval;
         secondsAgo[1] = 0;
 
         (int56[] memory tickCuml, ) = IUniswapV3Pool(pool).observe(secondsAgo);
         int56 twapTick = (tickCuml[1] - tickCuml[0]) / int32(twapInterval);
-        
+
         int56 deviation = tick > twapTick ? tick - twapTick : twapTick - tick;
         isCalm = deviation <= maxDeviation;
     }
@@ -215,7 +230,7 @@ library SaucerSwapCLMLib {
     ) external pure returns (uint256 lowerPrice, uint256 upperPrice) {
         uint160 sqrtPriceLower = TickMath.getSqrtRatioAtTick(tickLower);
         uint160 sqrtPriceUpper = TickMath.getSqrtRatioAtTick(tickUpper);
-        
+
         lowerPrice = FullMath.mulDiv(uint256(sqrtPriceLower), SQRT_PRECISION, (2 ** 96)) ** 2;
         upperPrice = FullMath.mulDiv(uint256(sqrtPriceUpper), SQRT_PRECISION, (2 ** 96)) ** 2;
     }

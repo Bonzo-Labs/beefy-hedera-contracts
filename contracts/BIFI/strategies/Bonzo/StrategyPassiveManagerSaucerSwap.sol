@@ -25,11 +25,7 @@ import "./SaucerSwapCLMLib.sol";
 /// @title Beefy Passive Position Manager for SaucerSwap (Hedera)
 /// @author Bonzo Team, adapted from Beefy
 /// @notice This is a contract for managing a passive concentrated liquidity position on SaucerSwap (UniswapV3 fork).
-contract StrategyPassiveManagerSaucerSwap is
-    StratFeeManagerInitializable,
-    IStrategyConcLiq,
-    GasFeeThrottler
-{
+contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStrategyConcLiq, GasFeeThrottler {
     using SafeERC20 for IERC20Metadata;
     using TickMath for int24;
     using AddressUpgradeable for address payable;
@@ -66,7 +62,6 @@ contract StrategyPassiveManagerSaucerSwap is
     /// @notice The fees that are collected in the strategy but have not yet completed the harvest process.
     uint256 public fees0;
     uint256 public fees1;
-
 
     /// @notice The struct to store our tick positioning.
     struct Position {
@@ -137,8 +132,6 @@ contract StrategyPassiveManagerSaucerSwap is
     /// @notice Timestamp of last position adjustment
     uint256 public lastPositionAdjustment;
 
-
-
     /// @notice Beefy Oracle for price feeds
     address public beefyOracle;
 
@@ -159,11 +152,6 @@ contract StrategyPassiveManagerSaucerSwap is
     // Events - Reduced for bytecode optimization
     event Harvest(uint256 fee0, uint256 fee1);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
-
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
 
     /// @notice Modifier to only allow deposit/harvest actions when current price is within a certain deviation of twap.
     modifier onlyCalmPeriods() {
@@ -192,10 +180,7 @@ contract StrategyPassiveManagerSaucerSwap is
      * @param _params The initialization parameters struct.
      * @param _commonAddresses The common addresses needed for the strat fee manager.
      */
-    function initialize(
-        InitParams calldata _params,
-        CommonAddresses calldata _commonAddresses
-    ) external initializer {
+    function initialize(InitParams calldata _params, CommonAddresses calldata _commonAddresses) external initializer {
         __StratFeeManager_init(_commonAddresses);
 
         pool = _params.pool;
@@ -209,20 +194,20 @@ contract StrategyPassiveManagerSaucerSwap is
         // Our width multiplier. The tick distance of each side will be width * tickSpacing.
         positionWidth = _params.positionWidth;
 
-
         // Set the twap interval to 120 seconds.
         twapInterval = 120;
 
         // Associate both tokens with this contract (all tokens on Hedera are HTS except native HBAR)
-        // Only associate if not native HBAR
+        // Only associate if not native HBAR - use safe association that doesn't revert
         if (lpToken0 != native) {
-            _associateToken(lpToken0);
+            _safeAssociateToken(lpToken0);
         }
         if (lpToken1 != native) {
-            _associateToken(lpToken1);
+            _safeAssociateToken(lpToken1);
         }
 
-        _giveAllowances();
+        // Give allowances - use try-catch to handle any HTS approval issues
+        _safeGiveAllowances();
     }
 
     /// @notice Only allows the vault to call a function.
@@ -412,8 +397,8 @@ contract StrategyPassiveManagerSaucerSwap is
         fees1 = 0;
 
         // We stream the rewards over time to the LP.
-        uint256 currentLock0 = totalLocked0 > 0 ? totalLocked0 * (block.timestamp - lastHarvest) / DURATION : 0;
-        uint256 currentLock1 = totalLocked1 > 0 ? totalLocked1 * (block.timestamp - lastHarvest) / DURATION : 0;
+        uint256 currentLock0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
+        uint256 currentLock1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
         totalLocked0 = fee0 + currentLock0;
         totalLocked1 = fee1 + currentLock1;
 
@@ -487,49 +472,53 @@ contract StrategyPassiveManagerSaucerSwap is
         uint256 _amount1
     ) private returns (uint256 _amountLeft0, uint256 _amountLeft1) {
         IFeeConfig.FeeCategory memory fees = getFees();
-        
+
         uint256 nativeEarned = _processToken0Fees(_amount0, fees.total);
         nativeEarned += _processToken1Fees(_amount1, fees.total);
-        
+
         _amountLeft0 = _amount0 > 0 ? _amount0 - ((_amount0 * fees.total) / DIVISOR) : 0;
         _amountLeft1 = _amount1 > 0 ? _amount1 - ((_amount1 * fees.total) / DIVISOR) : 0;
-        
+
         _distributeFees(_callFeeRecipient, nativeEarned, fees);
     }
-    
+
     function _processToken0Fees(uint256 _amount0, uint256 _feePercent) private returns (uint256 nativeEarned) {
         if (_amount0 == 0) return 0;
-        
+
         uint256 amountToSwap0 = (_amount0 * _feePercent) / DIVISOR;
-        
+
         if (lpToken0 == native) {
             nativeEarned = amountToSwap0;
         } else {
             nativeEarned = IBeefySwapper(unirouter).swap(lpToken0, native, amountToSwap0);
         }
     }
-    
+
     function _processToken1Fees(uint256 _amount1, uint256 _feePercent) private returns (uint256 nativeEarned) {
         if (_amount1 == 0) return 0;
-        
+
         uint256 amountToSwap1 = (_amount1 * _feePercent) / DIVISOR;
-        
+
         if (lpToken1 == native) {
             nativeEarned = amountToSwap1;
         } else {
             nativeEarned = IBeefySwapper(unirouter).swap(lpToken1, native, amountToSwap1);
         }
     }
-    
-    function _distributeFees(address _callFeeRecipient, uint256 _nativeEarned, IFeeConfig.FeeCategory memory _fees) private {
+
+    function _distributeFees(
+        address _callFeeRecipient,
+        uint256 _nativeEarned,
+        IFeeConfig.FeeCategory memory _fees
+    ) private {
         uint256 callFeeAmount = (_nativeEarned * _fees.call) / DIVISOR;
         uint256 strategistFeeAmount = (_nativeEarned * _fees.strategist) / DIVISOR;
         uint256 beefyFeeAmount = _nativeEarned - callFeeAmount - strategistFeeAmount;
-        
+
         _transferTokens(native, address(this), _callFeeRecipient, callFeeAmount, true);
         _transferTokens(native, address(this), strategist, strategistFeeAmount, true);
         _transferTokens(native, address(this), beefyFeeRecipient, beefyFeeAmount, true);
-        
+
         // Event removed for bytecode optimization
     }
 
@@ -541,8 +530,8 @@ contract StrategyPassiveManagerSaucerSwap is
     function balances() public view returns (uint256 token0Bal, uint256 token1Bal) {
         (uint256 thisBal0, uint256 thisBal1) = balancesOfThis();
         BalanceInfo memory poolInfo = balancesOfPool();
-        uint256 locked0 = totalLocked0 > 0 ? totalLocked0 * (block.timestamp - lastHarvest) / DURATION : 0;
-        uint256 locked1 = totalLocked1 > 0 ? totalLocked1 * (block.timestamp - lastHarvest) / DURATION : 0;
+        uint256 locked0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
+        uint256 locked1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
 
         uint256 total0 = thisBal0 + poolInfo.token0Bal - locked0;
         uint256 total1 = thisBal1 + poolInfo.token1Bal - locked1;
@@ -583,39 +572,39 @@ contract StrategyPassiveManagerSaucerSwap is
     function balancesOfPool() public view returns (BalanceInfo memory balInfo) {
         (balInfo.mainAmount0, balInfo.mainAmount1) = _getMainPositionAmounts();
         (balInfo.altAmount0, balInfo.altAmount1) = _getAltPositionAmounts();
-        
+
         balInfo.token0Bal = balInfo.mainAmount0 + balInfo.altAmount0;
         balInfo.token1Bal = balInfo.mainAmount1 + balInfo.altAmount1;
     }
 
     // Legacy function removed for bytecode optimization
-    
+
     function _getMainPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
         (bytes32 keyMain, ) = getKeys();
         (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyMain);
-        
+
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice(),
             TickMath.getSqrtRatioAtTick(positionMain.tickLower),
             TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
             liquidity
         );
-        
+
         amount0 += owed0;
         amount1 += owed1;
     }
-    
+
     function _getAltPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
         (, bytes32 keyAlt) = getKeys();
         (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyAlt);
-        
+
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice(),
             TickMath.getSqrtRatioAtTick(positionAlt.tickLower),
             TickMath.getSqrtRatioAtTick(positionAlt.tickUpper),
             liquidity
         );
-        
+
         amount0 += owed0;
         amount1 += owed1;
     }
@@ -658,15 +647,14 @@ contract StrategyPassiveManagerSaucerSwap is
      * @notice The current price of the pool.
      */
     function price() public view returns (uint256 _price) {
-        (uint160 sqrtPriceX96, ) = SaucerSwapCLMLib.getPoolSlot0(pool);
-        return SaucerSwapCLMLib.calculatePrice(sqrtPriceX96);
+        return SaucerSwapCLMLib.getPoolPrice(pool);
     }
 
     /**
      * @notice The sqrt price of the pool.
      */
     function sqrtPrice() public view returns (uint160 sqrtPriceX96) {
-        (sqrtPriceX96, ) = SaucerSwapCLMLib.getPoolSlot0(pool);
+        return SaucerSwapCLMLib.getPoolSqrtPrice(pool);
     }
 
     /**
@@ -755,17 +743,11 @@ contract StrategyPassiveManagerSaucerSwap is
      * @param amount The amount to transfer
      * @param isFromContract Whether the transfer is from this contract
      */
-    function _transferTokens(
-        address token,
-        address from,
-        address to,
-        uint256 amount,
-        bool isFromContract
-    ) internal {
+    function _transferTokens(address token, address from, address to, uint256 amount, bool isFromContract) internal {
         if (amount == 0) return;
 
         bool isNative = (token == native);
-        
+
         if (isNative) {
             // For native tokens (HBAR), use native transfer
             if (isFromContract) {
@@ -820,6 +802,23 @@ contract StrategyPassiveManagerSaucerSwap is
         // Event removed for bytecode optimization
     }
 
+    /**
+     * @notice Safely associate this contract with an HTS token without reverting
+     * @param token The HTS token address to associate with this contract
+     * @return success True if association succeeded or token was already associated
+     */
+    function _safeAssociateToken(address token) internal returns (bool success) {
+        if (token == address(0)) return false;
+
+        (bool callSuccess, bytes memory result) = HTS_PRECOMPILE.call(
+            abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
+        );
+        int64 responseCode = callSuccess ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
+
+        // Success codes: 22 (SUCCESS) or 23 (TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
+        return responseCode == HTS_SUCCESS || responseCode == 23;
+    }
+
     // Path setter functions removed for bytecode optimization
 
     /**
@@ -834,7 +833,6 @@ contract StrategyPassiveManagerSaucerSwap is
 
         maxTickDeviation = _maxDeviation;
     }
-
 
     // Token price functions removed for bytecode optimization
 
@@ -918,6 +916,25 @@ contract StrategyPassiveManagerSaucerSwap is
         }
     }
 
+    /// @notice safely gives swap permisions for the tokens to the unirouter without reverting.
+    function _safeGiveAllowances() private {
+        // Only approve non-native tokens (HTS tokens need ERC20 approvals for swapping)
+        if (lpToken0 != native) {
+            try IERC20Metadata(lpToken0).approve(unirouter, type(uint256).max) {
+                // Approval succeeded
+            } catch {
+                // Approval failed - continue anyway
+            }
+        }
+        if (lpToken1 != native) {
+            try IERC20Metadata(lpToken1).approve(unirouter, type(uint256).max) {
+                // Approval succeeded
+            } catch {
+                // Approval failed - continue anyway
+            }
+        }
+    }
+
     /// @notice removes swap permisions for the tokens from the unirouter.
     function _removeAllowances() private {
         // Only revoke approvals for non-native tokens
@@ -943,7 +960,6 @@ contract StrategyPassiveManagerSaucerSwap is
     function associateToken(address token) external onlyOwner {
         _associateToken(token);
     }
-
 
     /// @notice Update Beefy Oracle address
     function setBeefyOracle(address _beefyOracle) external onlyOwner {
