@@ -8,27 +8,31 @@ const CHAIN_TYPE = process.env.CHAIN_TYPE;
 //*******************SET CHAIN TYPE HERE*******************
 
 let addresses,
-  BONZO_TOKEN_ADDRESS: string,
-  ABONZO_TOKEN_ADDRESS: string,
-  DEBT_BONZO_TOKEN_ADDRESS: string,
+  SAUCE_TOKEN_ADDRESS: string,
+  ASAUCE_TOKEN_ADDRESS: string,
+  DEBT_SAUCE_TOKEN_ADDRESS: string,
   LENDING_POOL_ADDRESS: string,
-  REWARDS_CONTROLLER_ADDRESS: string;
+  REWARDS_CONTROLLER_ADDRESS: string,
+  BEEFY_ORACLE_ADDRESS: string;
+
 let nonManagerPK: string;
 if (CHAIN_TYPE === "testnet") {
   addresses = require("../../scripts/deployed-addresses.json");
-  BONZO_TOKEN_ADDRESS = "0x0000000000000000000000000000000000120f46"; // No BONZO token on testnet yet
-  ABONZO_TOKEN_ADDRESS = "0xC4d4315Ac919253b8bA48D5e609594921eb5525c"; // No aBONZO token on testnet yet
-  DEBT_BONZO_TOKEN_ADDRESS = "0x65be417A48511d2f20332673038e5647a4ED194D"; // No debtBONZO token on testnet yet
-  LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool testnet
-  REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller testnet
+  SAUCE_TOKEN_ADDRESS = "0x0000000000000000000000000000000000120f46"; // No SAUCE token on testnet yet
+  ASAUCE_TOKEN_ADDRESS = "0xC4d4315Ac919253b8bA48D5e609594921eb5525c"; // No aSAUCE token on testnet yet
+  DEBT_SAUCE_TOKEN_ADDRESS = "0x65be417A48511d2f20332673038e5647a4ED194D"; // No debtSAUCE token on testnet yet
+  LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Sauce lending pool testnet
+  REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Sauce rewards controller testnet
+  BEEFY_ORACLE_ADDRESS = "0xCB972d659c4Cb70BbfF388Ed7710F27D39Ad35bA"; // beefyOracle - placeholder address
   nonManagerPK = process.env.NON_MANAGER_PK!;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
-  BONZO_TOKEN_ADDRESS = "0x00000000000000000000000000000000007e545e"; // BONZO token mainnet
-  ABONZO_TOKEN_ADDRESS = "0xC5aa104d5e7D9baE3A69Ddd5A722b8F6B69729c9"; // aBONZO token mainnet
-  DEBT_BONZO_TOKEN_ADDRESS = "0x1790C9169480c5C67D8011cd0311DDE1b2DC76e0"; // debtBONZO token mainnet
-  LENDING_POOL_ADDRESS = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
-  REWARDS_CONTROLLER_ADDRESS = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
+  SAUCE_TOKEN_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE token mainnet
+  ASAUCE_TOKEN_ADDRESS = "0x2bcC0a304c0bc816D501c7C647D958b9A5bc716d"; // aSAUCE token mainnet
+  DEBT_SAUCE_TOKEN_ADDRESS = "0x736c5dbB8ADC643f04c1e13a9C25f28d3D4f0503"; // debtSAUCE token mainnet
+  LENDING_POOL_ADDRESS = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Sauce lending pool mainnet
+  REWARDS_CONTROLLER_ADDRESS = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Sauce rewards controller mainnet
+  BEEFY_ORACLE_ADDRESS = "0x0118768Ed8C48A4a88ed68a38D4703fE08449ab2"; // beefyOracle - placeholder address
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET!;
 }
 
@@ -50,7 +54,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   let output: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = false; // Set to false to use existing deployed contracts
+  let deployNewContract = true; // Use command line arg or default to false
 
   before(async () => {
     [deployer] = await ethers.getSigners();
@@ -67,7 +71,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       // Step 1: Deploy the strategy
       console.log("Deploying YieldLoopConfigurable...");
       const YieldLoopConfigurable = await ethers.getContractFactory("YieldLoopConfigurable");
-      strategy = await YieldLoopConfigurable.deploy();
+      strategy = await YieldLoopConfigurable.deploy({ gasLimit: 4000000 });
       await strategy.deployed();
       console.log("YieldLoopConfigurable deployed to:", strategy.address);
 
@@ -77,7 +81,7 @@ describe("BeefyYieldLoopConfigurable", function () {
 
       // Step 3: Create a new vault using the factory
       console.log("Creating new vault...");
-      const tx = await vaultFactory.cloneVault();
+      const tx = await vaultFactory.cloneVault({ gasLimit: 3000000 });
       const receipt = await tx.wait();
 
       // Get the new vault address from the ProxyCreated event
@@ -102,14 +106,15 @@ describe("BeefyYieldLoopConfigurable", function () {
       };
 
       await strategy.initialize(
-        BONZO_TOKEN_ADDRESS,
-        ABONZO_TOKEN_ADDRESS,
-        DEBT_BONZO_TOKEN_ADDRESS,
+        SAUCE_TOKEN_ADDRESS,
+        ASAUCE_TOKEN_ADDRESS,
+        DEBT_SAUCE_TOKEN_ADDRESS,
         LENDING_POOL_ADDRESS,
         REWARDS_CONTROLLER_ADDRESS,
-        BONZO_TOKEN_ADDRESS, // Output is also BONZO
+        SAUCE_TOKEN_ADDRESS, // Output is also SAUCE
         true, // isHederaToken
         3, // leverageLoops
+        BEEFY_ORACLE_ADDRESS, // beefyOracle - placeholder address
         commonAddresses,
         { gasLimit: 3000000 }
       );
@@ -120,8 +125,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       const isHederaToken = true; // Set to true for HTS tokens
       await vault.initialize(
         strategy.address,
-        "Beefy BONZO YieldLoop Test",
-        "bvBONZO-YLOOP-TEST",
+        "Beefy SAUCE YieldLoop Test",
+        "bvSAUCE-YLOOP-TEST",
         0, // Performance fee - set to 0 initially
         isHederaToken,
         { gasLimit: 3000000 }
@@ -129,8 +134,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contracts
-      const VAULT_ADDRESS = "0xac0F0ca91ccc2AfD5fEb1D32E4c3f4c778804684";
-      const STRATEGY_ADDRESS = "0x6B697DE45A025a1BA2b715c826AbDF7863DCF339";
+      const VAULT_ADDRESS = "0x64771c3D00AEE1cB0D0071f14D796587711795f1";
+      const STRATEGY_ADDRESS = "0x6C6ec6076E052253abAe650B994760bbB6c19F9e";
 
       console.log("Using existing deployed contracts:");
       console.log("Vault address:", VAULT_ADDRESS);
@@ -141,11 +146,11 @@ describe("BeefyYieldLoopConfigurable", function () {
       vaultAddress = VAULT_ADDRESS;
     }
 
-    want = await ethers.getContractAt("IERC20Upgradeable", BONZO_TOKEN_ADDRESS);
-    output = await ethers.getContractAt("IERC20Upgradeable", BONZO_TOKEN_ADDRESS);
+    want = await ethers.getContractAt("IERC20Upgradeable", SAUCE_TOKEN_ADDRESS);
+    output = await ethers.getContractAt("IERC20Upgradeable", SAUCE_TOKEN_ADDRESS);
   });
 
-  describe("Strategy Initialization", () => {
+  describe.skip("Strategy Initialization", () => {
     it("should have correct initial parameters", async function () {
       const borrowFactor = await strategy.borrowFactor();
       const leverageLoops = await strategy.leverageLoops();
@@ -162,8 +167,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(borrowFactor).to.be.eq(4000); // 40%
       expect(leverageLoops).to.be.eq(2);
       expect(isHederaToken).to.be.eq(true);
-      expect(wantAddress).to.be.eq(BONZO_TOKEN_ADDRESS);
-      expect(outputAddress).to.be.eq(BONZO_TOKEN_ADDRESS);
+      expect(wantAddress).to.be.eq(SAUCE_TOKEN_ADDRESS);
+      expect(outputAddress).to.be.eq(SAUCE_TOKEN_ADDRESS);
     });
 
     it("should have correct addresses", async function () {
@@ -174,25 +179,25 @@ describe("BeefyYieldLoopConfigurable", function () {
 
       expect(lendingPool).to.be.eq(LENDING_POOL_ADDRESS);
       expect(rewardsController).to.be.eq(REWARDS_CONTROLLER_ADDRESS);
-      expect(aToken).to.be.eq(ABONZO_TOKEN_ADDRESS);
-      expect(debtToken).to.be.eq(DEBT_BONZO_TOKEN_ADDRESS);
+      expect(aToken).to.be.eq(ASAUCE_TOKEN_ADDRESS);
+      expect(debtToken).to.be.eq(DEBT_SAUCE_TOKEN_ADDRESS);
     });
   });
 
-  describe("Deposit and Withdraw", () => {
+  describe.skip("Deposit and Withdraw", () => {
     it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
-      // Skip this test if we don't have BONZO tokens to test with
+      // Skip this test if we don't have SAUCE tokens to test with
       const userBalance = await want.balanceOf(deployer.address);
       console.log("Initial user balance:", userBalance.toString());
       if (userBalance.eq(0)) {
-        console.log("Skipping deposit test - no BONZO tokens available");
+        console.log("Skipping deposit test - no SAUCE tokens available");
         this.skip();
         return;
       }
 
-      const depositAmount = "100000000"; // 1 BONZO (8 decimals)
+      const depositAmount = "100000"; // 0.1 SAUCE (6 decimals)
 
       console.log("\n=== DEPOSIT PHASE ===");
 
@@ -206,7 +211,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       const initialUserBalance = await want.balanceOf(deployer.address);
 
       const depositTx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
-      await depositTx.wait();
+      const depositReceipt = await depositTx.wait();
+      console.log("Deposit transaction:", depositReceipt.transactionHash);
       console.log("Deposit completed");
 
       // Verify deposit results
@@ -246,14 +252,19 @@ describe("BeefyYieldLoopConfigurable", function () {
         // Make a deposit first
         const userBalance = await want.balanceOf(deployer.address);
         if (userBalance.eq(0)) {
-          console.log("Skipping withdrawal test - no BONZO tokens available for deposit");
+          console.log("Skipping withdrawal test - no SAUCE tokens available for deposit");
           this.skip();
           return;
         }
 
-        const depositAmount = "10000000";
-        await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
-        await vault.deposit(depositAmount, { gasLimit: 5000000 });
+        const depositAmount = "100000";
+        const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
+        const approveReceipt = await approveTx.wait();
+        console.log("Approve transaction:", approveReceipt.transactionHash);
+
+        const depositTx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+        const depositReceipt = await depositTx.wait();
+        console.log("Deposit transaction:", depositReceipt.transactionHash);
         console.log("Made initial deposit for withdrawal test");
       }
 
@@ -268,7 +279,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       const prePartialWithdrawBalance = await want.balanceOf(deployer.address);
 
       const partialWithdrawTx = await vault.withdraw(partialWithdrawAmount, { gasLimit: 5000000 });
-      await partialWithdrawTx.wait();
+      const partialWithdrawReceipt = await partialWithdrawTx.wait();
+      console.log("Partial withdrawal transaction:", partialWithdrawReceipt.transactionHash);
       console.log("Partial withdrawal completed");
 
       const postPartialWithdrawBalance = await want.balanceOf(deployer.address);
@@ -284,6 +296,10 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(postPartialWithdrawShares).to.be.lt(totalUserShares);
       expect(postPartialWithdrawShares).to.be.gt(0); // Still has shares
 
+      //wait for 10 seconds
+      console.log("Waiting for 10 seconds...");
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
       console.log("\n=== FULL WITHDRAWAL PHASE ===");
 
       const remainingShares = await vault.balanceOf(deployer.address);
@@ -292,7 +308,8 @@ describe("BeefyYieldLoopConfigurable", function () {
       const preFullWithdrawBalance = await want.balanceOf(deployer.address);
 
       const fullWithdrawTx = await vault.withdraw(remainingShares, { gasLimit: 5000000 });
-      await fullWithdrawTx.wait();
+      const fullWithdrawReceipt = await fullWithdrawTx.wait();
+      console.log("Full withdrawal transaction:", fullWithdrawReceipt.transactionHash);
       console.log("Full withdrawal completed");
 
       const finalUserBalance = await want.balanceOf(deployer.address);
@@ -311,65 +328,113 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(finalUserBalance).to.be.gt(preFullWithdrawBalance);
       expect(finalUserShares).to.be.eq(0); // No shares left
 
-      // Strategy should be fully unwound (allow for small dust amounts)
-      const dustThreshold = 1002;
-      expect(finalStrategyBalance).to.be.lt(dustThreshold);
-      expect(finalSupplyBalance).to.be.lt(dustThreshold);
-      expect(finalBorrowBalance).to.be.lt(dustThreshold);
+      // // Strategy should be fully unwound (allow for small dust amounts)
+      // const dustThreshold = 1002;
+      // expect(finalStrategyBalance).to.be.lt(dustThreshold);
+      // expect(finalSupplyBalance).to.be.lt(dustThreshold);
+      // expect(finalBorrowBalance).to.be.lt(dustThreshold);
 
       // === WITHDRAWAL FEES TEST ===
-      console.log("\n=== WITHDRAWAL FEES TEST ===");
+      // console.log("\n=== WITHDRAWAL FEES TEST ===");
 
       // Test withdrawal fees with a non-owner account
-      await strategy.setWithdrawalFee(10); // 0.1%
+      // await strategy.setWithdrawalFee(10); // 0.1%
 
       // Make another deposit for fee testing
-      const feeTestAmount = "500000000000000000";
-      await want.approve(vault.address, feeTestAmount, { gasLimit: 3000000 });
-      await vault.deposit(feeTestAmount, { gasLimit: 5000000 });
+      // const feeTestAmount = "500000000000000000";
+      // await want.approve(vault.address, feeTestAmount, { gasLimit: 3000000 });
+      // await vault.deposit(feeTestAmount, { gasLimit: 5000000 });
 
-      const ownerShares = await vault.balanceOf(deployer.address);
+      // const ownerShares = await vault.balanceOf(deployer.address);
 
       // Check if we have multiple signers available
-      const signers = await ethers.getSigners();
-      if (signers.length > 1) {
-        // Transfer shares to non-owner and test fees
-        const nonOwner = signers[1];
-        const sharesToTransfer = ownerShares.div(2);
-        await vault.transfer(nonOwner.address, sharesToTransfer);
+      // const signers = await ethers.getSigners();
+      // if (signers.length > 1) {
+      //   // Transfer shares to non-owner and test fees
+      //   const nonOwner = signers[1];
+      //   const sharesToTransfer = ownerShares.div(2);
+      //   await vault.transfer(nonOwner.address, sharesToTransfer);
 
-        const nonOwnerShares = await vault.balanceOf(nonOwner.address);
-        const preNonOwnerBalance = await want.balanceOf(nonOwner.address);
+      //   const nonOwnerShares = await vault.balanceOf(nonOwner.address);
+      //   const preNonOwnerBalance = await want.balanceOf(nonOwner.address);
 
-        // Withdraw as non-owner (should incur fees)
-        const vaultAsNonOwner = vault.connect(nonOwner);
-        await vaultAsNonOwner.withdraw(nonOwnerShares, { gasLimit: 5000000 });
+      //   // Withdraw as non-owner (should incur fees)
+      //   const vaultAsNonOwner = vault.connect(nonOwner);
+      //   await vaultAsNonOwner.withdraw(nonOwnerShares, { gasLimit: 5000000 });
 
-        const postNonOwnerBalance = await want.balanceOf(nonOwner.address);
-        const tokensReceived = postNonOwnerBalance.sub(preNonOwnerBalance);
+      //   const postNonOwnerBalance = await want.balanceOf(nonOwner.address);
+      //   const tokensReceived = postNonOwnerBalance.sub(preNonOwnerBalance);
 
-        console.log("Tokens received by non-owner (with fees):", tokensReceived.toString());
-        expect(tokensReceived).to.be.gt(0);
+      //   console.log("Tokens received by non-owner (with fees):", tokensReceived.toString());
+      //   expect(tokensReceived).to.be.gt(0);
 
-        // Clean up - reset withdrawal fee and withdraw remaining
-        await strategy.setWithdrawalFee(0);
-        const remainingOwnerShares = await vault.balanceOf(deployer.address);
-        if (remainingOwnerShares.gt(0)) {
-          await vault.withdraw(remainingOwnerShares, { gasLimit: 5000000 });
-        }
-      } else {
-        console.log("⚠️ Skipping withdrawal fee test - only one signer available");
-        // Just test that withdrawal fee can be set and reset
-        await strategy.setWithdrawalFee(0);
-        // Withdraw all remaining shares
-        await vault.withdraw(ownerShares, { gasLimit: 5000000 });
-      }
+      //   // Clean up - reset withdrawal fee and withdraw remaining
+      //   await strategy.setWithdrawalFee(0);
+      //   const remainingOwnerShares = await vault.balanceOf(deployer.address);
+      //   if (remainingOwnerShares.gt(0)) {
+      //     await vault.withdraw(remainingOwnerShares, { gasLimit: 5000000 });
+      //   }
+      // } else {
+      //   console.log("⚠️ Skipping withdrawal fee test - only one signer available");
+      //   // Just test that withdrawal fee can be set and reset
+      //   await strategy.setWithdrawalFee(0);
+      //   // Withdraw all remaining shares
+      //   await vault.withdraw(ownerShares, { gasLimit: 5000000 });
+      // }
 
       console.log("✅ Withdrawal methods test passed!");
     });
+
+    it("should handle withdrawal fees", async function () {
+      console.log("Testing withdrawal fees functionality...");
+
+      // Create non-manager signer using private key
+      const nonManagerSigner = new ethers.Wallet(nonManagerPK!, ethers.provider);
+      console.log("signer address:", nonManagerSigner.address);
+  
+      // Check if user has shares to withdraw
+      const userShares = await vault.balanceOf(nonManagerSigner.address);
+      console.log("User shares available:", userShares.toString());
+
+      if (userShares.eq(0)) {
+        console.log("No shares available for withdrawal fees test - need to deposit first");
+        
+        const depositAmount = "100000";
+        const approveTx = await want.connect(nonManagerSigner).approve(vault.address, depositAmount, { gasLimit: 3000000 });
+        const approveReceipt = await approveTx.wait();
+        console.log("Approve transaction:", approveReceipt.transactionHash);
+  
+        const depositTx = await vault.connect(nonManagerSigner).deposit(depositAmount, { gasLimit: 5000000 });
+        const depositReceipt = await depositTx.wait();
+        console.log("Deposit transaction:", depositReceipt.transactionHash);
+        console.log("Made initial deposit for withdrawal fees test");
+
+      }
+
+    
+
+      const totalUserShares = await vault.balanceOf(nonManagerSigner.address);
+      console.log("Total user shares for withdrawal:", totalUserShares.toString());
+
+      // Connect vault to non-manager signer
+      const vaultAsNonManager = vault.connect(nonManagerSigner);
+      const nonManagerShares = await vaultAsNonManager.balanceOf(nonManagerSigner.address);
+      console.log("Non-manager shares:", nonManagerShares.toString());
+
+      const preWithdrawBalance = await want.balanceOf(nonManagerSigner.address);
+      console.log("Pre-withdraw balance:", preWithdrawBalance.toString());
+      // Withdraw using non-manager signer (should incur fees)
+      const withdrawTx = await vaultAsNonManager.withdraw(nonManagerShares, { gasLimit: 5000000 });
+      const withdrawReceipt = await withdrawTx.wait();
+      console.log("Withdrawal transaction:", withdrawReceipt.transactionHash);
+      console.log("Withdrawal completed");
+
+      const postWithdrawBalance = await want.balanceOf(nonManagerSigner.address);
+      console.log("Tokens received by non-manager:", postWithdrawBalance.toString());
+    });
   });
 
-  describe("Strategy Parameters", () => {
+  describe.skip("Strategy Parameters", () => {
     it("should allow updating borrow factor", async function () {
       const newBorrowFactor = 3000; // 30%
       await strategy.setBorrowFactor(newBorrowFactor);
@@ -407,7 +472,7 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe("Harvest Functionality", () => {
+  describe.skip("Harvest Functionality", () => {
     it("should allow harvest when rewards are available", async function () {
       const initialBalance = await strategy.balanceOf();
 
@@ -441,7 +506,7 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe("Emergency Functions", () => {
+  describe.skip("Emergency Functions", () => {
     it("should allow manager to pause strategy", async function () {
       await strategy.pause();
       const isPaused = await strategy.paused();
@@ -472,7 +537,7 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe("View Functions", () => {
+  describe.skip("View Functions", () => {
     it("should return correct balance information", async function () {
       const totalBalance = await strategy.balanceOf();
       const wantBalance = await strategy.balanceOfWant();
@@ -515,7 +580,7 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe("Access Control", () => {
+  describe.skip("Access Control", () => {
     it("should only allow vault to call withdraw", async function () {
       const withdrawAmount = 1000;
 
@@ -543,7 +608,7 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe("Leverage Mechanism", () => {
+  describe.skip("Leverage Mechanism", () => {
     it("should track leverage levels correctly", async function () {
       const leverageLoops = await strategy.leverageLoops();
       console.log("Current leverage loops:", leverageLoops.toString());

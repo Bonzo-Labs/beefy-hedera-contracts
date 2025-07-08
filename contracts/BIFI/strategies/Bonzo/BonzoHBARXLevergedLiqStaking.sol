@@ -14,9 +14,12 @@ import "../../interfaces/beefy/IStrategyV7.sol";
 import "../../interfaces/common/IFeeConfig.sol";
 import "./Stader/IStaking.sol";
 import "../../Hedera/IWHBAR.sol";
+import "../../interfaces/common/IUniswapRouterV3WithDeadline.sol";
+import "../../utils/UniswapV3Utils.sol";
 
 contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     using SafeERC20 for IERC20;
+    using UniswapV3Utils for bytes;
 
     // Hedera Token Service constants
     address constant HTS_PRECOMPILE = address(0x167);
@@ -31,12 +34,14 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     address public stakingContract; // HBAR staking contract
     uint8 public wantTokenDecimals = 8; // Token decimals
     uint8 public borrowTokenDecimals = 8; // Token decimals
-    // IWHBAR public whbarContract = IWHBAR(0x0000000000000000000000000000000000163B59);
-    address public whbarContract = 0x0000000000000000000000000000000000003aD1;
+    address public whbarContract = 0x0000000000000000000000000000000000163B59;
+    // address public whbarContract = 0x0000000000000000000000000000000000003aD1;
 
     // Third party contracts
     address public lendingPool;
     address public rewardsController;
+    address public saucerSwapRouter; // SaucerSwap router for HBARX to HBAR swaps
+    uint24 public poolFee = 1500; // Default pool fee (0.15%)
 
     // Yield loop parameters
     uint256 public maxLoops = 2; // Maximum number of yield loops (e.g., 3 for 3x)
@@ -55,6 +60,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     event ChargedFees(uint256 callFees, uint256 beefyFees, uint256 strategistFees);
     event Staked(uint256 amount);
     event Unstaked(uint256 amount);
+    event SwappedHBARXToHBAR(uint256 hbarxAmount, uint256 hbarReceived);
     event SlippageToleranceUpdated(uint256 oldValue, uint256 newValue);
     event MaxLoopsUpdated(uint256 oldValue, uint256 newValue);
     event MaxBorrowableUpdated(uint256 oldValue, uint256 newValue);
@@ -114,6 +120,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         lendingPool = _lendingPool;
         rewardsController = _rewardsController;
         stakingContract = _stakingContract;
+        saucerSwapRouter = _commonAddresses.unirouter; // Set SaucerSwap router
         maxBorrowable = _maxBorrowable;
         slippageTolerance = _slippageTolerance;
         isRewardsAvailable = _isRewardsAvailable;
@@ -169,6 +176,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
         // Approve once for everything we'll need
         uint256 approvalAmount = amount * (maxLoops * 2);
+
         IERC20(want).approve(lendingPool, approvalAmount);
         IERC20(borrowToken).approve(lendingPool, approvalAmount);
 
@@ -191,19 +199,25 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             uint256 desired = (currentCollateral * maxBorrowable) / 10_000;
             emit DebugValues(baseCollateral, baseDebt, currentLtv, maxBorrowToken, desired);
 
+
             uint256 borrowAmt = desired < maxBorrowToken ? desired : maxBorrowToken;
             if (borrowAmt == 0) break;
 
             // [4] borrow & stake → HBARX
+            IERC20(borrowToken).approve(whbarContract, borrowAmt);
             ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
             uint256 hbarBalance = address(this).balance;
-            uint256 xAmt = _stakeHBAR(hbarBalance);
-            require(xAmt > 0, "No HBARX received from staking");
-
-            // [5] update and re-deposit
-            currentCollateral += xAmt;
-            totalBorrowed += borrowAmt;
-            ILendingPool(lendingPool).deposit(want, xAmt, address(this), 0);
+            //min staking amount is 10**8 on staking contract
+            if(hbarBalance > 10**8) {
+                uint256 xAmt = _stakeHBAR(hbarBalance);
+                require(xAmt > 0, "No HBARX received from staking");
+                 currentCollateral += xAmt;
+                 totalBorrowed += borrowAmt;
+                 ILendingPool(lendingPool).deposit(want, xAmt, address(this), 0);
+            } 
+            else {
+                break;
+            }
         }
 
         emit Deposit(currentCollateral, totalBorrowed);
@@ -212,9 +226,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     function _stakeHBAR(uint256 amount) internal returns (uint256) {
         require(amount > 0, "Amount must be greater than 0");
         uint256 balanceBefore = IERC20(want).balanceOf(address(this));
-        //need to swap WHBAR with HBAR before staking
-        // IERC20(borrowToken).approve(whbarContract, amount);
-        // IWHBAR(whbarContract).withdraw(address(this), address(this), amount);
         IStaking(stakingContract).stake{value: amount}();
         uint256 balanceAfter = IERC20(want).balanceOf(address(this));
         uint256 received = balanceAfter - balanceBefore;
@@ -229,66 +240,86 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         require(amount <= totalPosition, "Amount exceeds total position");
 
         // Calculate proportional amounts for each layer
-        uint256 layerAmount = amount / (maxLoops+1);
+        uint256 layerAmount = amount / maxLoops;
         uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
-        uint256 layerDebt = (totalDebt * amount) / totalPosition / (maxLoops+1);
+        // IERC20(borrowToken).approve(lendingPool, totalDebt);
+        // IERC20(want).approve(stakingContract, amount);
+
+        // Calculate debt amount proportional to withdrawal amount
+        uint256 layerDebt = (totalDebt * amount) / totalPosition / maxLoops;
         uint256 debtPaid = 0;
 
-        for (uint256 i = 0; i < maxLoops+1; i++) {
+        for (uint256 i = 0; i < maxLoops; i++) {
             // Withdraw from lending pool
             ILendingPool(lendingPool).withdraw(want, layerAmount, address(this));
             uint256 debtBalance = IERC20(debtToken).balanceOf(address(this));
-            if(debtBalance == 0)
+            if(debtBalance == 0) {
                 break;
-
+            }
             // For all layers except the last one, repay proportional debt
+            uint256 requiredHbar = 0;
             if (i < maxLoops - 1) {
-                uint256 hbarAmount = _unstakeHBARX(layerAmount);
-                if (hbarAmount > 0) {
-                    IWHBAR(whbarContract).deposit{value: hbarAmount}(address(this), address(this));
-                    IERC20(borrowToken).approve(lendingPool, hbarAmount);
-                    ILendingPool(lendingPool).repay(borrowToken, hbarAmount, 2, address(this));
-                    debtPaid += layerDebt;
-                }
+                // Convert HBARX to HBAR amount needed
+                requiredHbar = _swapHBARXToHBAR(layerDebt);
+                debtPaid += layerDebt;
             } else {
                 // For the last layer, repay remaining debt
                 uint256 remainingDebt = totalDebt - debtPaid;
                 if (remainingDebt > 0) {
-                    uint256 hbarAmount = _unstakeHBARX(layerAmount);
-                    if (hbarAmount > 0) {
-                        IWHBAR(whbarContract).deposit{value: hbarAmount}(address(this), address(this));
-                        IERC20(borrowToken).approve(lendingPool, hbarAmount);
-                        ILendingPool(lendingPool).repay(borrowToken, hbarAmount, 2, address(this));
-                    }
+                    requiredHbar = _swapHBARXToHBAR(remainingDebt);
                 }
             }
+            if (requiredHbar > 0) {
+                //get current debt amount if requiredhbar is greater than debt balance
+                uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
+                if(requiredHbar > currentDebt) {
+                    requiredHbar = currentDebt;
+                }
+                ILendingPool(lendingPool).repay{value: requiredHbar}(borrowToken, requiredHbar, 2, address(this));
+            }   
         }
     }
 
-    function _unstakeHBARX(uint256 amount) internal returns (uint256) {
+    function _swapHBARXToHBAR(uint256 amount) internal returns (uint256) {
         require(amount > 0, "Amount must be greater than 0");
         uint256 balanceBefore = address(this).balance;
         
-        // Calculate expected HBAR return based on exchange rate
-        uint256 exchangeRate = IStaking(stakingContract).getExchangeRate();
-        uint256 expectedHbar = (amount * exchangeRate) / 1e8;
+        // Create swap path for HBARX to HBAR (via WHBAR if needed)
+        address[] memory route = new address[](2);
+        route[0] = want; // HBARX
+        route[1] = borrowToken; // HBAR (WHBAR)
         
-        IERC20(want).approve(stakingContract, amount);
-        IStaking(stakingContract).unStake(amount);
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = poolFee;
         
+        bytes memory path = UniswapV3Utils.routeToPath(route, fees);
+        
+        // Approve router to spend HBARX
+        IERC20(want).approve(saucerSwapRouter, amount);
+        
+        IUniswapRouterV3WithDeadline.ExactInputParams memory params = IUniswapRouterV3WithDeadline.ExactInputParams({
+            path: path,
+            recipient: address(this),
+            deadline: block.timestamp + 300, // 5 minute deadline
+            amountIn: amount,
+            amountOutMinimum: 0
+        });
+        
+        uint256 amountOut = IUniswapRouterV3WithDeadline(saucerSwapRouter).exactInput(params);
+        //unwrap whbar to hbar
+        IERC20(borrowToken).approve(whbarContract, amountOut);
+        IWHBAR(whbarContract).withdraw(address(this), address(this), amountOut);
         uint256 balanceAfter = address(this).balance;
         uint256 received = balanceAfter - balanceBefore;
-        emit UnstakeDebug(amount, expectedHbar, received);
-
-        require(received > 0, "No HBAR received from unstaking");
         
-        emit Unstaked(received);
-        return received;
+        emit SwappedHBARXToHBAR(amount, received);
+        require(received > 0, "No HBAR received from swap");
+        
+        return amountOut;
     }
 
-    function harvest() external whenNotPaused nonReentrant {
-        require(msg.sender == vault || msg.sender == owner() || msg.sender == keeper, "!authorized");
-
+    function harvest(address callFeeRecipient) external whenNotPaused nonReentrant {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
         if (isRewardsAvailable) {
             address[] memory assets = new address[](1);
             assets[0] = aToken;
@@ -297,7 +328,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
         uint256 wantHarvested = balanceOfWant();
         if (wantHarvested > 0) {
-            chargeFees();
+            chargeFees(callFeeRecipient);
             deposit();
         }
 
@@ -305,15 +336,18 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         emit StratHarvest(msg.sender, wantHarvested, balanceOf());
     }
 
-    function chargeFees() internal {
+    function chargeFees(address callFeeRecipient) internal {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
+        
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal > 0) {
             IFeeConfig.FeeCategory memory fees = getFees();
-            uint256 callFeeAmount = (wantBal * fees.call) / 1e18;
-            uint256 beefyFeeAmount = (wantBal * fees.beefy) / 1e18;
-            uint256 strategistFeeAmount = isBonzoDeployer ? 0 : (wantBal * fees.strategist) / 1e18;
+            uint256 totalFees = wantBal * fees.total / DIVISOR;
+            uint256 callFeeAmount = totalFees * fees.call / DIVISOR;
+            uint256 beefyFeeAmount = totalFees * fees.beefy / DIVISOR;
+            uint256 strategistFeeAmount = isBonzoDeployer ? 0 : totalFees * fees.strategist / DIVISOR;
             if (callFeeAmount > 0) {
-                _safeTransfer(want, address(this), msg.sender, callFeeAmount);
+                _safeTransfer(want, address(this), callFeeRecipient, callFeeAmount);
             }
             if (beefyFeeAmount > 0) {
                 _safeTransfer(want, address(this), beefyFeeRecipient, beefyFeeAmount);
@@ -327,7 +361,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function balanceOf() public view returns (uint256) {
-        return balanceOfWant() + balanceOfPool() + _getStakedBalance();
+        return balanceOfWant() + balanceOfPool();
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -410,6 +444,33 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
     function setWhbarContract(address _whbarContract) external onlyManager {
         whbarContract = _whbarContract;
+    }
+
+    function setSaucerSwapRouter(address _saucerSwapRouter) external onlyManager {
+        require(_saucerSwapRouter != address(0), "Router cannot be zero address");
+        saucerSwapRouter = _saucerSwapRouter;
+    }
+
+    function getSaucerSwapRouter() external view returns (address) {
+        return saucerSwapRouter;
+    }
+
+    function getSwapQuote(uint256 amountIn) external view returns (uint256 amountOut) {
+        require(amountIn > 0, "Amount must be greater than 0");
+        
+        // Create swap path for HBARX to HBAR
+        address[] memory route = new address[](2);
+        route[0] = want; // HBARX
+        route[1] = borrowToken; // HBAR (WHBAR)
+        
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = poolFee;
+        
+        bytes memory path = UniswapV3Utils.routeToPath(route, fees);
+        
+        // Get quote from router
+        uint256[] memory amounts = IUniswapRouterV3WithDeadline(saucerSwapRouter).getAmountsOut(amountIn, path);
+        return amounts[amounts.length - 1];
     }
 
     function getMaxBorrowable() external view returns (uint256) {

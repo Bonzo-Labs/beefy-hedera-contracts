@@ -33,6 +33,11 @@ async function main() {
   console.log("New vault deployed to:", vaultAddress);
 
   // Step 4: Connect to the newly created vault
+  // note: used in case deployment fails inbetween
+  // let vaultAddress="0x16A63c621a7EA760689738aFC0e3D2fe42805f62";
+  // let strategyAddress="0x6337fBB285A48Fd6F54Df74B9Eab326d4b8dE9a1";
+  // const strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", strategyAddress);
+
   const vault = await ethers.getContractAt("BeefyVaultV7Hedera", vaultAddress);
 
   // Step 5: Initialize the strategy
@@ -49,8 +54,8 @@ async function main() {
   // Strategy parameters
   const maxBorrowable = 4000; // 80% max borrowable
   const slippageTolerance = 50; // 0.5% slippage tolerance
-  const isRewardsAvailable = true; // Whether rewards are available
-  const isBonzoDeployer = true; // Whether this is deployed by Bonzo team
+  const isRewardsAvailable = false; // Whether rewards are available
+  const isBonzoDeployer = false; // Whether this is deployed by Bonzo team
 
   const commonAddresses = {
     vault: vaultAddress, // Set the vault address
