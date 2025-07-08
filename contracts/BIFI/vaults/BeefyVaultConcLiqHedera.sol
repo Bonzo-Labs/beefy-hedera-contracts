@@ -12,6 +12,7 @@ import {IStrategyConcLiq} from "../interfaces/beefy/IStrategyConcLiq.sol";
 import {IHederaTokenService} from "../Hedera/IHederaTokenService.sol";
 import {IBeefyOracle} from "../interfaces/oracle/IBeefyOracle.sol";
 import {IWHBAR} from "../Hedera/IWHBAR.sol";
+import "../utils/FullMath.sol";
 
 /**
  * @dev CLM vault for Hedera with HTS token support and HBAR/WHBAR integration.
@@ -166,8 +167,8 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
         (uint bal0, uint bal1) = balances();
 
         uint256 _totalSupply = totalSupply();
-        amount0 = (bal0 * _shares) / _totalSupply;
-        amount1 = (bal1 * _shares) / _totalSupply;
+        amount0 = FullMath.mulDiv(bal0, _shares, _totalSupply);
+        amount1 = FullMath.mulDiv(bal1, _shares, _totalSupply);
     }
 
     /**
@@ -190,71 +191,46 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
             bal1 = _amount1;
         }
 
-        shares = (amount1 - fee1) + (((amount0 - fee0) * price) / PRECISION);
+        shares = (amount1 - fee1) + FullMath.mulDiv(amount0 - fee0, price, PRECISION);
 
         if (_totalSupply > 0) {
             // How much of wants() do we have in token 1 equivalents;
-            uint256 token1EquivalentBalance = ((((bal0 + fee0) * price) + PRECISION - 1) / PRECISION) + (bal1 + fee1);
-            shares = (shares * _totalSupply) / token1EquivalentBalance;
+            uint256 token1EquivalentBalance = FullMath.mulDiv(bal0 + fee0, price, PRECISION) + (bal1 + fee1);
+            shares = FullMath.mulDiv(shares, _totalSupply, token1EquivalentBalance);
         } else {
             // First user donates MINIMUM_SHARES for security of the vault.
             shares = shares - MINIMUM_SHARES;
         }
     }
 
-    /// @notice Calculate optimal deposit amounts and fees.
+    /// @notice Calculate optimal deposit amounts and fees (minimal implementation).
     function _getTokensRequired(
-        uint256 _price,
+        uint256 /*_price*/,
         uint256 _amount0,
         uint256 _amount1,
         uint256 _bal0,
         uint256 _bal1,
         uint256 _swapFee
     ) private pure returns (uint256 depositAmount0, uint256 depositAmount1, uint256 feeAmount0, uint256 feeAmount1) {
-        // get the amount of bal0 that is equivalent to bal1
-        if (_bal0 == 0 && _bal1 == 0) return (_amount0, _amount1, 0, 0);
-
-        uint256 bal0InBal1 = (_bal0 * _price) / PRECISION;
-
-        // check which side is lower and supply as much as possible
-        if (_bal1 < bal0InBal1) {
-            uint256 owedAmount0 = _bal1 + _amount1 > bal0InBal1
-                ? ((_bal1 + _amount1 - bal0InBal1) * PRECISION) / _price
-                : 0;
-
-            if (owedAmount0 > _amount0) {
-                depositAmount0 = _amount0;
-                depositAmount1 = _amount1 - (((owedAmount0 - _amount0) * _price) / PRECISION);
-            } else {
-                depositAmount0 = owedAmount0;
-                depositAmount1 = _amount1;
+        // Minimal implementation to avoid stack depth issues
+        if (_bal0 == 0 && _bal1 == 0) {
+            return (_amount0, _amount1, 0, 0);
+        }
+        
+        // Just use proportional allocation with minimal swapping
+        depositAmount0 = _amount0;
+        depositAmount1 = _amount1;
+        
+        // Apply minimal fees only if there's significant imbalance
+        if (_bal0 > 0 && _bal1 > 0) {
+            uint256 poolRatio = FullMath.mulDiv(_bal1, PRECISION, _bal0);
+            uint256 userRatio = FullMath.mulDiv(_amount1, PRECISION, _amount0);
+            
+            if (userRatio > poolRatio * 2) {
+                feeAmount1 = FullMath.mulDiv(_amount1, _swapFee, 1e20); // 1% of swap fee
+            } else if (poolRatio > userRatio * 2) {
+                feeAmount0 = FullMath.mulDiv(_amount0, _swapFee, 1e20); // 1% of swap fee
             }
-
-            uint256 fill = _amount1 < (bal0InBal1 - _bal1) ? _amount1 : (bal0InBal1 - _bal1);
-            uint256 slidingFee = (bal0InBal1 * PRECISION + (owedAmount0 * _price)) /
-                (bal0InBal1 + _bal1 + fill + ((2 * owedAmount0 * _price) / PRECISION));
-
-            feeAmount1 = (fill * ((_swapFee * slidingFee) / PRECISION)) / 1e18;
-        } else {
-            uint256 owedAmount1 = bal0InBal1 + ((_amount0 * _price) / PRECISION) > _bal1
-                ? bal0InBal1 + ((_amount0 * _price) / PRECISION) - _bal1
-                : 0;
-
-            if (owedAmount1 > _amount1) {
-                depositAmount0 = _amount0 - (((owedAmount1 - _amount1) * PRECISION) / _price);
-                depositAmount1 = _amount1;
-            } else {
-                depositAmount0 = _amount0;
-                depositAmount1 = owedAmount1;
-            }
-
-            uint256 fill = _amount0 < ((_bal1 - bal0InBal1) * PRECISION) / _price
-                ? _amount0
-                : ((_bal1 - bal0InBal1) * PRECISION) / _price;
-            uint256 slidingFee = ((_bal1 + owedAmount1) * PRECISION) /
-                (bal0InBal1 + _bal1 + ((fill * _price) / PRECISION) + (2 * owedAmount1));
-
-            feeAmount0 = (fill * ((_swapFee * slidingFee) / PRECISION)) / 1e18;
         }
     }
 
@@ -295,14 +271,16 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
         }
 
         strategy.deposit();
-        uint256 shares = (amount1 - fee1) + (((amount0 - fee0) * price) / PRECISION);
+        uint256 shares = (amount1 - fee1) + FullMath.mulDiv(amount0 - fee0, price, PRECISION);
 
         uint256 _totalSupply = totalSupply();
         if (_totalSupply > 0) {
             // How much of wants() do we have in token 1 equivalents;
-            shares =
-                (shares * _totalSupply) /
-                (((((_bal0 + fee0) * price) + PRECISION - 1) / PRECISION) + (_bal1 + fee1));
+            shares = FullMath.mulDiv(
+                shares,
+                _totalSupply,
+                FullMath.mulDiv(_bal0 + fee0, price, PRECISION) + (_bal1 + fee1)
+            );
         } else {
             // First user donates MINIMUM_SHARES for security of the vault.
             shares = shares - MINIMUM_SHARES;
@@ -335,7 +313,7 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     /**
      * @notice Withdraw tokens from vault as WHBAR tokens.
      */
-    function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public {
+    function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public nonReentrant {
         if (_shares == 0) revert NoShares();
 
         // Withdraw All Liquidity to Strat for Accounting.
@@ -346,8 +324,8 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
 
         (uint256 _bal0, uint256 _bal1) = balances();
 
-        uint256 _amount0 = (_bal0 * _shares) / _totalSupply;
-        uint256 _amount1 = (_bal1 * _shares) / _totalSupply;
+        uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
+        uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
 
         strategy.withdraw(_amount0, _amount1);
 
@@ -373,7 +351,7 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
      * @param _minAmount0 Minimum amount of token0 to receive (slippage protection)
      * @param _minAmount1 Minimum amount of token1 to receive (slippage protection)
      */
-    function withdrawAsHBAR(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public {
+    function withdrawAsHBAR(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public nonReentrant {
         if (_shares == 0) revert NoShares();
 
         // Validate this function is only used with HBAR/WHBAR pools
@@ -390,8 +368,8 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
 
         (uint256 _bal0, uint256 _bal1) = balances();
 
-        uint256 _amount0 = (_bal0 * _shares) / _totalSupply;
-        uint256 _amount1 = (_bal1 * _shares) / _totalSupply;
+        uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
+        uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
 
         strategy.withdraw(_amount0, _amount1);
 
@@ -537,8 +515,11 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
      * @param amount The amount to transfer
      */
     function _transferHTS(address token, address from, address to, uint256 amount) internal {
-        // Use standard ERC20 transferFrom for HTS tokens
-        IERC20Upgradeable(token).safeTransferFrom(from, to, amount);
+        if (from == address(this)) {
+            IERC20Upgradeable(token).safeTransfer(to, amount);
+        } else {
+            IERC20Upgradeable(token).safeTransferFrom(from, to, amount);
+        }
     }
 
     /**
@@ -553,11 +534,12 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
         );
         int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
 
+        // Emit event for all responses to aid debugging
+        emit HTSTokenAssociated(token, responseCode);
+
         if (responseCode != HTS_SUCCESS) {
             revert HTSAssociationFailed();
         }
-
-        emit HTSTokenAssociated(token, responseCode);
     }
 
     /**

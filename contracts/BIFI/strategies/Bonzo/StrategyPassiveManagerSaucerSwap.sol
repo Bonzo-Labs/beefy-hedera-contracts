@@ -5,6 +5,7 @@ import {IERC20Metadata} from "@openzeppelin-4/contracts/token/ERC20/extensions/I
 import {SafeERC20} from "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SignedMath} from "@openzeppelin-4/contracts/utils/math/SignedMath.sol";
 import {AddressUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "../Common/StratFeeManagerInitializable.sol";
 import "../../interfaces/uniswap/IUniswapV3Pool.sol";
 import "../../utils/LiquidityAmounts.sol";
@@ -25,7 +26,7 @@ import "./SaucerSwapCLMLib.sol";
 /// @title Beefy Passive Position Manager for SaucerSwap (Hedera)
 /// @author Bonzo Team, adapted from Beefy
 /// @notice This is a contract for managing a passive concentrated liquidity position on SaucerSwap (UniswapV3 fork).
-contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStrategyConcLiq, GasFeeThrottler {
+contract StrategyPassiveManagerSaucerSwap is ReentrancyGuardUpgradeable, StratFeeManagerInitializable, IStrategyConcLiq, GasFeeThrottler {
     using SafeERC20 for IERC20Metadata;
     using TickMath for int24;
     using AddressUpgradeable for address payable;
@@ -184,6 +185,7 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
      */
     function initialize(InitParams calldata _params, CommonAddresses calldata _commonAddresses) external initializer {
         __StratFeeManager_init(_commonAddresses);
+        __ReentrancyGuard_init();
 
         pool = _params.pool;
         quoter = _params.quoter;
@@ -198,6 +200,9 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
 
         // Set the twap interval to 120 seconds.
         twapInterval = 120;
+        
+        // Set default max tick deviation to prevent deposits being blocked
+        maxTickDeviation = 200;
 
         // Associate both tokens with this contract (all tokens on Hedera are HTS except native HBAR)
         // Only associate if not native HBAR - use safe association that doesn't revert
@@ -685,9 +690,12 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
      * @param amount1 Amount of token1 owed to the pool
      * bytes Additional data but unused in this case.
      */
-    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external {
+    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external nonReentrant {
         if (msg.sender != pool) revert NotPool();
         if (!minting) revert InvalidEntry();
+
+        // Set minting to false BEFORE external calls to prevent reentrancy
+        minting = false;
 
         if (amount0 > 0) {
             _transferTokens(lpToken0, address(this), pool, amount0, true);
@@ -695,7 +703,6 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         if (amount1 > 0) {
             _transferTokens(lpToken1, address(this), pool, amount1, true);
         }
-        minting = false;
     }
 
     /// @notice Sets the tick positions for the main and alternative positions.
@@ -723,7 +730,8 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         uint256 amount0;
 
         if (bal0 > 0) {
-            amount0 = (bal0 * price()) / PRECISION;
+            // Use FullMath.mulDiv to prevent overflow
+            amount0 = FullMath.mulDiv(bal0, price(), PRECISION);
         }
 
         // We set the alternative position based on the token that has the most value available.
@@ -774,23 +782,20 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     }
 
     /**
-     * @notice Transfer HTS tokens using the precompile
+     * @notice Transfer HTS tokens using standard ERC20 interface
      * @param token The HTS token address
      * @param from The sender address
      * @param to The recipient address
      * @param amount The amount to transfer
      */
     function _transferHTS(address token, address from, address to, uint256 amount) internal {
-        require(amount <= uint256(uint64(type(int64).max)), "Amount too large for HTS");
-
-        (bool success, bytes memory result) = HTS_PRECOMPILE.call(
-            abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, int64(uint64(amount)))
-        );
-        int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
-
-        if (responseCode != HTS_SUCCESS) {
-            emit HTSTokenTransferFailed(token, from, to, responseCode);
-            revert HTSTransferFailed();
+        // Use standard ERC20 transferFrom for HTS tokens to avoid uint64 limitations
+        if (from == address(this)) {
+            // Transfer from this contract
+            IERC20Metadata(token).safeTransfer(to, amount);
+        } else {
+            // Transfer from external address
+            IERC20Metadata(token).safeTransferFrom(from, to, amount);
         }
     }
 
