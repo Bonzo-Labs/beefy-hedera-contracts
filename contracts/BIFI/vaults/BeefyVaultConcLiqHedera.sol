@@ -537,7 +537,8 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
         // Emit event for all responses to aid debugging
         emit HTSTokenAssociated(token, responseCode);
 
-        if (responseCode != HTS_SUCCESS) {
+        // Success codes: 22 (SUCCESS) or 23 (TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
+        if (responseCode != HTS_SUCCESS && responseCode != 23) {
             revert HTSAssociationFailed();
         }
     }
