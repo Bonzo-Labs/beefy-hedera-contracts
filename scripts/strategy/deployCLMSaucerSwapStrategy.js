@@ -7,7 +7,7 @@ const hardhat = require("hardhat");
  * Deploy new contracts:
  * CHAIN_TYPE=testnet npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_testnet
  * CHAIN_TYPE=mainnet npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_mainnet
- * 
+ *
  * Initialize existing contract:
  * CHAIN_TYPE=testnet INITIALIZE_EXISTING=true npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_testnet
  *
@@ -41,12 +41,13 @@ let config;
 if (CHAIN_TYPE === "testnet") {
   config = {
     // SaucerSwap V3 addresses (testnet)
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7", // SAUCE-WHBAR pool
+    // pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7", // SAUCE-WHBAR pool
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa", // SAUCE-CLXY pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000001535b2",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000001243ee",
 
     // Token addresses (testnet)
-    token0: process.env.TOKEN0_ADDRESS || "0x0000000000000000000000000000000000003ad2", // WHBAR
+    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000014f5", // CLXY
     token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000120f46", // SAUCE
 
     // Native token (WHBAR)
@@ -143,10 +144,10 @@ async function initializeExistingStrategy() {
 
   // Check if already initialized by reading current state
   console.log("\n=== Checking Initialization Status ===");
-  
+
   let isAlreadyInitialized = false;
   let currentOwner = ethers.constants.AddressZero;
-  
+
   try {
     // Try to read owner to check if initialized
     currentOwner = await strategy.owner();
@@ -154,13 +155,13 @@ async function initializeExistingStrategy() {
       isAlreadyInitialized = true;
       console.log("✓ Strategy is already initialized");
       console.log("Reading current configuration...");
-      
+
       const currentPool = await strategy.pool();
       const currentVault = await strategy.vault();
       const currentWidth = await strategy.positionWidth();
       const currentTwap = await strategy.twapInterval();
       const currentNative = await strategy.native();
-      
+
       console.log("Current Configuration:");
       console.log("  Pool:", currentPool);
       console.log("  Vault:", currentVault);
@@ -168,7 +169,7 @@ async function initializeExistingStrategy() {
       console.log("  TWAP Interval:", currentTwap.toString());
       console.log("  Native:", currentNative);
       console.log("  Owner:", currentOwner);
-      
+
       // Check if we are the owner
       if (currentOwner.toLowerCase() === deployer.address.toLowerCase()) {
         console.log("\n✓ We are the owner, we can update parameters if needed");
@@ -185,7 +186,7 @@ async function initializeExistingStrategy() {
   if (!isAlreadyInitialized) {
     // Initialize strategy
     console.log("\n=== Initializing Strategy ===");
-    
+
     // InitParams struct: pool, quoter, positionWidth, native, factory, beefyOracle
     const initParams = [
       config.pool,
@@ -275,7 +276,7 @@ async function deployNewStrategy() {
 
   // Initialize strategy with proper vault address
   console.log("\n=== Initializing Strategy ===");
-  
+
   // InitParams struct: pool, quoter, positionWidth, native, factory, beefyOracle
   const initParams = [
     config.pool,
@@ -307,7 +308,7 @@ async function deployNewStrategy() {
     const receipt = await initTx.wait();
     console.log("Initialization transaction confirmed, status:", receipt.status);
     console.log("Strategy initialized with vault:", vaultInstance.address);
-    
+
     // Verify initialization
     console.log("Verifying strategy initialization...");
     console.log("  Pool:", await strategy.pool());
@@ -383,7 +384,7 @@ async function deployNewStrategy() {
 
   console.log("\n=== Deployment Info (JSON) ===");
   console.log(JSON.stringify(deploymentInfo, null, 2));
-  
+
   return { strategy: strategy.address, vault: vaultInstance.address };
 }
 

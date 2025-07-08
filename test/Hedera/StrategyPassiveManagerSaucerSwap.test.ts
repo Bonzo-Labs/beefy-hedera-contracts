@@ -19,7 +19,8 @@ let nonManagerPK: string | undefined;
 
 if (CHAIN_TYPE === "testnet") {
   addresses = require("../../scripts/deployed-addresses.json");
-  POOL_ADDRESS = "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7"; // SAUCE-WHBAR pool
+  // POOL_ADDRESS = "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7"; // SAUCE-WHBAR pool
+  POOL_ADDRESS = "0x1a6Ca726e07a11849176b3C3b8e2cEda7553b9Aa"; // SAUCE-CLXY pool
   QUOTER_ADDRESS = "0x00000000000000000000000000000000001535b2"; // SaucerSwap quoter testnet
   FACTORY_ADDRESS = "0x00000000000000000000000000000000001243ee"; // SaucerSwap factory testnet
   TOKEN0_ADDRESS = "0x0000000000000000000000000000000000003ad2"; // WHBAR testnet
@@ -88,8 +89,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     console.log("=== Using Existing Deployed Contracts ===");
 
     // Hardcoded addresses for existing deployed contracts (UPDATED WITH FIXED PRICE CALCULATION AND PROPER VAULT INIT)
-    const EXISTING_STRATEGY_ADDRESS = "0xdAd074D79eFa792d7Fdbf8F4CAdB4F26d50EE506"; // Fixed strategy address
-    const EXISTING_VAULT_ADDRESS = "0xc3cBd1693a633Fb7138c79Ae897A0391134cF11B"; // Fixed CLM vault address
+    const EXISTING_STRATEGY_ADDRESS = "0xC1f753546107bFD34Ee722Be98A9972D583D1E2c"; // Fixed strategy address
+    const EXISTING_VAULT_ADDRESS = "0x9d247FBbF0a95ac399f497C80b593A72Eb237f73"; // Fixed CLM vault address
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -682,7 +683,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it("Should handle real HBAR + SAUCE deposits", async function () {
+    it.skip("Should handle real HBAR + SAUCE deposits", async function () {
       if (!vault || !strategy || !sauceToken) {
         console.log("Vault, strategy, or SAUCE token not available, skipping test");
         return;
@@ -706,11 +707,11 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
         // Smart approval for SAUCE tokens
         console.log("=== Smart Approving SAUCE tokens ===");
         const requiredSauceAmount = ethers.utils.parseUnits("100", 6); // Approve 100 SAUCE
-        
+
         try {
           const currentSauceAllowance = await sauceToken.allowance(deployer.address, vault.address);
           console.log("Current SAUCE allowance:", ethers.utils.formatUnits(currentSauceAllowance, 6));
-          
+
           if (currentSauceAllowance.lt(ethers.utils.parseUnits("10", 6))) {
             const approveTx = await sauceToken.approve(vault.address, requiredSauceAmount, { gasLimit: 1000000 });
             await approveTx.wait();
@@ -719,17 +720,20 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
             console.log("✓ SAUCE approval sufficient, skipping");
           }
         } catch (sauceApprovalError: any) {
-          console.log("SAUCE approval failed (HTS tokens may not support standard approvals):", sauceApprovalError.message);
+          console.log(
+            "SAUCE approval failed (HTS tokens may not support standard approvals):",
+            sauceApprovalError.message
+          );
         }
 
         // Smart approval for WHBAR tokens
         console.log("=== Smart Approving WHBAR tokens ===");
         const requiredWhbarAmount = ethers.utils.parseUnits("100", 8); // Approve 100 WHBAR
-        
+
         try {
           const currentWhbarAllowance = await whbarToken.allowance(deployer.address, vault.address);
           console.log("Current WHBAR allowance:", ethers.utils.formatUnits(currentWhbarAllowance, 8));
-          
+
           if (currentWhbarAllowance.lt(ethers.utils.parseUnits("10", 8))) {
             const whbarApproveTx = await whbarToken.approve(vault.address, requiredWhbarAmount, { gasLimit: 1000000 });
             await whbarApproveTx.wait();
@@ -737,19 +741,23 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
           } else {
             console.log("✓ WHBAR vault approval sufficient, skipping");
           }
-          
+
           const currentWhbarStrategyAllowance = await whbarToken.allowance(deployer.address, strategy.address);
           if (currentWhbarStrategyAllowance.lt(ethers.utils.parseUnits("10", 8))) {
-            const whbarApproveTx2 = await whbarToken.approve(strategy.address, requiredWhbarAmount, { gasLimit: 1000000 });
+            const whbarApproveTx2 = await whbarToken.approve(strategy.address, requiredWhbarAmount, {
+              gasLimit: 1000000,
+            });
             await whbarApproveTx2.wait();
             console.log("✓ WHBAR tokens approved for strategy");
           } else {
             console.log("✓ WHBAR strategy approval sufficient, skipping");
           }
-          
+
           const currentWhbarContractAllowance = await whbarToken.allowance(deployer.address, whbarContract.address);
           if (currentWhbarContractAllowance.lt(ethers.utils.parseUnits("10", 8))) {
-            const whbarApproveTx3 = await whbarToken.approve(whbarContract.address, requiredWhbarAmount, { gasLimit: 1000000 });
+            const whbarApproveTx3 = await whbarToken.approve(whbarContract.address, requiredWhbarAmount, {
+              gasLimit: 1000000,
+            });
             await whbarApproveTx3.wait();
             console.log("✓ WHBAR tokens approved for whbar contract");
           } else {
@@ -819,12 +827,14 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
             // For deposit function parameters (contract expects tinybar/token units):
             const depositHbarAmount = ethers.utils.parseUnits(size.hbar, 8); // WHBAR has 8 decimals
             const depositSauceAmount = ethers.utils.parseUnits(size.sauce, 6); // SAUCE has 6 decimals
-            
+
             // For msg.value (network expects wei - 18 decimals):
             const msgValueAmount = ethers.utils.parseEther(size.hbar); // 18 decimals for network
 
             console.log(`\n--- Trying ${size.name}: ${size.hbar} HBAR + ${size.sauce} SAUCE ---`);
-            console.log(`Deposit amounts - HBAR: ${depositHbarAmount.toString()} (8 decimals), SAUCE: ${depositSauceAmount.toString()} (6 decimals)`);
+            console.log(
+              `Deposit amounts - HBAR: ${depositHbarAmount.toString()} (8 decimals), SAUCE: ${depositSauceAmount.toString()} (6 decimals)`
+            );
             console.log(`Msg value - HBAR: ${msgValueAmount.toString()} (18 decimals)`);
 
             // // Try preview deposit
@@ -845,7 +855,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
             await depositTx.wait();
 
             console.log(`✓ ${size.name} deposit successful!`);
-            successfulDeposit = { size, amount0, amount1, shares };
+            successfulDeposit = { size };
             break; // Exit loop on success
           } catch (sizeError: any) {
             console.log(`${size.name} deposit failed:`, sizeError.message);
@@ -883,6 +893,181 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
         }
       } catch (error: any) {
         console.log("Real HBAR + SAUCE deposit failed:", error.message);
+        throw error; // Re-throw to fail the test if there's an actual issue
+      }
+    });
+
+    it("Should handle real CLXY + SAUCE deposits", async function () {
+      const price = await strategy.price();
+      const balances = await strategy.balances();
+      const [keyMain, keyAlt] = await strategy.getKeys();
+      const positionMain = await strategy.positionMain();
+      const positionAlt = await strategy.positionAlt();
+      // const initTicks = await strategy.initTicks; // If this field exists
+      const pool = await ethers.getContractAt(
+        "contracts/BIFI/interfaces/uniswap/IUniswapV3Pool.sol:IUniswapV3Pool",
+        POOL_ADDRESS
+      );
+      const slot0 = await pool.slot0();
+      console.log("Price:", price);
+      console.log("Balances:", balances);
+      console.log("Key Main:", keyMain);
+      console.log("Key Alt:", keyAlt);
+      console.log("Position Main:", positionMain);
+      console.log("Position Alt:", positionAlt);
+      console.log("Slot0:", slot0);
+
+      try {
+        // Initialize CLXY token contract (assuming it's token1 or a different token)
+        const CLXY_ADDRESS = "0x00000000000000000000000000000000000014f5"; // Replace with actual CLXY address
+        const clxyToken = await ethers.getContractAt(
+          "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+          CLXY_ADDRESS
+        );
+
+        // Get initial balances
+        const initialShares = await vault.balanceOf(deployer.address);
+        const initialSAUCE = await sauceToken.balanceOf(deployer.address);
+        const initialCLXY = await clxyToken.balanceOf(deployer.address);
+
+        console.log("=== Initial Balances ===");
+        console.log("Initial CLXY Balance:", ethers.utils.formatUnits(initialCLXY, 6)); // Assuming 8 decimals
+        console.log("Initial SAUCE Balance:", ethers.utils.formatUnits(initialSAUCE, 6));
+        console.log("Initial Vault Shares:", initialShares.toString());
+
+        // Smart approval for SAUCE tokens
+        console.log("=== Smart Approving SAUCE tokens ===");
+        const requiredSauceAmount = ethers.utils.parseUnits("100", 6);
+
+        try {
+          const currentSauceAllowance = await sauceToken.allowance(deployer.address, vault.address);
+          console.log("Current SAUCE allowance:", ethers.utils.formatUnits(currentSauceAllowance, 6));
+
+          if (currentSauceAllowance.lt(ethers.utils.parseUnits("10", 6))) {
+            const approveTx = await sauceToken.approve(vault.address, requiredSauceAmount, { gasLimit: 1000000 });
+            await approveTx.wait();
+            console.log("✓ SAUCE tokens approved for vault");
+          } else {
+            console.log("✓ SAUCE approval sufficient, skipping");
+          }
+        } catch (sauceApprovalError: any) {
+          console.log("SAUCE approval failed:", sauceApprovalError.message);
+        }
+
+        // Smart approval for CLXY tokens
+        console.log("=== Smart Approving CLXY tokens ===");
+        const requiredClxyAmount = ethers.utils.parseUnits("100", 6);
+
+        try {
+          const currentClxyAllowance = await clxyToken.allowance(deployer.address, vault.address);
+          console.log("Current CLXY allowance:", ethers.utils.formatUnits(currentClxyAllowance, 8));
+
+          if (currentClxyAllowance.lt(ethers.utils.parseUnits("10", 6))) {
+            const clxyApproveTx = await clxyToken.approve(vault.address, requiredClxyAmount, { gasLimit: 1000000 });
+            await clxyApproveTx.wait();
+            console.log("✓ CLXY tokens approved for vault");
+          } else {
+            console.log("✓ CLXY approval sufficient, skipping");
+          }
+        } catch (clxyApprovalError: any) {
+          console.log("CLXY approval failed:", clxyApprovalError.message);
+        }
+
+        // Strategy state debugging before deposit
+        console.log("=== Strategy State Debugging ===");
+        try {
+          const isPaused = await strategy.paused();
+          console.log("Strategy paused:", isPaused);
+
+          if (isPaused) {
+            console.log("⚠️ Strategy is paused - attempting to unpause...");
+            try {
+              const unpauseTx = await strategy.unpause({ gasLimit: 1000000 });
+              await unpauseTx.wait();
+              console.log("✓ Strategy unpaused successfully with owner");
+            } catch (unpauseError: any) {
+              console.log("Failed to unpause with owner:", unpauseError.message);
+            }
+          }
+
+          const isCalm = await strategy.isCalm();
+          console.log("Pool is calm:", isCalm);
+
+          const [bal0, bal1] = await strategy.balances();
+          console.log("Strategy balances - Token0:", bal0.toString(), "Token1:", bal1.toString());
+        } catch (stateError: any) {
+          console.log("Strategy state check failed:", stateError.message);
+        }
+
+        // Try different deposit amounts with retry logic
+        console.log("=== Preview Deposit with Retry Logic ===");
+
+        const depositSizes = [
+          { clxy: "10.0", sauce: "10", name: "Full amount" },
+          { clxy: "5.0", sauce: "5", name: "Half amount" },
+          { clxy: "1.0", sauce: "1", name: "Small amount" },
+          { clxy: "0.1", sauce: "0.1", name: "Tiny amount" },
+        ];
+
+        let successfulDeposit = null;
+
+        for (const size of depositSizes) {
+          try {
+            const depositClxyAmount = ethers.utils.parseUnits(size.clxy, 6); // CLXY decimals
+            const depositSauceAmount = ethers.utils.parseUnits(size.sauce, 6); // SAUCE decimals
+
+            console.log(`\n--- Trying ${size.name}: ${size.clxy} CLXY + ${size.sauce} SAUCE ---`);
+            console.log(
+              `Deposit amounts - CLXY: ${depositClxyAmount.toString()}, SAUCE: ${depositSauceAmount.toString()}`
+            );
+
+            console.log(`Executing ${size.name} deposit...`);
+            const depositTx = await vault.deposit(depositClxyAmount, depositSauceAmount, 0, {
+              gasLimit: 5000000,
+            });
+            await depositTx.wait();
+
+            console.log(`✓ ${size.name} deposit successful!`);
+            successfulDeposit = {
+              size,
+            };
+            break; // Exit loop on success
+          } catch (sizeError: any) {
+            console.log(`${size.name} deposit failed:`, sizeError.message);
+            continue; // Try next size
+          }
+        }
+
+        if (!successfulDeposit) {
+          throw new Error("All deposit sizes failed - check strategy state");
+        }
+
+        // Check balances after successful deposit
+        console.log("\n=== Final Balance Check ===");
+        const finalShares = await vault.balanceOf(deployer.address);
+        const finalSAUCE = await sauceToken.balanceOf(deployer.address);
+        const finalCLXY = await clxyToken.balanceOf(deployer.address);
+
+        const clxyUsed = initialCLXY.sub(finalCLXY);
+        const sauceUsed = initialSAUCE.sub(finalSAUCE);
+        const sharesReceived = finalShares.sub(initialShares);
+
+        console.log("=== Deposit Results ===");
+        console.log(`Successful deposit size: ${successfulDeposit.size.name}`);
+        console.log(`  ${successfulDeposit.size.clxy} CLXY + ${successfulDeposit.size.sauce} SAUCE`);
+        console.log("CLXY used:", ethers.utils.formatUnits(clxyUsed, 8));
+        console.log("SAUCE used:", ethers.utils.formatUnits(sauceUsed, 6));
+        console.log("Vault shares received:", sharesReceived.toString());
+        console.log("✓ Real CLXY + SAUCE deposit completed successfully!");
+
+        // Verify deposit worked correctly
+        if (sharesReceived.gt(0)) {
+          console.log("✅ DEPOSIT SUCCESS: Real tokens successfully deposited into CLM strategy!");
+        } else {
+          console.log("⚠️ No shares received - deposit may not have worked correctly");
+        }
+      } catch (error: any) {
+        console.log("Real CLXY + SAUCE deposit failed:", error.message);
         throw error; // Re-throw to fail the test if there's an actual issue
       }
     });

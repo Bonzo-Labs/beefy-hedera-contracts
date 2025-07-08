@@ -580,6 +580,10 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     // Legacy function removed for bytecode optimization
 
     function _getMainPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
+        if (!initTicks) {
+            return (0, 0);
+        }
+        
         (bytes32 keyMain, ) = getKeys();
         (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyMain);
 
@@ -595,6 +599,10 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     }
 
     function _getAltPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
+        if (!initTicks) {
+            return (0, 0);
+        }
+        
         (, bytes32 keyAlt) = getKeys();
         (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyAlt);
 
@@ -726,6 +734,11 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
 
             (positionAlt.tickUpper, ) = TickUtils.baseTicks(tick, distance, distance);
         } else if (bal1 < amount0) {
+            (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
+
+            (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);
+        } else {
+            // Default case when both balances are 0 or equal - set alt position to token0 side (different from main)
             (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
 
             (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);
