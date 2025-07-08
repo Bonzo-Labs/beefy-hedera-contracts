@@ -227,11 +227,20 @@ async function deployNewStrategy() {
     console.log("  Vault Symbol:", config.vaultSymbol);
     console.log("  Oracle Address:", addresses.beefyOracle);
 
+    // Get token addresses from the strategy
+    const token0 = await strategy.lpToken0();
+    const token1 = await strategy.lpToken1();
+    
+    console.log("  Token0:", token0);
+    console.log("  Token1:", token1);
+
     const vaultInitTx = await vaultInstance.initialize(
       strategy.address,
       config.vaultName,
       config.vaultSymbol,
       addresses.beefyOracle,
+      token0,
+      token1,
       { gasLimit: 5000000 }
     );
 

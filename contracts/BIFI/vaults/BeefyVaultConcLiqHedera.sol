@@ -81,27 +81,35 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
 
     /**
      * @notice Initializes the vault, sets the strategy name and creates a new token.
+     * @param _strategy The strategy contract address
+     * @param _name The vault token name
+     * @param _symbol The vault token symbol
+     * @param _beefyOracle The Beefy Oracle address
+     * @param _token0 The first token address to associate
+     * @param _token1 The second token address to associate
      */
     function initialize(
         address _strategy,
         string calldata _name,
         string calldata _symbol,
-        address _beefyOracle
+        address _beefyOracle,
+        address _token0,
+        address _token1
     ) external initializer {
         __ERC20_init(_name, _symbol);
-        __ERC20Permit_init(_name);
         __Ownable_init();
         __ReentrancyGuard_init();
 
         strategy = IStrategyConcLiq(_strategy);
         beefyOracle = _beefyOracle;
 
-        // Associate both tokens with this contract
-        address token0 = strategy.lpToken0();
-        address token1 = strategy.lpToken1();
-
-        _associateToken(token0);
-        _associateToken(token1);
+        // Associate the provided tokens with this contract
+        if (_token0 != address(0)) {
+            _safeAssociateToken(_token0);
+        }
+        if (_token1 != address(0)) {
+            _safeAssociateToken(_token1);
+        }
     }
 
     /**
@@ -544,6 +552,30 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     }
 
     /**
+     * @notice Safely associate this contract with an HTS token - doesn't revert on failure
+     * @param token The HTS token address to associate with this contract
+     */
+    function _safeAssociateToken(address token) internal {
+        if (token == address(0)) return;
+
+        (bool success, bytes memory result) = HTS_PRECOMPILE.call(
+            abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
+        );
+        int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
+
+        // Emit event for all responses to aid debugging
+        emit HTSTokenAssociated(token, responseCode);
+
+        // Success codes: 22 (SUCCESS) or 23 (TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
+        // Don't revert on failure - just log for debugging
+        if (responseCode != HTS_SUCCESS && responseCode != 23) {
+            // Log the failure but don't revert to prevent initialization from failing
+            emit HTSTokenAssociated(token, responseCode);
+        }
+    }
+
+
+    /**
      * @dev Allow the owner to manually associate this contract with an HTS token
      * This can be useful if the contract needs to handle a new token or if token association failed
      * @param token The HTS token address to associate with this contract
@@ -551,6 +583,7 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     function associateToken(address token) external onlyOwner {
         _associateToken(token);
     }
+
 
     /**
      * @dev Rescues random funds stuck that the strat can't handle.
