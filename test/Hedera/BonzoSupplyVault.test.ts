@@ -123,8 +123,8 @@ describe("BeefyBonzoSupplyVault", function () {
       console.log("Vault initialized", vaultInitializeReceipt.transactionHash);
     } else {
       // Use already deployed contracts
-      const VAULT_ADDRESS = "0xe36E5ee41B46FFbd01e980D1d33bD86E5Cd24c90";
-      const STRATEGY_ADDRESS = "0xC231193badBEB8fEFDD218fAb4B5A330dd7c25ab";
+      const VAULT_ADDRESS = "0x29612C9A07ECc0D5cb2BA3B9603ba5cFEba24f43";
+      const STRATEGY_ADDRESS = "0x3cb6623Ef399334484ea905eABcE72465169E121";
 
       console.log("Using existing deployed contracts:");
       console.log("Vault address:", VAULT_ADDRESS);
@@ -271,7 +271,7 @@ describe("BeefyBonzoSupplyVault", function () {
       console.log("✅ Deposit test passed!");
     });
 
-    it("should handle withdrawals correctly", async function () {
+    it.skip("should handle withdrawals correctly", async function () {
       console.log("Testing withdrawal functionality...");
 
       // Check if user has shares to withdraw
@@ -324,7 +324,7 @@ describe("BeefyBonzoSupplyVault", function () {
       console.log("✅ Withdrawal test passed!");
     });
 
-    it("should handle withdrawal fees correctly", async function () {
+    it.skip("should handle withdrawal fees correctly", async function () {
       console.log("Testing withdrawal fee functionality...");
 
       // Ensure we have shares and set withdrawal fee

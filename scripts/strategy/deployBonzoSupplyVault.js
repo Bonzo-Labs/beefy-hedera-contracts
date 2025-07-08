@@ -36,6 +36,12 @@ async function main() {
   console.log("New vault deployed to:", vaultAddress);
 
   // Step 4: Connect to the newly created vault
+  
+  // note: used in case deployment fails inbetween
+  // let vaultAddress="0x29612C9A07ECc0D5cb2BA3B9603ba5cFEba24f43";
+  // let strategyAddress="0x3cb6623Ef399334484ea905eABcE72465169E121";
+  // const strategy = await ethers.getContractAt("BonzoSupplyStrategy", strategyAddress);
+   
   const vault = await ethers.getContractAt("BeefyVaultV7Hedera", vaultAddress);
 
   // Step 5: Initialize the strategy
@@ -98,7 +104,7 @@ async function main() {
     "Beefy BONZO Supply",
     "bvBONZO-SUPPLY",
     0, // Performance fee - set to 0 initially
-    isHederaToken,
+    true,
     { gasLimit: 3000000 }
   );
   await vaultInitTx.wait();
