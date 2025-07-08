@@ -1,11 +1,11 @@
 const hardhat = require("hardhat");
 
 /**
- * Script to deploy StrategyPassiveManagerSaucerSwap for CLM (Concentrated Liquidity Management)
+ * Script to deploy SaucerSwapLariRewardsCLMStrategy for CLM (Concentrated Liquidity Management) with LARI rewards
  *
  * Usage:
- * CHAIN_TYPE=testnet npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_testnet
- * CHAIN_TYPE=mainnet npx hardhat run scripts/strategy/deployCLMSaucerSwapStrategy.js --network hedera_mainnet
+ * CHAIN_TYPE=testnet npx hardhat run scripts/strategy/deployCLMSaucerSwapLariRewardsStrategy.js --network hedera_testnet
+ * CHAIN_TYPE=mainnet npx hardhat run scripts/strategy/deployCLMSaucerSwapLariRewardsStrategy.js --network hedera_mainnet
  *
  * Note: All tokens on Hedera are automatically detected as HTS tokens except native HBAR.
  * No need to specify token types manually.
@@ -32,7 +32,6 @@ let config;
 if (CHAIN_TYPE === "testnet") {
   config = {
     // SaucerSwap V3 addresses (testnet)
-    // pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7", // SAUCE-WHBAR pool
     pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa", // SAUCE-CLXY pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000001535b2",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000001243ee",
@@ -44,12 +43,18 @@ if (CHAIN_TYPE === "testnet") {
     // Native token (WHBAR)
     native: "0x0000000000000000000000000000000000003ad2", // WHBAR testnet
 
+    // LARI reward tokens (testnet)
+    rewardTokens: process.env.REWARD_TOKENS ? process.env.REWARD_TOKENS.split(",") : [
+      "0x0000000000000000000000000000000000120f46", // SAUCE (example reward token)
+      // Add more reward tokens as needed
+    ],
+
     // Position configuration
     positionWidth: parseInt(process.env.POSITION_WIDTH) || 200,
 
     // Vault configuration
-    vaultName: process.env.VAULT_NAME || "Beefy CLM SaucerSwap Testnet",
-    vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-SS-T",
+    vaultName: process.env.VAULT_NAME || "Beefy CLM LARI SaucerSwap Testnet",
+    vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-LARI-SS-T",
   };
 } else if (CHAIN_TYPE === "mainnet") {
   config = {
@@ -65,12 +70,17 @@ if (CHAIN_TYPE === "testnet") {
     // Native token (WHBAR)
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet
 
+    // LARI reward tokens (mainnet)
+    rewardTokens: process.env.REWARD_TOKENS ? process.env.REWARD_TOKENS.split(",") : [
+      // Add mainnet reward tokens here
+    ],
+
     // Position configuration
     positionWidth: parseInt(process.env.POSITION_WIDTH) || 200,
 
     // Vault configuration
-    vaultName: process.env.VAULT_NAME || "Beefy CLM SaucerSwap",
-    vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-SS",
+    vaultName: process.env.VAULT_NAME || "Beefy CLM LARI SaucerSwap",
+    vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-LARI-SS",
   };
 }
 
@@ -81,7 +91,7 @@ async function main() {
   console.log("Account:", deployer.address);
   console.log("Account balance:", (await deployer.getBalance()).toString());
   console.log("Chain type:", CHAIN_TYPE);
-  console.log("Mode: Deploy New");
+  console.log("Mode: Deploy New CLM LARI Strategy");
 
   // Validate infrastructure addresses
   if (!addresses.beefyFeeConfig || addresses.beefyFeeConfig === ethers.constants.AddressZero) {
@@ -107,15 +117,15 @@ async function main() {
   console.log("  Token1:", config.token1);
   console.log("  Position Width:", config.positionWidth);
   console.log("  Native Token:", config.native);
+  console.log("  Reward Tokens:", config.rewardTokens);
 
   // Always deploy new strategy
   return await deployNewStrategy();
 }
 
-
 async function deployNewStrategy() {
   const deployer = await ethers.getSigner();
-  console.log("\n=== Deploying New Strategy ===");
+  console.log("\n=== Deploying New CLM LARI Strategy ===");
 
   if (!addresses.clmVault || addresses.clmVault === ethers.constants.AddressZero) {
     throw new Error("CLM Vault address not found. Please run deployChain.js first.");
@@ -136,8 +146,8 @@ async function deployNewStrategy() {
   console.log("Vault instance deployed to:", vaultInstance.address);
 
   // Deploy strategy with library linking
-  console.log("\n=== Deploying StrategyPassiveManagerSaucerSwap ===");
-  const StrategyFactory = await ethers.getContractFactory("StrategyPassiveManagerSaucerSwap", {
+  console.log("\n=== Deploying SaucerSwapLariRewardsCLMStrategy ===");
+  const StrategyFactory = await ethers.getContractFactory("SaucerSwapLariRewardsCLMStrategy", {
     libraries: {
       SaucerSwapCLMLib: library.address,
     },
@@ -150,7 +160,7 @@ async function deployNewStrategy() {
   // Initialize strategy with proper vault address
   console.log("\n=== Initializing Strategy ===");
 
-  // InitParams struct: pool, quoter, positionWidth, native, factory, beefyOracle
+  // InitParams struct: pool, quoter, positionWidth, native, factory, beefyOracle, rewardTokens
   const initParams = [
     config.pool,
     config.quoter,
@@ -158,6 +168,7 @@ async function deployNewStrategy() {
     config.native,
     config.factory,
     addresses.beefyOracle,
+    config.rewardTokens,
   ];
 
   // CommonAddresses struct: vault, unirouter, keeper, strategist, beefyFeeRecipient, beefyFeeConfig
@@ -190,6 +201,7 @@ async function deployNewStrategy() {
     console.log("  TWAP Interval:", (await strategy.twapInterval()).toString());
     console.log("  Native:", await strategy.native());
     console.log("  Owner:", await strategy.owner());
+    console.log("  Reward Tokens Length:", (await strategy.getRewardTokensLength()).toString());
   } catch (error) {
     console.error("Strategy initialization failed:", error);
     throw error;
@@ -215,6 +227,39 @@ async function deployNewStrategy() {
   await strategy.setTwapInterval(twapInterval, { gasLimit: 1000000 });
   console.log(`TWAP interval set to: ${twapInterval} seconds`);
 
+  // Configure reward token routes if specified
+  console.log("\n=== Configuring Reward Token Routes ===");
+  for (let i = 0; i < config.rewardTokens.length; i++) {
+    const rewardToken = config.rewardTokens[i];
+    console.log(`Setting routes for reward token ${i}: ${rewardToken}`);
+
+    // Example routes - update these based on your specific token routing needs
+    let toLp0Route = [];
+    let toLp1Route = [];
+
+    // If reward token is different from LP tokens, set up swap routes
+    if (rewardToken !== config.token0 && rewardToken !== config.token1) {
+      // Example: SAUCE -> CLXY route (via WHBAR if needed)
+      if (rewardToken === "0x0000000000000000000000000000000000120f46") { // SAUCE
+        toLp0Route = [rewardToken, config.native, config.token0]; // SAUCE -> WHBAR -> CLXY
+        toLp1Route = [rewardToken, config.token1]; // SAUCE -> SAUCE (direct)
+      } else {
+        // Generic route via native token
+        toLp0Route = [rewardToken, config.native, config.token0];
+        toLp1Route = [rewardToken, config.native, config.token1];
+      }
+
+      try {
+        await strategy.setRewardRoute(rewardToken, toLp0Route, toLp1Route, { gasLimit: 1000000 });
+        console.log(`  Routes set for ${rewardToken}`);
+        console.log(`    To LP0: ${toLp0Route.join(" -> ")}`);
+        console.log(`    To LP1: ${toLp1Route.join(" -> ")}`);
+      } catch (error) {
+        console.log(`  Failed to set routes for ${rewardToken}:`, error.message);
+      }
+    }
+  }
+
   console.log("\n=== Deployment Summary ===");
   console.log(`Strategy: ${strategy.address}`);
   console.log(`Vault: ${vaultInstance.address}`);
@@ -224,18 +269,24 @@ async function deployNewStrategy() {
   console.log(`Position Width: ${config.positionWidth}`);
   console.log(`Max Tick Deviation: ${maxTickDeviation}`);
   console.log(`TWAP Interval: ${twapInterval}s`);
+  console.log(`Reward Tokens: ${config.rewardTokens.length}`);
 
   console.log("\n=== Next Steps ===");
-  console.log("1. HBAR/WHBAR functionality:");
+  console.log("1. LARI Rewards Configuration:");
+  console.log("   • Add additional reward tokens: strategy.addRewardToken(token, isHTS)");
+  console.log("   • Configure reward routes: strategy.setRewardRoute(token, toLp0Route, toLp1Route)");
+  console.log("   • Enable/disable tokens: strategy.updateRewardTokenStatus(token, isActive)");
+  console.log("2. HBAR/WHBAR functionality:");
   console.log(`   • Users can deposit native HBAR (auto-wrapped to WHBAR)`);
   console.log(`   • Users can withdraw as WHBAR or native HBAR (withdrawAsHBAR)`);
   console.log(`   • WHBAR addresses are hardcoded in vault contract`);
   console.log("3. Transfer ownership to appropriate multisig:");
   console.log(`   await strategy.transferOwnership("0x...")`);
   console.log(`   await vaultInstance.transferOwnership("0x...")`);
-  console.log("4. Test deposit/withdraw functionality on testnet:");
-  console.log(`   • Test HBAR deposit: vault.deposit(amount0, amount1, minShares, {value: hbarAmount})`);
-  console.log(`   • Test HBAR withdrawal: vault.withdrawAsHBAR(shares, minAmount0, minAmount1)`);
+  console.log("4. Test functionality on testnet:");
+  console.log(`   • Test deposit/withdraw with CLM positioning`);
+  console.log(`   • Test LARI rewards harvesting`);
+  console.log(`   • Test reward token management`);
   console.log("5. Associate any additional HTS tokens if needed:");
   console.log(`   await strategy.associateToken("0x...") // All tokens auto-detected as HTS`);
   console.log("6. Verify contracts on Hedera explorer if needed");
@@ -244,12 +295,14 @@ async function deployNewStrategy() {
   const deploymentInfo = {
     strategy: strategy.address,
     vault: vaultInstance.address,
+    library: library.address,
     pool: config.pool,
     token0: config.token0,
     token1: config.token1,
     positionWidth: config.positionWidth,
     maxTickDeviation: maxTickDeviation,
     twapInterval: twapInterval,
+    rewardTokens: config.rewardTokens,
     deployer: deployer.address,
     deploymentTime: new Date().toISOString(),
     chainType: CHAIN_TYPE,
@@ -258,7 +311,12 @@ async function deployNewStrategy() {
   console.log("\n=== Deployment Info (JSON) ===");
   console.log(JSON.stringify(deploymentInfo, null, 2));
 
-  return { strategy: strategy.address, vault: vaultInstance.address };
+  return { 
+    strategy: strategy.address, 
+    vault: vaultInstance.address, 
+    library: library.address,
+    rewardTokensLength: config.rewardTokens.length
+  };
 }
 
 main()

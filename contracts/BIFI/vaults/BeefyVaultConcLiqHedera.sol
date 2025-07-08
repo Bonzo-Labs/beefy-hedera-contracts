@@ -530,24 +530,15 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     }
 
     /**
-     * @notice Transfer HTS tokens using the precompile
+     * @notice Transfer HTS tokens using standard ERC20 transferFrom
      * @param token The HTS token address
      * @param from The sender address
      * @param to The recipient address
      * @param amount The amount to transfer
      */
     function _transferHTS(address token, address from, address to, uint256 amount) internal {
-        require(amount <= uint256(uint64(type(int64).max)), "Amount too large for HTS");
-
-        (bool success, bytes memory result) = HTS_PRECOMPILE.call(
-            abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, int64(uint64(amount)))
-        );
-        int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
-
-        if (responseCode != HTS_SUCCESS) {
-            emit HTSTokenTransferFailed(token, from, to, responseCode);
-            revert HTSTransferFailed();
-        }
+        // Use standard ERC20 transferFrom for HTS tokens
+        IERC20Upgradeable(token).safeTransferFrom(from, to, amount);
     }
 
     /**

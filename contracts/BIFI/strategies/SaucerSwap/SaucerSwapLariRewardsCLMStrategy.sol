@@ -17,15 +17,16 @@ import "../../interfaces/beefy/IStrategyFactory.sol";
 import "../../interfaces/beefy/IStrategyConcLiq.sol";
 import "../../interfaces/beefy/IBeefySwapper.sol";
 import "../../interfaces/uniswap/IQuoter.sol";
+import "../../utils/UniswapV3Utils.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../utils/GasFeeThrottler.sol";
 import "../../interfaces/oracle/IBeefyOracle.sol";
-import "./SaucerSwapCLMLib.sol";
+import "../Bonzo/SaucerSwapCLMLib.sol";
 
-/// @title Beefy Passive Position Manager for SaucerSwap (Hedera)
+/// @title Beefy LARI Rewards CLM Strategy for SaucerSwap (Hedera)
 /// @author Bonzo Team, adapted from Beefy
-/// @notice This is a contract for managing a passive concentrated liquidity position on SaucerSwap (UniswapV3 fork).
-contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStrategyConcLiq, GasFeeThrottler {
+/// @notice This contract manages concentrated liquidity positions on SaucerSwap while harvesting LARI rewards
+contract SaucerSwapLariRewardsCLMStrategy is StratFeeManagerInitializable, IStrategyConcLiq, GasFeeThrottler {
     using SafeERC20 for IERC20Metadata;
     using TickMath for int24;
     using AddressUpgradeable for address payable;
@@ -77,6 +78,7 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         address native;
         address factory;
         address beefyOracle;
+        address[] rewardTokens;
     }
 
     /// @notice Struct for balance information to reduce stack depth
@@ -89,13 +91,19 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         uint256 altAmount1;
     }
 
+    /// @notice Dynamic reward tokens structure
+    struct RewardToken {
+        address token;
+        bool isHTS;
+        bool isActive;
+        address[] toLp0Route;
+        address[] toLp1Route;
+    }
+
     /// @notice The main position of the strategy.
-    /// @dev this will always be a 50/50 position that will be equal to position width * tickSpacing on each side.
     Position public positionMain;
 
     /// @notice The alternative position of the strategy.
-    /// @dev this will always be a single sided (limit order) position that will start closest to current tick and continue to width * tickSpacing.
-    /// This will always be in the token that has the most value after we fill our main position.
     Position public positionAlt;
 
     /// @notice The width of the position, thats a multiplier for tick spacing to find our range.
@@ -135,6 +143,13 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     /// @notice Beefy Oracle for price feeds
     address public beefyOracle;
 
+    /// @notice Array of reward tokens
+    RewardToken[] public rewardTokens;
+    
+    /// @notice Mapping for quick lookup
+    mapping(address => uint256) private rewardTokenIndex;
+    mapping(address => bool) private isRewardToken;
+
     // Errors
     error NotAuthorized();
     error NotPool();
@@ -148,12 +163,19 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     error HTSTransferFailed();
     error HTSAssociationFailed();
     error InvalidTokenAddress();
+    error NoRoutes();
+    error TokenExists();
+    error TokenNotFound();
 
-    // Events - Reduced for bytecode optimization
+    // Events
     event Harvest(uint256 fee0, uint256 fee1);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
     event Deposit(address indexed user, uint256 amount0, uint256 amount1);
     event Withdraw(address indexed user, uint256 amount0, uint256 amount1);
+    event LariHarvested(address indexed rewardToken, uint256 amount);
+    event RewardTokenAdded(address indexed token, bool isHTS);
+    event RewardTokenRemoved(address indexed token);
+    event RewardTokenUpdated(address indexed token, bool isActive);
 
     /// @notice Modifier to only allow deposit/harvest actions when current price is within a certain deviation of twap.
     modifier onlyCalmPeriods() {
@@ -200,12 +222,16 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         twapInterval = 120;
 
         // Associate both tokens with this contract (all tokens on Hedera are HTS except native HBAR)
-        // Only associate if not native HBAR - use safe association that doesn't revert
         if (lpToken0 != native) {
             _safeAssociateToken(lpToken0);
         }
         if (lpToken1 != native) {
             _safeAssociateToken(lpToken1);
+        }
+
+        // Initialize reward tokens
+        for (uint256 i = 0; i < _params.rewardTokens.length; i++) {
+            _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
 
         // Give allowances - use try-catch to handle any HTS approval issues
@@ -376,23 +402,26 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         else return true;
     }
 
-    /// @notice Harvest call to claim fees from pool, charge fees for Beefy, then readjust our positions.
+    /// @notice Harvest call to claim fees from pool, charge fees for Beefy, process LARI rewards, then readjust our positions.
     /// @param _callFeeRecipient The address to send the call fee to.
     function harvest(address _callFeeRecipient) external {
         _harvest(_callFeeRecipient);
     }
 
-    /// @notice Harvest call to claim fees from the pool, charge fees for Beefy, then readjust our positions.
+    /// @notice Harvest call to claim fees from the pool, charge fees for Beefy, process LARI rewards, then readjust our positions.
     /// @dev Call fee goes to the tx.origin.
     function harvest() external {
         _harvest(tx.origin);
     }
 
-    /// @notice Internal function to claim fees from the pool, charge fees for Beefy, then readjust our positions.
+    /// @notice Internal function to claim fees from the pool, charge fees for Beefy, process LARI rewards, then readjust our positions.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
         // Claim fees from the pool and collect them.
         _claimEarnings();
         _removeLiquidity();
+
+        // Process LARI rewards
+        _processLariRewards();
 
         // Charge fees for Beefy and send them to the appropriate addresses, charge fees to accrued state fee amounts.
         (uint256 fee0, uint256 fee1) = _chargeFees(_callFeeRecipient, fees0, fees1);
@@ -416,14 +445,64 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         emit Harvest(fee0, fee1);
     }
 
+    /// @notice Process LARI rewards from multiple reward tokens
+    function _processLariRewards() private {
+        // Check if any reward tokens have routes set
+        bool hasRoutes = false;
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            if (rewardTokens[i].isActive && 
+                (rewardTokens[i].toLp0Route.length > 1 || rewardTokens[i].toLp1Route.length > 1)) {
+                hasRoutes = true;
+                break;
+            }
+        }
+        if (!hasRoutes) return; // Skip processing if no routes
+
+        // Process each active reward token
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            RewardToken storage rewardToken = rewardTokens[i];
+            if (!rewardToken.isActive) continue;
+
+            uint256 balance = IERC20Metadata(rewardToken.token).balanceOf(address(this));
+            if (balance == 0) continue;
+
+            emit LariHarvested(rewardToken.token, balance);
+
+            // Swap rewards to LP tokens
+            if (rewardToken.token != lpToken0 && rewardToken.toLp0Route.length > 1) {
+                uint256 balanceBefore = IERC20Metadata(lpToken0).balanceOf(address(this));
+                IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
+                _swapReward(balance / 2, rewardToken.toLp0Route);
+                uint256 balanceAfter = IERC20Metadata(lpToken0).balanceOf(address(this));
+                fees0 += balanceAfter - balanceBefore;
+            }
+            if (rewardToken.token != lpToken1 && rewardToken.toLp1Route.length > 1) {
+                uint256 balanceBefore = IERC20Metadata(lpToken1).balanceOf(address(this));
+                IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
+                _swapReward(balance / 2, rewardToken.toLp1Route);
+                uint256 balanceAfter = IERC20Metadata(lpToken1).balanceOf(address(this));
+                fees1 += balanceAfter - balanceBefore;
+            }
+        }
+    }
+
+    /// @notice Swap reward tokens using BeefySwapper
+    function _swapReward(uint256 amount, address[] memory route) internal {
+        if (amount == 0 || route.length < 2) return;
+        
+        address tokenIn = route[0];
+        address tokenOut = route[route.length - 1];
+        
+        // Use BeefySwapper for token swaps
+        IBeefySwapper(unirouter).swap(tokenIn, tokenOut, amount);
+    }
+
     /// @notice Function called to moveTicks of the position
     function moveTicks() external onlyCalmPeriods onlyRebalancers {
         _claimEarnings();
         _removeLiquidity();
         _setTicks();
         _addLiquidity();
-
-        // Event removed for bytecode optimization
     }
 
     /// @notice Claims fees from the pool and collects them.
@@ -523,8 +602,6 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         _transferTokens(native, address(this), _callFeeRecipient, callFeeAmount, true);
         _transferTokens(native, address(this), strategist, strategistFeeAmount, true);
         _transferTokens(native, address(this), beefyFeeRecipient, beefyFeeAmount, true);
-
-        // Event removed for bytecode optimization
     }
 
     /**
@@ -575,8 +652,6 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         balInfo.token1Bal = balInfo.mainAmount1 + balInfo.altAmount1;
     }
 
-    // Legacy function removed for bytecode optimization
-
     function _getMainPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
         if (!initTicks) {
             return (0, 0);
@@ -614,13 +689,6 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         amount0 += owed0;
         amount1 += owed1;
     }
-
-    /**
-     * @notice Returns the amount of locked profit in the strategy, this is linearly release over a duration defined in the fee manager.
-     * @return locked0 The amount of token0 locked in the strategy.
-     * @return locked1 The amount of token1 locked in the strategy.
-     */
-    // lockedProfit function removed for bytecode optimization
 
     /**
      * @notice Returns the range of the pool, will always be the main position.
@@ -809,8 +877,6 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         if (responseCode != HTS_SUCCESS) {
             revert HTSAssociationFailed();
         }
-
-        // Event removed for bytecode optimization
     }
 
     /**
@@ -830,22 +896,16 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         return responseCode == HTS_SUCCESS || responseCode == 23;
     }
 
-    // Path setter functions removed for bytecode optimization
-
     /**
      * @notice Sets the deviation from the twap we will allow on adding liquidity.
      * @param _maxDeviation The max deviation from twap we will allow.
      */
     function setDeviation(int56 _maxDeviation) external onlyOwner {
-        // Event removed for bytecode optimization
-
         // Require the deviation to be less than or equal to 4 times the tick spacing.
         if (_maxDeviation >= _tickDistance() * 4) revert InvalidInput();
 
         maxTickDeviation = _maxDeviation;
     }
-
-    // Token price functions removed for bytecode optimization
 
     /**
      * @notice The twap of the last minute from the pool.
@@ -856,15 +916,11 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     }
 
     function setTwapInterval(uint32 _interval) external onlyOwner {
-        // Event removed for bytecode optimization
-
         // Require the interval to be greater than 60 seconds.
         if (_interval < 60) revert InvalidInput();
 
         twapInterval = _interval;
     }
-
-    // setPositionWidth function removed for bytecode optimization
 
     /**
      * @notice set the unirouter address
@@ -925,6 +981,13 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         if (lpToken1 != native) {
             IERC20Metadata(lpToken1).approve(unirouter, type(uint256).max);
         }
+
+        // Give allowances for reward tokens
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            if (rewardTokens[i].isActive && rewardTokens[i].token != native) {
+                IERC20Metadata(rewardTokens[i].token).approve(unirouter, type(uint256).max);
+            }
+        }
     }
 
     /// @notice safely gives swap permisions for the tokens to the unirouter without reverting.
@@ -944,6 +1007,17 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
                 // Approval failed - continue anyway
             }
         }
+
+        // Give allowances for reward tokens
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            if (rewardTokens[i].isActive && rewardTokens[i].token != native) {
+                try IERC20Metadata(rewardTokens[i].token).approve(unirouter, type(uint256).max) {
+                    // Approval succeeded
+                } catch {
+                    // Approval failed - continue anyway
+                }
+            }
+        }
     }
 
     /// @notice removes swap permisions for the tokens from the unirouter.
@@ -954,6 +1028,13 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         }
         if (lpToken1 != native) {
             IERC20Metadata(lpToken1).approve(unirouter, 0);
+        }
+
+        // Remove allowances for reward tokens
+        for (uint256 i = 0; i < rewardTokens.length; i++) {
+            if (rewardTokens[i].token != native) {
+                IERC20Metadata(rewardTokens[i].token).approve(unirouter, 0);
+            }
         }
     }
 
@@ -1010,6 +1091,81 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
             // If quoter fails, return 0 to indicate unavailable price
             return 0;
         }
+    }
+
+    /**
+     * @dev Add a new reward token
+     */
+    function addRewardToken(address _token, bool _isHTS) external onlyManager {
+        if (isRewardToken[_token]) revert TokenExists();
+        _addRewardToken(_token, _isHTS);
+    }
+
+    function _addRewardToken(address _token, bool _isHTS) internal {
+        require(_token != address(0), "Invalid token");
+        
+        rewardTokens.push(RewardToken({
+            token: _token,
+            isHTS: _isHTS,
+            isActive: true,
+            toLp0Route: new address[](0),
+            toLp1Route: new address[](0)
+        }));
+        
+        rewardTokenIndex[_token] = rewardTokens.length - 1;
+        isRewardToken[_token] = true;
+        
+        // Associate HTS token if needed
+        if (_isHTS && _token != lpToken0 && _token != lpToken1) {
+            _safeAssociateToken(_token);
+        }
+        
+        emit RewardTokenAdded(_token, _isHTS);
+    }
+
+    /**
+     * @dev Update reward token status
+     */
+    function updateRewardTokenStatus(address _token, bool _isActive) external onlyManager {
+        if (!isRewardToken[_token]) revert TokenNotFound();
+        uint256 index = rewardTokenIndex[_token];
+        rewardTokens[index].isActive = _isActive;
+        emit RewardTokenUpdated(_token, _isActive);
+    }
+
+    /**
+     * @dev Set swap routes for reward tokens
+     * @param _token Reward token address
+     * @param _toLp0Route Array of routes to LP token 0
+     * @param _toLp1Route Array of routes to LP token 1
+     */
+    function setRewardRoute(
+        address _token,
+        address[] calldata _toLp0Route,
+        address[] calldata _toLp1Route
+    ) external onlyManager {
+        if (!isRewardToken[_token]) revert TokenNotFound();
+        uint256 index = rewardTokenIndex[_token];
+        rewardTokens[index].toLp0Route = _toLp0Route;
+        rewardTokens[index].toLp1Route = _toLp1Route;
+    }
+
+    function removeRewardToken(address _token) external onlyManager {
+        if (!isRewardToken[_token]) revert TokenNotFound();
+        uint256 index = rewardTokenIndex[_token];
+        rewardTokens[index].isActive = false;
+        emit RewardTokenRemoved(_token);
+    }
+
+    /// @notice Get reward token information
+    function getRewardToken(uint256 index) external view returns (RewardToken memory) {
+        require(index < rewardTokens.length, "Index out of bounds");
+        return rewardTokens[index];
+    }
+
+    /// @notice Get total number of reward tokens
+    function getRewardTokensLength() external view returns (uint256) {
+        return rewardTokens.length;
     }
 
     /// @notice Receive function to accept native token deposits

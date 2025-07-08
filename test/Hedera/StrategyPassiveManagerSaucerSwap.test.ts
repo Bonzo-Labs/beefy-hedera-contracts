@@ -89,8 +89,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     console.log("=== Using Existing Deployed Contracts ===");
 
     // Hardcoded addresses for existing deployed contracts (UPDATED WITH FIXED PRICE CALCULATION AND PROPER VAULT INIT)
-    const EXISTING_STRATEGY_ADDRESS = "0xC1f753546107bFD34Ee722Be98A9972D583D1E2c"; // Fixed strategy address
-    const EXISTING_VAULT_ADDRESS = "0x9d247FBbF0a95ac399f497C80b593A72Eb237f73"; // Fixed CLM vault address
+    const EXISTING_STRATEGY_ADDRESS = "0x6e8849Ea5F44802c1402aF9944E6f58315c94eb7"; // Fixed strategy address
+    const EXISTING_VAULT_ADDRESS = "0x81F7eE30a6768a0339faA61419D0379252C50901"; // Fixed CLM vault address
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -903,7 +903,6 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       const [keyMain, keyAlt] = await strategy.getKeys();
       const positionMain = await strategy.positionMain();
       const positionAlt = await strategy.positionAlt();
-      // const initTicks = await strategy.initTicks; // If this field exists
       const pool = await ethers.getContractAt(
         "contracts/BIFI/interfaces/uniswap/IUniswapV3Pool.sol:IUniswapV3Pool",
         POOL_ADDRESS
