@@ -2,6 +2,7 @@
 pragma solidity ^0.8.22;
 
 import "@openzeppelin-4/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin-4/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
 import "../../interfaces/bonzo/IRewardsController.sol";
@@ -9,6 +10,7 @@ import "../Common/StratFeeManagerInitializable.sol";
 import "../../utils/GasFeeThrottler.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../interfaces/beefy/IStrategyV7.sol";
+import "../../interfaces/oracle/IBeefyOracle.sol";
 
 /**
  * @title YieldLoopConfigurable
@@ -28,9 +30,10 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     // Third party contracts
     address public lendingPool;
     address public rewardsController;
+    address public beefyOracle; // Oracle for price feeds
 
     // Strategy settings
-    uint256 public borrowFactor = 4000; // 40% in basis points (100% = 10000) - kept conservative
+    uint256 public borrowFactor = 2000; // 40% in basis points (100% = 10000) - kept conservative
     uint256 public constant BORROW_FACTOR_MAX = 6000; // Max 60% to prevent liquidation
     uint256 public leverageLoops = 2; // Number of leverage loops (1-5)
     uint256 public constant MAX_LOOPS = 5; // Maximum allowed loops
@@ -43,10 +46,10 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     bool public harvestOnDeposit;
     uint256 public lastHarvest;
     bool public isHederaToken; // Flag to determine if tokens are Hedera tokens
+    uint8 public wantDecimals; // Decimals of the want token
 
-    // Tracking variables for precise leverage management
-    uint256[] public supplyAmounts; // Track supply at each level
-    uint256[] public borrowAmounts; // Track borrow at each level
+    // Note: We don't track individual leverage levels since this is a multi-user vault
+    // The lending pool's actual data is the source of truth
 
     // Events
     event StratHarvest(address indexed harvester, uint256 wantHarvested, uint256 tvl);
@@ -58,6 +61,7 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     event BorrowFactorUpdated(uint256 newBorrowFactor);
     event LeverageLoopsUpdated(uint256 newLoops);
     event EmergencyDeleveraged(uint256 totalRepaid, uint256 totalWithdrawn);
+    event OracleUpdated(address newOracle);
 
     // Custom errors for gas efficiency
     error InvalidAmount();
@@ -67,7 +71,9 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     error HTSTransferFailed(int64 responseCode);
     error NotVault();
     error InsufficientBalance();
-
+    error OraclePriceFail();
+    error OraclePriceZero();
+    
     function initialize(
         address _want,
         address _aToken,
@@ -77,6 +83,7 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         address _output,
         bool _isHederaToken,
         uint256 _leverageLoops,
+        address _beefyOracle,
         CommonAddresses calldata _commonAddresses
     ) public initializer {
         __StratFeeManager_init(_commonAddresses);
@@ -88,13 +95,15 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         rewardsController = _rewardsController;
         output = _output;
         isHederaToken = _isHederaToken;
+        beefyOracle = _beefyOracle;
+        
+        // Get want token decimals
+        wantDecimals = IERC20Metadata(_want).decimals();
 
         if (_leverageLoops == 0 || _leverageLoops > MAX_LOOPS) revert InvalidLeverageLoops();
         leverageLoops = _leverageLoops;
 
-        // Initialize tracking arrays
-        supplyAmounts = new uint256[](MAX_LOOPS);
-        borrowAmounts = new uint256[](MAX_LOOPS);
+        // No need to initialize tracking arrays - we use lending pool data directly
 
         if (isHederaToken) {
             // Associate HTS tokens
@@ -137,6 +146,9 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         if (msg.sender != owner() && !paused()) {
             uint256 withdrawalFeeAmount = (wantBal * withdrawalFee) / WITHDRAWAL_MAX;
             wantBal = wantBal - withdrawalFeeAmount;
+            if(withdrawalFeeAmount > 0) {
+                _safeTransfer(want, address(this), beefyFeeRecipient, withdrawalFeeAmount);
+            }
         }
 
         _safeTransfer(want, address(this), vault, wantBal);
@@ -156,26 +168,30 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         // Approve lending pool to spend want tokens
         IERC20(want).approve(lendingPool, _amount * (leverageLoops + 1));
         ILendingPool(lendingPool).deposit(want, _amount, address(this), 0);
-        supplyAmounts[0] = _amount;
 
         uint256 currentCollateral = _amount;
 
         // Loop for additional leverage
         for (uint256 i = 0; i < leverageLoops - 1; i++) {
-            // Calculate borrow amount using conservative borrowFactor
-            uint256 borrowableAmount = (currentCollateral * borrowFactor) / 10000;
-
             // Get current position data to check LTV limits
             (uint256 currentCollateralBase, uint256 currentDebtBase, , , uint256 currentLtv, ) = ILendingPool(
                 lendingPool
             ).getUserAccountData(address(this));
 
+            // Convert currentCollateralBase to want token units for accurate calculations
+            // currentCollateralBase is in HBAR units (18 decimals), but we need to convert to want token units
+            uint256 currentCollateralInWantUnits = _convertFromBaseToWant(currentCollateralBase);
+
+            // Calculate borrow amount using conservative borrowFactor based on actual collateral
+            uint256 borrowableAmount = (currentCollateralInWantUnits * borrowFactor) / 10000;
+
             // Calculate maximum borrow amount that keeps us under LTV
             uint256 maxBorrowBase = ((currentCollateralBase * currentLtv) / 10000) - currentDebtBase;
+            uint256 maxBorrowInWantUnits = _convertFromBaseToWant(maxBorrowBase);
 
             // Use the smaller of borrowFactor calculation and LTV limit
-            if (borrowableAmount > maxBorrowBase) {
-                borrowableAmount = maxBorrowBase;
+            if (borrowableAmount > maxBorrowInWantUnits) {
+                borrowableAmount = maxBorrowInWantUnits;
             }
 
             // If we can't borrow more, stop
@@ -183,14 +199,58 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
 
             // Borrow tokens
             ILendingPool(lendingPool).borrow(want, borrowableAmount, 2, 0, address(this));
-            borrowAmounts[i] = borrowableAmount;
 
             ILendingPool(lendingPool).deposit(want, borrowableAmount, address(this), 0);
-            supplyAmounts[i + 1] = borrowableAmount;
 
             // Update collateral for next iteration
             currentCollateral = borrowableAmount;
         }
+    }
+
+    /**
+     * @dev Convert from base units (ETH/HBAR in 18 decimals) to want token units using oracle price
+     * @param baseAmount Amount in base units (ETH/HBAR in 18 decimals)
+     * @return wantAmount Amount in want token units
+     */
+    function _convertFromBaseToWant(uint256 baseAmount) internal view returns (uint256 wantAmount) {
+        if (baseAmount == 0) return 0;
+        
+        // Get want token price from oracle
+        uint256 wantPrice;
+        try IBeefyOracle(beefyOracle).getPrice(want) returns (uint256 price) {
+            if(price == 0) revert OraclePriceZero();
+            wantPrice = price;
+        } catch {
+            revert OraclePriceFail();
+        }
+        
+        // Convert base amount to want token units
+        // baseAmount is in ETH/HBAR units (18 decimals), wantPrice is in ETH/HBAR with 18 decimals
+        // We need to convert to want token units with proper decimal handling
+        // Formula: (baseAmount * 10^wantDecimals) / wantPrice
+        wantAmount = (baseAmount * 10**wantDecimals) / wantPrice;
+    }
+
+    /**
+     * @dev Convert from want token units to base units (ETH/HBAR in 18 decimals) using oracle price
+     * @param wantAmount Amount in want token units
+     * @return baseAmount Amount in base units (ETH/HBAR in 18 decimals)
+     */
+    function _convertFromWantToBase(uint256 wantAmount) internal view returns (uint256 baseAmount) {
+        if (wantAmount == 0) return 0;
+        
+        // Get want token price from oracle
+        uint256 wantPrice;
+        try IBeefyOracle(beefyOracle).getPrice(want) returns (uint256 price) {
+            if(price == 0) revert OraclePriceZero();
+            wantPrice = price;
+        } catch {
+            revert OraclePriceFail();
+        }
+        
+        // Convert want token units to base amount with proper decimal handling
+        // Formula: (wantAmount * wantPrice) / (10^wantDecimals)
+        baseAmount = (wantAmount * wantPrice) / (10**wantDecimals);
     }
 
     function _deleverage(uint256 _targetAmount) internal {
@@ -210,36 +270,28 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         // Convert to ratio for calculations (1e18 = 100%)
         uint256 withdrawRatio = (_targetAmount * 1e18) / totalAssets;
 
-        // Unwind leverage in reverse order
-        for (uint256 i = leverageLoops; i > 0; i--) {
-            uint256 level = i - 1;
+        // Calculate total supply and debt from lending pool
+        uint256 totalSupply = balanceOfSupply();
+        uint256 totalDebt = balanceOfBorrow();
 
-            // Withdraw supply from this level
-            uint256 supplyToWithdraw = (supplyAmounts[level] * withdrawRatio) / 1e18;
-            if (supplyToWithdraw > 0) {
-                ILendingPool(lendingPool).withdraw(want, supplyToWithdraw, address(this));
-            }
-
-            // Repay debt from previous level (if exists)
-            if (level > 0) {
-                uint256 debtToRepay = (borrowAmounts[level - 1] * withdrawRatio) / 1e18;
-                if (debtToRepay > 0) {
-                    // Ensure we have enough to repay
-                    uint256 currentBal = IERC20(want).balanceOf(address(this));
-                    if (currentBal < debtToRepay) {
-                        // Need to withdraw more from earlier levels
-                        ILendingPool(lendingPool).withdraw(want, debtToRepay - currentBal, address(this));
-                    }
-
-                    ILendingPool(lendingPool).repay(want, debtToRepay, 2, address(this));
-                }
-            }
+        // Withdraw proportionally from total supply
+        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
+        if (supplyToWithdraw > 0) {
+            ILendingPool(lendingPool).withdraw(want, supplyToWithdraw, address(this));
         }
 
-        // Update tracking arrays proportionally
-        for (uint256 i = 0; i < leverageLoops; i++) {
-            supplyAmounts[i] = (supplyAmounts[i] * (1e18 - withdrawRatio)) / 1e18;
-            borrowAmounts[i] = (borrowAmounts[i] * (1e18 - withdrawRatio)) / 1e18;
+        // Repay debt proportionally
+        uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
+        if (debtToRepay > 0) {
+            // Ensure we have enough to repay
+            uint256 currentBal = IERC20(want).balanceOf(address(this));
+            if (currentBal < debtToRepay) {
+                // Need to withdraw more to cover debt
+                uint256 additionalWithdraw = debtToRepay - currentBal;
+                ILendingPool(lendingPool).withdraw(want, additionalWithdraw, address(this));
+            }
+
+            ILendingPool(lendingPool).repay(want, debtToRepay, 2, address(this));
         }
     }
 
@@ -283,15 +335,15 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     function chargeFees(address callFeeRecipient) internal {
         IFeeConfig.FeeCategory memory fees = getFees();
         uint256 outputBal = IERC20(output).balanceOf(address(this));
-        uint256 toNative = (outputBal * fees.total) / DIVISOR;
+        uint256 totalFees = (outputBal * fees.total) / DIVISOR;
 
-        uint256 callFeeAmount = (toNative * fees.call) / DIVISOR;
+        uint256 callFeeAmount = (totalFees * fees.call) / DIVISOR;
         _safeTransfer(output, address(this), callFeeRecipient, callFeeAmount);
 
-        uint256 beefyFeeAmount = (toNative * fees.beefy) / DIVISOR;
+        uint256 beefyFeeAmount = (totalFees * fees.beefy) / DIVISOR;
         _safeTransfer(output, address(this), beefyFeeRecipient, beefyFeeAmount);
 
-        uint256 strategistFeeAmount = (toNative * fees.strategist) / DIVISOR;
+        uint256 strategistFeeAmount = (totalFees * fees.strategist) / DIVISOR;
         _safeTransfer(output, address(this), strategist, strategistFeeAmount);
 
         emit ChargedFees(callFeeAmount, beefyFeeAmount, strategistFeeAmount);
@@ -332,6 +384,15 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         }
     }
 
+    /**
+     * @dev Update the Beefy Oracle address
+     * @param _beefyOracle The new oracle address
+     */
+    function setBeefyOracle(address _beefyOracle) external onlyManager {
+        require(_beefyOracle != address(0), "Invalid oracle address");
+        beefyOracle = _beefyOracle;
+        emit OracleUpdated(_beefyOracle);
+    }
 
     // ===== Emergency Functions =====
 
@@ -390,11 +451,7 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
             ILendingPool(lendingPool).withdraw(want, type(uint256).max, address(this));
         }
 
-        // Reset tracking arrays
-        for (uint256 i = 0; i < MAX_LOOPS; i++) {
-            supplyAmounts[i] = 0;
-            borrowAmounts[i] = 0;
-        }
+        // No tracking arrays to reset - we use lending pool data directly
     }
 
     function _emergencyDeleverage() internal {
@@ -491,13 +548,21 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     }
 
     function getSupplyAtLevel(uint256 level) public view returns (uint256) {
-        if (level >= leverageLoops) return 0;
-        return supplyAmounts[level];
+        // Since this is a multi-user vault, we don't track individual levels
+        // Return total supply for level 0, 0 for other levels
+        if (level == 0) {
+            return balanceOfSupply();
+        }
+        return 0;
     }
 
     function getBorrowAtLevel(uint256 level) public view returns (uint256) {
-        if (level >= leverageLoops) return 0;
-        return borrowAmounts[level];
+        // Since this is a multi-user vault, we don't track individual levels
+        // Return total debt for level 0, 0 for other levels
+        if (level == 0) {
+            return balanceOfBorrow();
+        }
+        return 0;
     }
 
 }
