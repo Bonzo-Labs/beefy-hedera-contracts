@@ -152,6 +152,8 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     // Events - Reduced for bytecode optimization
     event Harvest(uint256 fee0, uint256 fee1);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
+    event Deposit(address indexed user, uint256 amount0, uint256 amount1);
+    event Withdraw(address indexed user, uint256 amount0, uint256 amount1);
 
     /// @notice Modifier to only allow deposit/harvest actions when current price is within a certain deviation of twap.
     modifier onlyCalmPeriods() {
@@ -226,6 +228,9 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     function deposit() external onlyCalmPeriods {
         _onlyVault();
 
+        // Get current balances before adding liquidity
+        (uint256 bal0, uint256 bal1) = balancesOfThis();
+
         // Add all liquidity
         if (!initTicks) {
             _setTicks();
@@ -235,8 +240,9 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
         _addLiquidity();
 
         lastDeposit = block.timestamp;
-
-        // TVL Balances after deposit - Event removed for bytecode optimization
+        
+        // Emit deposit event with the amounts that were deposited
+        emit Deposit(vault, bal0, bal1);
     }
 
     /**
@@ -257,10 +263,11 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
             _transferTokens(lpToken1, address(this), vault, _amount1, true);
         }
 
+        // Emit withdraw event with the amounts that were withdrawn
+        emit Withdraw(vault, _amount0, _amount1);
+
         // After we take what is needed we add it all back to our positions.
         if (!_isPaused()) _addLiquidity();
-
-        // TVL Balances after withdraw - Event removed for bytecode optimization
     }
 
     /// @notice Adds liquidity to the main and alternative positions called on deposit, harvest and withdraw.
@@ -548,21 +555,14 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
 
     /**
      * @notice Returns total tokens sitting in the strategy.
+     * @dev Since SaucerSwap uses WHBAR (not native HBAR), all tokens including WHBAR are checked as ERC20 balances.
      * @return token0Bal The amount of token0 in the strategy.
      * @return token1Bal The amount of token1 in the strategy.
      */
     function balancesOfThis() public view returns (uint256 token0Bal, uint256 token1Bal) {
-        if (lpToken0 == native) {
-            token0Bal = address(this).balance;
-        } else {
-            token0Bal = IERC20Metadata(lpToken0).balanceOf(address(this));
-        }
-
-        if (lpToken1 == native) {
-            token1Bal = address(this).balance;
-        } else {
-            token1Bal = IERC20Metadata(lpToken1).balanceOf(address(this));
-        }
+        // All tokens on SaucerSwap (including WHBAR) are ERC20 tokens
+        token0Bal = IERC20Metadata(lpToken0).balanceOf(address(this));
+        token1Bal = IERC20Metadata(lpToken1).balanceOf(address(this));
     }
 
     /**
@@ -965,6 +965,40 @@ contract StrategyPassiveManagerSaucerSwap is StratFeeManagerInitializable, IStra
     function setBeefyOracle(address _beefyOracle) external onlyOwner {
         require(_beefyOracle != address(0), "Invalid oracle address");
         beefyOracle = _beefyOracle;
+    }
+
+    /// @notice Returns the price of the first token in native token
+    function lpToken0ToNativePrice() external returns (uint256) {
+        uint256 amount = 10 ** IERC20Metadata(lpToken0).decimals() / 10;
+        if (lpToken0 == native) return amount * 10;
+
+        // For SaucerSwap, we can use a simple direct path since it's based on UniswapV3
+        // Path for token0 -> WHBAR (native)
+        bytes memory path = abi.encodePacked(lpToken0, uint24(3000), native);
+
+        try IQuoter(quoter).quoteExactInput(path, amount) returns (uint256 amountOut) {
+            return amountOut * 10;
+        } catch {
+            // If quoter fails, return 0 to indicate unavailable price
+            return 0;
+        }
+    }
+
+    /// @notice Returns the price of the second token in native token
+    function lpToken1ToNativePrice() external returns (uint256) {
+        uint256 amount = 10 ** IERC20Metadata(lpToken1).decimals() / 10;
+        if (lpToken1 == native) return amount * 10;
+
+        // For SaucerSwap, we can use a simple direct path since it's based on UniswapV3
+        // Path for token1 -> WHBAR (native)
+        bytes memory path = abi.encodePacked(lpToken1, uint24(3000), native);
+
+        try IQuoter(quoter).quoteExactInput(path, amount) returns (uint256 amountOut) {
+            return amountOut * 10;
+        } catch {
+            // If quoter fails, return 0 to indicate unavailable price
+            return 0;
+        }
     }
 
     /// @notice Receive function to accept native token deposits

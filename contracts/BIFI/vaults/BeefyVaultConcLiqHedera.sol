@@ -41,15 +41,13 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     /// @notice Error code when binding to the HTS precompile fails.
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
 
-    /// @notice WHBAR contract address (testnet)
-    address private constant WHBAR_CONTRACT_TESTNET = 0x0000000000000000000000000000000000003aD1;
-    /// @notice WHBAR token address (testnet)
-    address private constant WHBAR_TOKEN_TESTNET = 0x0000000000000000000000000000000000003aD2;
+    //testnet
+    address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000003aD1;
+    address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000003aD2;
 
-    /// @notice WHBAR contract address (mainnet)
-    address private constant WHBAR_CONTRACT_MAINNET = 0x0000000000000000000000000000000000163B59;
-    /// @notice WHBAR token address (mainnet)
-    address private constant WHBAR_TOKEN_MAINNET = 0x0000000000000000000000000000000000163B5a;
+    // //mainnet
+    // address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000163B59;
+    // address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000163B5a;
 
     /// @notice Beefy Oracle for token pricing
     address public beefyOracle;
@@ -65,6 +63,7 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     error WHBARWrapFailed();
     error WHBARUnwrapFailed();
     error InvalidNativeAmount();
+    error OnlyHBARWHBARPools();
 
     // Events
     event Deposit(address indexed user, uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1);
@@ -129,24 +128,10 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     }
 
     /**
-     * @notice Get current network's WHBAR contract address
-     */
-    function whbarContract() public view returns (address) {
-        return block.chainid == 296 ? WHBAR_CONTRACT_MAINNET : WHBAR_CONTRACT_TESTNET;
-    }
-
-    /**
-     * @notice Get current network's WHBAR token address
-     */
-    function whbarToken() public view returns (address) {
-        return block.chainid == 296 ? WHBAR_TOKEN_MAINNET : WHBAR_TOKEN_TESTNET;
-    }
-
-    /**
      * @notice Check if a token is WHBAR HTS token
      */
-    function isWHBAR(address token) public view returns (bool) {
-        return token == whbarToken();
+    function isWHBAR(address token) public pure returns (bool) {
+        return token == WHBAR_TOKEN;
     }
 
     /**
@@ -154,7 +139,7 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
      * @param token The token address to check
      * @return true if the token is WHBAR and we can wrap native HBAR
      */
-    function canWrapHBAR(address token) public view returns (bool) {
+    function canWrapHBAR(address token) public pure returns (bool) {
         return isWHBAR(token);
     }
 
@@ -382,9 +367,20 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
 
     /**
      * @notice Withdraw tokens from vault as native HBAR (unwraps WHBAR).
+     * @dev Only works with HBAR/WHBAR pools. At least one token must be WHBAR for this function to work.
+     *      For other HTS tokens, use the regular withdraw() function.
+     * @param _shares The number of vault shares to withdraw
+     * @param _minAmount0 Minimum amount of token0 to receive (slippage protection)
+     * @param _minAmount1 Minimum amount of token1 to receive (slippage protection)
      */
     function withdrawAsHBAR(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public {
         if (_shares == 0) revert NoShares();
+
+        // Validate this function is only used with HBAR/WHBAR pools
+        (address token0, address token1) = wants();
+        if (!isWHBAR(token0) && !isWHBAR(token1)) {
+            revert OnlyHBARWHBARPools();
+        }
 
         // Withdraw All Liquidity to Strat for Accounting.
         strategy.beforeAction();
@@ -401,8 +397,6 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
 
         if (_amount0 < _minAmount0 || _amount1 < _minAmount1 || (_amount0 == 0 && _amount1 == 0))
             revert TooMuchSlippage();
-
-        (address token0, address token1) = wants();
 
         // Handle token0 - unwrap WHBAR to HBAR if applicable
         if (_amount0 > 0) {
@@ -435,8 +429,8 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     function _wrapHBAR(uint256 amount) internal returns (uint256) {
         if (amount == 0) return 0;
 
-        address _whbarContract = whbarContract();
-        address _whbarToken = whbarToken();
+        address _whbarContract = WHBAR_CONTRACT;
+        address _whbarToken = WHBAR_TOKEN;
 
         if (_whbarContract == address(0)) revert WHBARWrapFailed();
 
@@ -461,7 +455,7 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     function _unwrapWHBAR(uint256 amount) internal returns (uint256) {
         if (amount == 0) return 0;
 
-        address _whbarContract = whbarContract();
+        address _whbarContract = WHBAR_CONTRACT;
         if (_whbarContract == address(0)) revert WHBARUnwrapFailed();
 
         uint256 hbarBefore = address(this).balance;

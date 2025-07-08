@@ -41,7 +41,8 @@ library SaucerSwapCLMLib {
      * @return _price The calculated price
      */
     function calculatePrice(uint160 sqrtPriceX96) external pure returns (uint256 _price) {
-        _price = FullMath.mulDiv(uint256(sqrtPriceX96), SQRT_PRECISION, (2 ** 96)) ** 2;
+        uint256 scaledPrice = FullMath.mulDiv(uint256(sqrtPriceX96), SQRT_PRECISION, (2 ** 96));
+        _price = FullMath.mulDiv(scaledPrice, scaledPrice, SQRT_PRECISION);
     }
 
     /**
@@ -51,7 +52,8 @@ library SaucerSwapCLMLib {
      */
     function getPoolPrice(address pool) external view returns (uint256 _price) {
         (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
-        _price = FullMath.mulDiv(uint256(sqrtPriceX96), SQRT_PRECISION, (2 ** 96)) ** 2;
+        uint256 scaledPrice = FullMath.mulDiv(uint256(sqrtPriceX96), SQRT_PRECISION, (2 ** 96));
+        _price = FullMath.mulDiv(scaledPrice, scaledPrice, SQRT_PRECISION);
     }
 
     /**
@@ -231,7 +233,9 @@ library SaucerSwapCLMLib {
         uint160 sqrtPriceLower = TickMath.getSqrtRatioAtTick(tickLower);
         uint160 sqrtPriceUpper = TickMath.getSqrtRatioAtTick(tickUpper);
 
-        lowerPrice = FullMath.mulDiv(uint256(sqrtPriceLower), SQRT_PRECISION, (2 ** 96)) ** 2;
-        upperPrice = FullMath.mulDiv(uint256(sqrtPriceUpper), SQRT_PRECISION, (2 ** 96)) ** 2;
+        uint256 scaledLowerPrice = FullMath.mulDiv(uint256(sqrtPriceLower), SQRT_PRECISION, (2 ** 96));
+        uint256 scaledUpperPrice = FullMath.mulDiv(uint256(sqrtPriceUpper), SQRT_PRECISION, (2 ** 96));
+        lowerPrice = FullMath.mulDiv(scaledLowerPrice, scaledLowerPrice, SQRT_PRECISION);
+        upperPrice = FullMath.mulDiv(scaledUpperPrice, scaledUpperPrice, SQRT_PRECISION);
     }
 }
