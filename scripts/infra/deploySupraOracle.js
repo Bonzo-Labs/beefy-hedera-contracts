@@ -15,15 +15,18 @@ if(process.env.CHAIN_TYPE === "mainnet") {
   const sauceAddress = "0x00000000000000000000000000000000000b2ad5";
   const whbarAddress = "0x0000000000000000000000000000000000163b5a";
   const usdcAddress = "0x000000000000000000000000000000000006f89a";
-  tokenAddresses = [sauceAddress, whbarAddress, usdcAddress];
+  const grelfAddress = "0x000000000000000000000000000000000011afa2"
+  // tokenAddresses = [sauceAddress, whbarAddress, usdcAddress];
+  tokenAddresses = [grelfAddress];
 } else {
   addresses = require("../deployed-addresses.json");
   supraOracleAddress = "0xA55d9ac9aca329f5687e1cC286d0847e3f02062e"; // Supra Oracle address
   const tokenAddress = "0x0000000000000000000000000000000000120f46"; // SAUCE token
-  // const token2Address = "0x0000000000000000000000000000000000001549"; // USDC token
-  // const token3Address = "0x0000000000000000000000000000000000001599"; // DAI token
+  const token2Address = "0x0000000000000000000000000000000000001549"; // USDC token
+  const token3Address = "0x0000000000000000000000000000000000001599"; // DAI token
   const token4Address = "0x0000000000000000000000000000000000003ad2"; // WHBAR token
-  tokenAddresses = [tokenAddress, token4Address];
+  const clxyAddress="0x00000000000000000000000000000000000014f5"; // CLXY token
+  tokenAddresses = [tokenAddress, token4Address, clxyAddress];
 }
 const beefyOracleAddress = addresses.beefyOracle;
 
