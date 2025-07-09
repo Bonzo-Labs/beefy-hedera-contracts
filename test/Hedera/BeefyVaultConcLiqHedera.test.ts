@@ -234,10 +234,10 @@ describe("BeefyVaultConcLiqHedera", function () {
       expect(await vault.decimals()).to.equal(18);
     });
 
-    it("Should support permit functionality", async function () {
-      // Test that the permit function exists
-      const domain = await vault.DOMAIN_SEPARATOR();
-      expect(domain).to.not.equal(ethers.constants.HashZero);
+    it("Should support standard ERC20 functionality", async function () {
+      // Test that basic ERC20 functions work
+      expect(await vault.totalSupply()).to.equal(0);
+      expect(await vault.balanceOf(deployer.address)).to.equal(0);
     });
   });
 

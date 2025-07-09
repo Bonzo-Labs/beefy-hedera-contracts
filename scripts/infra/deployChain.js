@@ -59,9 +59,9 @@ function loadExistingAddresses() {
     CHAIN_TYPE === "mainnet"
       ? path.join(__dirname, "..", "deployed-addresses-mainnet.json")
       : path.join(__dirname, "..", "deployed-addresses.json");
-  
+
   if (fs.existsSync(addressesPath)) {
-    const existingAddresses = JSON.parse(fs.readFileSync(addressesPath, 'utf8'));
+    const existingAddresses = JSON.parse(fs.readFileSync(addressesPath, "utf8"));
     console.log(`Found existing addresses file: ${addressesPath}`);
     return existingAddresses;
   }
@@ -252,7 +252,7 @@ async function main() {
   if (!isContractDeployed(addresses.vaultFactory)) {
     console.log("Deploying Vault Factory");
     const VaultFactory = await ethers.getContractFactory("BeefyVaultV7FactoryHedera");
-    const vaultFactory = await VaultFactory.deploy(addresses.vaultV7, addresses.vaultV7MultiToken, { gasLimit: 5000000 });
+    const vaultFactory = await VaultFactory.deploy(addresses.vaultV7, addresses.clmVault, { gasLimit: 5000000 });
     await vaultFactory.deployed();
     console.log(`Vault Factory deployed to ${vaultFactory.address}`);
     addresses.vaultFactory = vaultFactory.address;
@@ -300,7 +300,7 @@ async function main() {
   if (!isContractDeployed(existingAddresses?.beefySwapper)) {
     console.log("Initializing newly deployed Beefy Swapper...");
     const beefySwapper = await ethers.getContractAt("BeefySwapper", addresses.beefySwapper);
-    
+
     // Add 5 seconds timeout to ensure transactions are processed
     console.log("Waiting 5 seconds before initializing...");
     await new Promise(resolve => setTimeout(resolve, 5000));
@@ -315,7 +315,7 @@ async function main() {
   if (!isContractDeployed(existingAddresses?.beefyOracle)) {
     console.log("Initializing newly deployed Beefy Oracle...");
     const beefyOracle = await ethers.getContractAt("BeefyOracle", addresses.beefyOracle);
-    
+
     console.log("Waiting 5 seconds before initializing...");
     await new Promise(resolve => setTimeout(resolve, 30000));
     await beefyOracle.initialize({ gasLimit: 5000000 });

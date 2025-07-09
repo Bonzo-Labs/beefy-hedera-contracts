@@ -89,8 +89,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     console.log("=== Using Existing Deployed Contracts ===");
 
     // Hardcoded addresses for existing deployed contracts (UPDATED WITH FIXED PRICE CALCULATION AND PROPER VAULT INIT)
-    const EXISTING_STRATEGY_ADDRESS = "0x6e8849Ea5F44802c1402aF9944E6f58315c94eb7"; // Fixed strategy address
-    const EXISTING_VAULT_ADDRESS = "0x81F7eE30a6768a0339faA61419D0379252C50901"; // Fixed CLM vault address
+    const EXISTING_STRATEGY_ADDRESS = "0xF6b55d9C91a6E3bf8c92F78Ca3ec3fF9ef94C4f3"; // Fixed strategy address
+    const EXISTING_VAULT_ADDRESS = "0x9ed2E44DC094b7cfaD40230f4BCD5DeC49B126a9"; // Fixed CLM vault address
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);

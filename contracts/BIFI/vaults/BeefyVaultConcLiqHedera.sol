@@ -2,7 +2,7 @@
 pragma solidity 0.8.23;
 
 import {IERC20Metadata} from "@openzeppelin-4/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {IERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {SafeERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -17,7 +17,7 @@ import "../utils/FullMath.sol";
 /**
  * @dev CLM vault for Hedera with HTS token support and HBAR/WHBAR integration.
  */
-contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
+contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using AddressUpgradeable for address payable;
 
@@ -224,16 +224,16 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
         if (_bal0 == 0 && _bal1 == 0) {
             return (_amount0, _amount1, 0, 0);
         }
-        
+
         // Just use proportional allocation with minimal swapping
         depositAmount0 = _amount0;
         depositAmount1 = _amount1;
-        
+
         // Apply minimal fees only if there's significant imbalance
         if (_bal0 > 0 && _bal1 > 0) {
             uint256 poolRatio = FullMath.mulDiv(_bal1, PRECISION, _bal0);
             uint256 userRatio = FullMath.mulDiv(_amount1, PRECISION, _amount0);
-            
+
             if (userRatio > poolRatio * 2) {
                 feeAmount1 = FullMath.mulDiv(_amount1, _swapFee, 1e20); // 1% of swap fee
             } else if (poolRatio > userRatio * 2) {
@@ -574,7 +574,6 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
         }
     }
 
-
     /**
      * @dev Allow the owner to manually associate this contract with an HTS token
      * This can be useful if the contract needs to handle a new token or if token association failed
@@ -583,7 +582,6 @@ contract BeefyVaultConcLiqHedera is ERC20PermitUpgradeable, OwnableUpgradeable, 
     function associateToken(address token) external onlyOwner {
         _associateToken(token);
     }
-
 
     /**
      * @dev Rescues random funds stuck that the strat can't handle.

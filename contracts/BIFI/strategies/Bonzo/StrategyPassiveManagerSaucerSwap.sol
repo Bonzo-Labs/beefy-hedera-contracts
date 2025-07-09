@@ -26,7 +26,12 @@ import "./SaucerSwapCLMLib.sol";
 /// @title Beefy Passive Position Manager for SaucerSwap (Hedera)
 /// @author Bonzo Team, adapted from Beefy
 /// @notice This is a contract for managing a passive concentrated liquidity position on SaucerSwap (UniswapV3 fork).
-contract StrategyPassiveManagerSaucerSwap is ReentrancyGuardUpgradeable, StratFeeManagerInitializable, IStrategyConcLiq, GasFeeThrottler {
+contract StrategyPassiveManagerSaucerSwap is
+    ReentrancyGuardUpgradeable,
+    StratFeeManagerInitializable,
+    IStrategyConcLiq,
+    GasFeeThrottler
+{
     using SafeERC20 for IERC20Metadata;
     using TickMath for int24;
     using AddressUpgradeable for address payable;
@@ -200,7 +205,7 @@ contract StrategyPassiveManagerSaucerSwap is ReentrancyGuardUpgradeable, StratFe
 
         // Set the twap interval to 120 seconds.
         twapInterval = 120;
-        
+
         // Set default max tick deviation to prevent deposits being blocked
         maxTickDeviation = 200;
 
@@ -690,7 +695,7 @@ contract StrategyPassiveManagerSaucerSwap is ReentrancyGuardUpgradeable, StratFe
      * @param amount1 Amount of token1 owed to the pool
      * bytes Additional data but unused in this case.
      */
-    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external nonReentrant {
+    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external {
         if (msg.sender != pool) revert NotPool();
         if (!minting) revert InvalidEntry();
 
@@ -789,12 +794,9 @@ contract StrategyPassiveManagerSaucerSwap is ReentrancyGuardUpgradeable, StratFe
      * @param amount The amount to transfer
      */
     function _transferHTS(address token, address from, address to, uint256 amount) internal {
-        // Use standard ERC20 transferFrom for HTS tokens to avoid uint64 limitations
         if (from == address(this)) {
-            // Transfer from this contract
             IERC20Metadata(token).safeTransfer(to, amount);
         } else {
-            // Transfer from external address
             IERC20Metadata(token).safeTransferFrom(from, to, amount);
         }
     }
