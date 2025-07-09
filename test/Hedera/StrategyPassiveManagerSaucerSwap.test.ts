@@ -88,8 +88,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     // Use existing deployed contracts
     console.log("=== Using Existing Deployed Contracts ===");
 
-    const EXISTING_STRATEGY_ADDRESS = "0xfF050764E1Fd6c367ae70C38796146EF3513aC03";
-    const EXISTING_VAULT_ADDRESS = "0x8BB93ca3f3AB1A70375A861aC260561Bc310AaF2";
+    const EXISTING_STRATEGY_ADDRESS = "0x7BD27068e2b28a4fE36DC5aE239e73BD5915495A";
+    const EXISTING_VAULT_ADDRESS = "0x83CFd6bBCc501FbfD9A29C713A28BE7Ee43229AD";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);

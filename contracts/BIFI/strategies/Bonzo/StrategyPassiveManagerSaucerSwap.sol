@@ -152,6 +152,10 @@ contract StrategyPassiveManagerSaucerSwap is
     /// @notice Beefy Oracle for price feeds
     address public beefyOracle;
 
+    /// @notice Leftover token amounts after liquidity addition
+    uint256 public leftover0;
+    uint256 public leftover1;
+
     // Errors
     error NotAuthorized();
     error NotPool();
@@ -252,7 +256,7 @@ error MintSlippageExceeded();
         _onlyVault();
 
         // Get current balances before adding liquidity
-        (uint256 bal0, uint256 bal1) = balancesOfThis();
+        (uint256 balBefore0, uint256 balBefore1) = balancesOfThis();
 
         // Add all liquidity
         if (!initTicks) {
@@ -262,10 +266,15 @@ error MintSlippageExceeded();
 
         _addLiquidity();
 
+        // Calculate leftover amounts after liquidity addition
+        (uint256 balAfter0, uint256 balAfter1) = balancesOfThis();
+        leftover0 = balAfter0;
+        leftover1 = balAfter1;
+
         lastDeposit = block.timestamp;
 
         // Emit deposit event with the amounts that were deposited
-        emit Deposit(vault, bal0, bal1);
+        emit Deposit(vault, balBefore0, balBefore1);
     }
 
     /**
@@ -1167,6 +1176,32 @@ error MintSlippageExceeded();
         } catch {
             // If quoter fails, return 0 to indicate unavailable price
             return 0;
+        }
+    }
+
+    /**
+     * @notice Get leftover token amounts after liquidity addition
+     * @return leftover0Amount Amount of token0 left over
+     * @return leftover1Amount Amount of token1 left over
+     */
+    function getLeftoverAmounts() external view returns (uint256 leftover0Amount, uint256 leftover1Amount) {
+        _onlyVault();
+        return (leftover0, leftover1);
+    }
+
+    /**
+     * @notice Return leftover tokens to specified recipient
+     * @param recipient Address to receive leftover tokens
+     */
+    function returnLeftovers(address recipient) external {
+        _onlyVault();
+        if (leftover0 > 0) {
+            _transferTokens(lpToken0, address(this), recipient, leftover0, true);
+            leftover0 = 0;
+        }
+        if (leftover1 > 0) {
+            _transferTokens(lpToken1, address(this), recipient, leftover1, true);
+            leftover1 = 0;
         }
     }
 

@@ -67,7 +67,7 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     error OnlyHBARWHBARPools();
 
     // Events
-    event Deposit(address indexed user, uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1);
+    event Deposit(address indexed user, uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1, uint256 leftover0, uint256 leftover1);
     event Withdraw(address indexed user, uint256 shares, uint256 amount0, uint256 amount1);
     event HTSTokenAssociated(address token, int64 responseCode);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
@@ -322,6 +322,8 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         uint256 whbarAmount;
         uint256 sentAmount0;
         uint256 sentAmount1;
+        uint256 leftover0;
+        uint256 leftover1;
         address token0;
         address token1;
     }
@@ -405,6 +407,14 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         if (shares < vars.minShares) revert TooMuchSlippage();
         if (shares == 0) revert NoShares();
 
+        // Return leftover tokens to user if any
+        if (vars.leftover0 > 0) {
+            _transferTokens(vars.token0, address(this), recipient, vars.leftover0, true);
+        }
+        if (vars.leftover1 > 0) {
+            _transferTokens(vars.token1, address(this), recipient, vars.leftover1, true);
+        }
+
         // Return excess HBAR to user if any
         uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
         if (msg.value > actualHBARUsed) {
@@ -412,7 +422,7 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         }
 
         _mint(recipient, shares);
-        emit Deposit(recipient, shares, vars.sentAmount0, vars.sentAmount1, vars.fee0, vars.fee1);
+        emit Deposit(recipient, shares, vars.sentAmount0, vars.sentAmount1, vars.fee0, vars.fee1, vars.leftover0, vars.leftover1);
     }
 
     /**
@@ -427,10 +437,15 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         }
 
         strategy.deposit();
-
-        // Note: Leftover token handling and shares calculation will be done in _completeDeposit
-        // This function just triggers the strategy deposit
-
+        
+        // Get leftover amounts from strategy
+        (vars.leftover0, vars.leftover1) = strategy.getLeftoverAmounts();
+        
+        // Return leftovers to vault if any exist
+        if (vars.leftover0 > 0 || vars.leftover1 > 0) {
+            strategy.returnLeftovers(address(this));
+        }
+        
         return 0; // Placeholder, real calculation happens in _completeDeposit
     }
 

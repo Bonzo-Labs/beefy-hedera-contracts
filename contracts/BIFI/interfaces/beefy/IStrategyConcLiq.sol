@@ -20,4 +20,13 @@ interface IStrategyConcLiq {
     /// @notice Get the current mint fee required for pool operations (SaucerSwap specific)
     /// @return mintFee The mint fee in tinybars (HBAR)
     function getMintFee() external view returns (uint256 mintFee);
+
+    /// @notice Get leftover token amounts after liquidity addition
+    /// @return leftover0Amount Amount of token0 left over
+    /// @return leftover1Amount Amount of token1 left over
+    function getLeftoverAmounts() external view returns (uint256 leftover0Amount, uint256 leftover1Amount);
+
+    /// @notice Return leftover tokens to specified recipient
+    /// @param recipient Address to receive leftover tokens
+    function returnLeftovers(address recipient) external;
 }

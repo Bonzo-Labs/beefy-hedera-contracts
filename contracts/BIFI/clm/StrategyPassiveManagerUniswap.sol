@@ -108,6 +108,10 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     /// @notice Duration for profit locking (6 hours)
     uint256 public constant DURATION = 21600;
 
+    /// @notice Leftover token amounts after liquidity addition
+    uint256 public leftover0;
+    uint256 public leftover1;
+
     // Errors
     error NotAuthorized();
     error NotPool();
@@ -223,6 +227,13 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     function deposit() external onlyCalmPeriods {
         _onlyVault();
 
+        // Get current balances before adding liquidity
+        (uint256 balBefore0, uint256 balBefore1) = balancesOfThis();
+        
+        // Silence unused variable warnings
+        balBefore0;
+        balBefore1;
+
         // Add all liquidity
         if (!initTicks) {
             _setTicks();
@@ -230,6 +241,11 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
         }
 
         _addLiquidity();
+
+        // Calculate leftover amounts after liquidity addition
+        (uint256 balAfter0, uint256 balAfter1) = balancesOfThis();
+        leftover0 = balAfter0;
+        leftover1 = balAfter1;
 
         (uint256 bal0, uint256 bal1) = balances();
 
@@ -923,19 +939,29 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     }
 
     
-    /// @notice Returns leftover tokens to the specified recipient (default implementation)
-    /// @param recipient Address to receive the leftover tokens
-    /// @return leftover0 Amount of token0 returned (0 for default implementation)
-    /// @return leftover1 Amount of token1 returned (0 for default implementation)
-    function returnLeftoverTokens(address recipient) external pure returns (uint256 leftover0, uint256 leftover1) {
-        recipient; // silence unused variable warning
-        return (0, 0);
+    /**
+     * @notice Get leftover token amounts after liquidity addition
+     * @return leftover0Amount Amount of token0 left over
+     * @return leftover1Amount Amount of token1 left over
+     */
+    function getLeftoverAmounts() external view returns (uint256 leftover0Amount, uint256 leftover1Amount) {
+        _onlyVault();
+        return (leftover0, leftover1);
     }
-    
-    /// @notice Get current token balances available for leftover return (default implementation)
-    /// @return balance0 Amount of token0 available (0 for default implementation)
-    /// @return balance1 Amount of token1 available (0 for default implementation)
-    function getLeftoverBalances() external pure returns (uint256 balance0, uint256 balance1) {
-        return (0, 0);
+
+    /**
+     * @notice Return leftover tokens to specified recipient
+     * @param recipient Address to receive leftover tokens
+     */
+    function returnLeftovers(address recipient) external {
+        _onlyVault();
+        if (leftover0 > 0) {
+            IERC20Metadata(lpToken0).safeTransfer(recipient, leftover0);
+            leftover0 = 0;
+        }
+        if (leftover1 > 0) {
+            IERC20Metadata(lpToken1).safeTransfer(recipient, leftover1);
+            leftover1 = 0;
+        }
     }
 }
