@@ -18,6 +18,7 @@ import "../../interfaces/beefy/IStrategyFactory.sol";
 import "../../interfaces/beefy/IStrategyConcLiq.sol";
 import "../../interfaces/beefy/IBeefySwapper.sol";
 import "../../interfaces/uniswap/IQuoter.sol";
+import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
 import "../../utils/UniswapV3Utils.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../utils/GasFeeThrottler.sol";
@@ -130,6 +131,13 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
 
     /// @notice Address of the strategy factory
     address public factory;
+
+    /// @notice Get the current mint fee required by SaucerSwap factory
+    /// @return mintFee The mint fee in tinybars (HBAR)
+    function getMintFee() public view returns (uint256 mintFee) {
+        address poolFactory = IUniswapV3Pool(pool).factory();
+        return IUniswapV3Factory(poolFactory).mintFee();
+    }
 
     /// @notice Total locked profits for token0 and token1
     uint256 public totalLocked0;
@@ -1168,6 +1176,7 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
     function getRewardTokensLength() external view returns (uint256) {
         return rewardTokens.length;
     }
+
 
     /// @notice Receive function to accept native token deposits
     receive() external payable {}

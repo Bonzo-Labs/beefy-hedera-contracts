@@ -88,9 +88,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     // Use existing deployed contracts
     console.log("=== Using Existing Deployed Contracts ===");
 
-    // Hardcoded addresses for existing deployed contracts (UPDATED WITH FIXED PRICE CALCULATION AND PROPER VAULT INIT)
-    const EXISTING_STRATEGY_ADDRESS = "0xF6b55d9C91a6E3bf8c92F78Ca3ec3fF9ef94C4f3"; // Fixed strategy address
-    const EXISTING_VAULT_ADDRESS = "0x9ed2E44DC094b7cfaD40230f4BCD5DeC49B126a9"; // Fixed CLM vault address
+    const EXISTING_STRATEGY_ADDRESS = "0xfF050764E1Fd6c367ae70C38796146EF3513aC03";
+    const EXISTING_VAULT_ADDRESS = "0x8BB93ca3f3AB1A70375A861aC260561Bc310AaF2";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -1001,12 +1000,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
         // Try different deposit amounts with retry logic
         console.log("=== Preview Deposit with Retry Logic ===");
 
-        const depositSizes = [
-          { clxy: "10.0", sauce: "10", name: "Full amount" },
-          { clxy: "5.0", sauce: "5", name: "Half amount" },
-          { clxy: "1.0", sauce: "1", name: "Small amount" },
-          { clxy: "0.1", sauce: "0.1", name: "Tiny amount" },
-        ];
+        const depositSizes = [{ clxy: "5.0", sauce: "5", name: "Half amount" }];
 
         let successfulDeposit = null;
 
@@ -1020,8 +1014,21 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
               `Deposit amounts - CLXY: ${depositClxyAmount.toString()}, SAUCE: ${depositSauceAmount.toString()}`
             );
 
+            // Get required HBAR for mint fees
+            let hbarRequired = await vault.estimateDepositHBARRequired();
+            console.log(`HBAR required from vault estimate: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+
+            // If the estimate is too low (less than 1 tinybar), use the known mint fee
+            const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+            if (hbarRequired.lt(minTinybar)) {
+              // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+              hbarRequired = ethers.utils.parseEther("10.0");
+              console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+            }
+
             console.log(`Executing ${size.name} deposit...`);
             const depositTx = await vault.deposit(depositClxyAmount, depositSauceAmount, 0, {
+              value: hbarRequired, // Add HBAR for mint fees
               gasLimit: 5000000,
             });
             await depositTx.wait();

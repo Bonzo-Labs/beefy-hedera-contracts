@@ -16,4 +16,8 @@ interface IStrategyConcLiq {
     /// @notice The current price of the pool in token1, encoded with 36 decimals.
     /// @return _price The current price of the pool in token1.
     function price() external view returns (uint256 _price);
+
+    /// @notice Get the current mint fee required for pool operations (SaucerSwap specific)
+    /// @return mintFee The mint fee in tinybars (HBAR)
+    function getMintFee() external view returns (uint256 mintFee);
 }

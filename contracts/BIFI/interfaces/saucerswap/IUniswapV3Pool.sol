@@ -108,4 +108,57 @@ interface IUniswapV3Pool {
     /// the input observationCardinalityNext.
     /// @param observationCardinalityNext The desired minimum number of observations for the pool to store
     function increaseObservationCardinalityNext(uint16 observationCardinalityNext) external;
+
+    /// @notice Returns the contract that deployed the pool
+    /// @return The contract address
+    function factory() external view returns (address);
+
+    /// @notice The pool's fee in hundredths of a bip, i.e. 1e-6
+    /// @return The fee
+    function fee() external view returns (uint24);
+
+    /// @notice The pool tick spacing
+    /// @return The tick spacing
+    function tickSpacing() external view returns (int24);
+
+    /// @notice The 0th storage slot in the pool stores many values
+    /// @return sqrtPriceX96 The current price of the pool as a sqrt(token1/token0) Q64.96 value
+    /// @return tick The current tick of the pool
+    /// @return observationIndex The index of the last oracle observation that was written
+    /// @return observationCardinality The current maximum number of observations stored in the pool
+    /// @return observationCardinalityNext The next maximum number of observations
+    /// @return feeProtocol The protocol fee for both tokens of the pool
+    /// @return unlocked Whether the pool is currently locked to reentrancy
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        );
+
+    /// @notice Returns the information about a position by the position's key
+    /// @param key The position's key is a hash of a preimage composed by the owner, tickLower and tickUpper
+    /// @return _liquidity The amount of liquidity in the position
+    /// @return feeGrowthInside0LastX128 fee growth of token0 inside the tick range as of the last mint/burn/poke
+    /// @return feeGrowthInside1LastX128 fee growth of token1 inside the tick range as of the last mint/burn/poke
+    /// @return tokensOwed0 the computed amount of token0 owed to the position as of the last mint/burn/poke
+    /// @return tokensOwed1 the computed amount of token1 owed to the position as of the last mint/burn/poke
+    function positions(
+        bytes32 key
+    )
+        external
+        view
+        returns (
+            uint128 _liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+        );
 }

@@ -31,7 +31,7 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     uint256 private constant PRECISION = 1e36;
 
     /// @notice The address we are sending the burned shares to.
-    address private constant BURN_ADDRESS = 0x0000000000000000000000000000000000000000;
+    address private constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     /// @notice Address of the Hedera Token Service precompile
     address private constant HTS_PRECOMPILE = address(0x167);
@@ -129,6 +129,29 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     }
 
     /**
+     * @notice Get the current mint fee required for SaucerSwap pool operations
+     * @return mintFee The mint fee in tinybars (HBAR) required per mint operation
+     */
+    function getMintFee() public view returns (uint256 mintFee) {
+        // Strategy contract has the getMintFee function
+        try IStrategyConcLiq(address(strategy)).getMintFee() returns (uint256 fee) {
+            return fee;
+        } catch {
+            return 0; // Return 0 if strategy doesn't support mint fees
+        }
+    }
+
+    /**
+     * @notice Estimate total HBAR required for a deposit (includes potential mint fees)
+     * @return totalHBARRequired The total HBAR amount needed for this deposit
+     */
+    function estimateDepositHBARRequired() public view returns (uint256 totalHBARRequired) {
+        uint256 mintFee = getMintFee();
+        // We potentially need fees for both main and alt positions, so multiply by 2
+        return mintFee * 2;
+    }
+
+    /**
      * @notice returns the concentrated liquidity pool address
      * @return _want the address of the concentrated liquidity pool
      */
@@ -211,6 +234,29 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         }
     }
 
+    /**
+     * @notice Preview deposit requirements including HBAR needed for mint fees.
+     */
+    function previewDepositWithHBAR(
+        uint256 _amount0,
+        uint256 _amount1
+    )
+        external
+        view
+        returns (uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1, uint256 hbarRequired)
+    {
+        (shares, amount0, amount1, fee0, fee1) = this.previewDeposit(_amount0, _amount1);
+
+        // Calculate HBAR requirements
+        (address token0, address token1) = wants();
+        uint256 whbarAmount = 0;
+        if (isWHBAR(token0)) whbarAmount += _amount0;
+        if (isWHBAR(token1)) whbarAmount += _amount1;
+
+        uint256 mintFeeRequired = estimateDepositHBARRequired();
+        hbarRequired = whbarAmount + mintFeeRequired;
+    }
+
     /// @notice Calculate optimal deposit amounts and fees (minimal implementation).
     function _getTokensRequired(
         uint256 /*_price*/,
@@ -243,43 +289,104 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     }
 
     /**
-     * @notice Deposit tokens into vault. Supports native HBAR for WHBAR deposits.
+     * @notice Deposit tokens into vault. Supports native HBAR for WHBAR deposits and mint fees.
      */
     function deposit(uint256 _amount0, uint256 _amount1, uint256 _minShares) public payable nonReentrant {
-        (address token0, address token1) = wants();
+        DepositVars memory vars;
+        (vars.token0, vars.token1) = wants();
 
-        // Have the strategy remove all liquidity from the pool.
+        // Initialize deposit variables
+        _initializeDepositVars(vars, _amount0, _amount1, _minShares);
+
+        // Validate and prepare deposit
+        _prepareDeposit(vars, _amount0, _amount1);
+
+        // Finalize deposit and calculate shares
+        uint256 shares = _finalizeDeposit(vars);
+
+        // Return excess HBAR and mint shares
+        _completeDeposit(vars, shares, msg.sender);
+    }
+
+    /// @notice Struct to reduce stack depth in deposit function
+    struct DepositVars {
+        uint256 bal0;
+        uint256 bal1;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 fee0;
+        uint256 fee1;
+        uint256 price;
+        uint256 minShares;
+        uint256 totalMintFeeRequired;
+        uint256 whbarAmount;
+        uint256 sentAmount0;
+        uint256 sentAmount1;
+        address token0;
+        address token1;
+    }
+
+    /**
+     * @notice Initialize deposit variables
+     */
+    function _initializeDepositVars(
+        DepositVars memory vars,
+        uint256 _amount0,
+        uint256 _amount1,
+        uint256 _minShares
+    ) internal view {
+        vars.totalMintFeeRequired = estimateDepositHBARRequired();
+        vars.whbarAmount = 0;
+        if (isWHBAR(vars.token0)) vars.whbarAmount += _amount0;
+        if (isWHBAR(vars.token1)) vars.whbarAmount += _amount1;
+        vars.minShares = _minShares;
+
+        uint256 totalHBARRequired = vars.whbarAmount + vars.totalMintFeeRequired;
+        if (msg.value < totalHBARRequired) revert InvalidNativeAmount();
+    }
+
+    /**
+     * @notice Prepare deposit by validating amounts and transferring tokens
+     */
+    function _prepareDeposit(DepositVars memory vars, uint256 _amount0, uint256 _amount1) internal {
         strategy.beforeAction();
 
-        // Transfer funds from user to strategy.
-        (uint256 _bal0, uint256 _bal1) = balances();
-        uint256 price = strategy.price();
-        (uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1) = _getTokensRequired(
-            price,
+        (vars.bal0, vars.bal1) = balances();
+        vars.price = strategy.price();
+        (vars.amount0, vars.amount1, vars.fee0, vars.fee1) = _getTokensRequired(
+            vars.price,
             _amount0,
             _amount1,
-            _bal0,
-            _bal1,
+            vars.bal0,
+            vars.bal1,
             swapFee()
         );
-        if (amount0 > _amount0 || amount1 > _amount1) revert NotEnoughTokens();
+        if (vars.amount0 > _amount0 || vars.amount1 > _amount1) revert NotEnoughTokens();
 
-        if (amount0 > 0) {
-            _transferTokens(token0, msg.sender, address(strategy), amount0, false);
-        }
-        if (amount1 > 0) {
-            _transferTokens(token1, msg.sender, address(strategy), amount1, false);
-        }
+        // Track sent amounts for reconciliation
+        vars.sentAmount0 = vars.amount0;
+        vars.sentAmount1 = vars.amount1;
 
-        {
-            // scope to avoid stack too deep errors
-            (uint256 _after0, uint256 _after1) = balances();
-            amount0 = _after0 - _bal0;
-            amount1 = _after1 - _bal1;
+        if (vars.amount0 > 0) {
+            _transferTokens(vars.token0, msg.sender, address(strategy), vars.amount0, false);
+        }
+        if (vars.amount1 > 0) {
+            _transferTokens(vars.token1, msg.sender, address(strategy), vars.amount1, false);
         }
 
-        strategy.deposit();
-        uint256 shares = (amount1 - fee1) + FullMath.mulDiv(amount0 - fee0, price, PRECISION);
+        // Forward HBAR for mint fees to strategy if required
+        if (vars.totalMintFeeRequired > 0) {
+            AddressUpgradeable.sendValue(payable(address(strategy)), vars.totalMintFeeRequired);
+        }
+    }
+
+    /**
+     * @notice Complete deposit by returning excess HBAR and minting shares
+     */
+    function _completeDeposit(DepositVars memory vars, uint256 /* shares */, address recipient) internal {
+        // Calculate shares based on sent amounts (no leftover handling)
+        uint256 shares = (vars.sentAmount1 - vars.fee1) +
+            FullMath.mulDiv(vars.sentAmount0 - vars.fee0, vars.price, PRECISION);
 
         uint256 _totalSupply = totalSupply();
         if (_totalSupply > 0) {
@@ -287,7 +394,7 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
             shares = FullMath.mulDiv(
                 shares,
                 _totalSupply,
-                FullMath.mulDiv(_bal0 + fee0, price, PRECISION) + (_bal1 + fee1)
+                FullMath.mulDiv(vars.bal0 + vars.fee0, vars.price, PRECISION) + (vars.bal1 + vars.fee1)
             );
         } else {
             // First user donates MINIMUM_SHARES for security of the vault.
@@ -295,11 +402,36 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
             _mint(BURN_ADDRESS, MINIMUM_SHARES); // permanently lock the first MINIMUM_SHARES
         }
 
-        if (shares < _minShares) revert TooMuchSlippage();
+        if (shares < vars.minShares) revert TooMuchSlippage();
         if (shares == 0) revert NoShares();
 
-        _mint(msg.sender, shares);
-        emit Deposit(msg.sender, shares, amount0, amount1, fee0, fee1);
+        // Return excess HBAR to user if any
+        uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
+        if (msg.value > actualHBARUsed) {
+            AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
+        }
+
+        _mint(recipient, shares);
+        emit Deposit(recipient, shares, vars.sentAmount0, vars.sentAmount1, vars.fee0, vars.fee1);
+    }
+
+    /**
+     * @notice Internal function to finalize deposit and calculate shares
+     */
+    function _finalizeDeposit(DepositVars memory vars) internal returns (uint256 shares) {
+        {
+            // scope to avoid stack too deep errors
+            (uint256 _after0, uint256 _after1) = balances();
+            vars.amount0 = _after0 - vars.bal0;
+            vars.amount1 = _after1 - vars.bal1;
+        }
+
+        strategy.deposit();
+
+        // Note: Leftover token handling and shares calculation will be done in _completeDeposit
+        // This function just triggers the strategy deposit
+
+        return 0; // Placeholder, real calculation happens in _completeDeposit
     }
 
     /**

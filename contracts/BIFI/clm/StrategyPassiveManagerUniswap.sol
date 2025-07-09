@@ -88,6 +88,12 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     
     /// @notice Address of the strategy factory
     address public factory;
+
+    /// @notice Get the current mint fee (default implementation for non-SaucerSwap strategies)
+    /// @return mintFee Always returns 0 for standard UniswapV3 strategies
+    function getMintFee() external pure returns (uint256 mintFee) {
+        return 0; // Standard UniswapV3 doesn't have mint fees
+    }
     
     /// @notice Total locked profits for token0 and token1
     uint256 public totalLocked0;
@@ -914,5 +920,22 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     /// @notice Check if strategy is not paused
     function _whenStrategyNotPaused() internal view {
         require(!paused(), "Strategy is paused");
+    }
+
+    
+    /// @notice Returns leftover tokens to the specified recipient (default implementation)
+    /// @param recipient Address to receive the leftover tokens
+    /// @return leftover0 Amount of token0 returned (0 for default implementation)
+    /// @return leftover1 Amount of token1 returned (0 for default implementation)
+    function returnLeftoverTokens(address recipient) external pure returns (uint256 leftover0, uint256 leftover1) {
+        recipient; // silence unused variable warning
+        return (0, 0);
+    }
+    
+    /// @notice Get current token balances available for leftover return (default implementation)
+    /// @return balance0 Amount of token0 available (0 for default implementation)
+    /// @return balance1 Amount of token1 available (0 for default implementation)
+    function getLeftoverBalances() external pure returns (uint256 balance0, uint256 balance1) {
+        return (0, 0);
     }
 }

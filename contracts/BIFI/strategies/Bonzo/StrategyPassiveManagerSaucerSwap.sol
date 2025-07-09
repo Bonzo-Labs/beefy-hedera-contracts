@@ -7,7 +7,7 @@ import {SignedMath} from "@openzeppelin-4/contracts/utils/math/SignedMath.sol";
 import {AddressUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "../Common/StratFeeManagerInitializable.sol";
-import "../../interfaces/uniswap/IUniswapV3Pool.sol";
+import {IUniswapV3Pool as ISaucerSwapPool} from "../../interfaces/saucerswap/IUniswapV3Pool.sol";
 import "../../utils/LiquidityAmounts.sol";
 import "../../utils/TickMath.sol";
 import "../../utils/TickUtils.sol";
@@ -18,6 +18,7 @@ import "../../interfaces/beefy/IStrategyFactory.sol";
 import "../../interfaces/beefy/IStrategyConcLiq.sol";
 import "../../interfaces/beefy/IBeefySwapper.sol";
 import "../../interfaces/uniswap/IQuoter.sol";
+import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../utils/GasFeeThrottler.sol";
 import "../../interfaces/oracle/IBeefyOracle.sol";
@@ -116,6 +117,16 @@ contract StrategyPassiveManagerSaucerSwap is
     /// @notice Bool switch to prevent reentrancy on the mint callback.
     bool private minting;
 
+    /// @notice Expected token amounts for slippage protection in mint callback
+    uint256 private expectedAmount0;
+    uint256 private expectedAmount1;
+    
+    /// @notice Maximum slippage tolerance for mint callback (in basis points, 100 = 1%)
+    uint256 public constant MINT_SLIPPAGE_TOLERANCE = 500; // 5%
+    
+    /// @notice Maximum price deviation for dynamic liquidity calculation (in basis points, 100 = 1%)
+    uint256 public constant PRICE_DEVIATION_TOLERANCE = 200; // 2%
+
     /// @notice Initializes the ticks on first deposit.
     bool private initTicks;
 
@@ -154,6 +165,8 @@ contract StrategyPassiveManagerSaucerSwap is
     error HTSTransferFailed();
     error HTSAssociationFailed();
     error InvalidTokenAddress();
+    error InsufficientHBARForMintFee();
+error MintSlippageExceeded();
 
     // Events - Reduced for bytecode optimization
     event Harvest(uint256 fee0, uint256 fee1);
@@ -194,8 +207,8 @@ contract StrategyPassiveManagerSaucerSwap is
 
         pool = _params.pool;
         quoter = _params.quoter;
-        lpToken0 = IUniswapV3Pool(_params.pool).token0();
-        lpToken1 = IUniswapV3Pool(_params.pool).token1();
+        lpToken0 = ISaucerSwapPool(_params.pool).token0();
+        lpToken1 = ISaucerSwapPool(_params.pool).token1();
         native = _params.native;
         factory = _params.factory;
         beefyOracle = _params.beefyOracle;
@@ -286,12 +299,15 @@ contract StrategyPassiveManagerSaucerSwap is
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
 
+        // Get the mint fee required by SaucerSwap factory
+        uint256 mintFee = getMintFee();
+
         // Then we fetch how much liquidity we get for adding at the main position ticks with our token balances.
         uint160 sqrtprice = sqrtPrice();
-        uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
+        (uint128 liquidity, uint160 adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
-            TickMath.getSqrtRatioAtTick(positionMain.tickLower),
-            TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
+            positionMain.tickLower,
+            positionMain.tickUpper,
             bal0,
             bal1
         );
@@ -300,8 +316,21 @@ contract StrategyPassiveManagerSaucerSwap is
 
         // Flip minting to true and call the pool to mint the liquidity.
         if (liquidity > 0 && amountsOk) {
+            // Additional pre-mint validation to prevent excessive slippage
+            _validatePreMintConditions(adjustedSqrtPrice, bal0, bal1);
+            // Check we have sufficient HBAR for mint fee
+            if (address(this).balance < mintFee) revert InsufficientHBARForMintFee();
+            
+            // Calculate expected amounts for slippage protection
+            (expectedAmount0, expectedAmount1) = LiquidityAmounts.getAmountsForLiquidity(
+                adjustedSqrtPrice,
+                TickMath.getSqrtRatioAtTick(positionMain.tickLower),
+                TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
+                liquidity
+            );
+            
             minting = true;
-            IUniswapV3Pool(pool).mint(
+            ISaucerSwapPool(pool).mint{value: mintFee}(
                 address(this),
                 positionMain.tickLower,
                 positionMain.tickUpper,
@@ -313,18 +342,32 @@ contract StrategyPassiveManagerSaucerSwap is
         (bal0, bal1) = balancesOfThis();
 
         // Fetch how much liquidity we get for adding at the alternative position ticks with our token balances.
-        liquidity = LiquidityAmounts.getLiquidityForAmounts(
+        (liquidity, adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
-            TickMath.getSqrtRatioAtTick(positionAlt.tickLower),
-            TickMath.getSqrtRatioAtTick(positionAlt.tickUpper),
+            positionAlt.tickLower,
+            positionAlt.tickUpper,
             bal0,
             bal1
         );
 
         // Flip minting to true and call the pool to mint the liquidity.
         if (liquidity > 0) {
+            // Additional pre-mint validation for alternative position
+            _validatePreMintConditions(adjustedSqrtPrice, bal0, bal1);
+            
+            // Check we have sufficient HBAR for mint fee
+            if (address(this).balance < mintFee) revert InsufficientHBARForMintFee();
+            
+            // Calculate expected amounts for slippage protection
+            (expectedAmount0, expectedAmount1) = LiquidityAmounts.getAmountsForLiquidity(
+                adjustedSqrtPrice,
+                TickMath.getSqrtRatioAtTick(positionAlt.tickLower),
+                TickMath.getSqrtRatioAtTick(positionAlt.tickUpper),
+                liquidity
+            );
+            
             minting = true;
-            IUniswapV3Pool(pool).mint(
+            ISaucerSwapPool(pool).mint{value: mintFee}(
                 address(this),
                 positionAlt.tickLower,
                 positionAlt.tickUpper,
@@ -340,13 +383,13 @@ contract StrategyPassiveManagerSaucerSwap is
         (bytes32 keyMain, bytes32 keyAlt) = getKeys();
 
         // Fetch the liquidity balances from the pool.
-        (uint128 liquidity, , , , ) = IUniswapV3Pool(pool).positions(keyMain);
-        (uint128 liquidityAlt, , , , ) = IUniswapV3Pool(pool).positions(keyAlt);
+        (uint128 liquidity, , , , ) = ISaucerSwapPool(pool).positions(keyMain);
+        (uint128 liquidityAlt, , , , ) = ISaucerSwapPool(pool).positions(keyAlt);
 
         // If we have liquidity in the positions we remove it and collect our tokens.
         if (liquidity > 0) {
-            IUniswapV3Pool(pool).burn(positionMain.tickLower, positionMain.tickUpper, liquidity);
-            IUniswapV3Pool(pool).collect(
+            ISaucerSwapPool(pool).burn(positionMain.tickLower, positionMain.tickUpper, liquidity);
+            ISaucerSwapPool(pool).collect(
                 address(this),
                 positionMain.tickLower,
                 positionMain.tickUpper,
@@ -356,8 +399,8 @@ contract StrategyPassiveManagerSaucerSwap is
         }
 
         if (liquidityAlt > 0) {
-            IUniswapV3Pool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, liquidityAlt);
-            IUniswapV3Pool(pool).collect(
+            ISaucerSwapPool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, liquidityAlt);
+            ISaucerSwapPool(pool).collect(
                 address(this),
                 positionAlt.tickLower,
                 positionAlt.tickUpper,
@@ -445,22 +488,22 @@ contract StrategyPassiveManagerSaucerSwap is
     function _claimEarnings() private returns (uint256 fee0, uint256 fee1, uint256 feeAlt0, uint256 feeAlt1) {
         // Claim fees
         (bytes32 keyMain, bytes32 keyAlt) = getKeys();
-        (uint128 liquidity, , , , ) = IUniswapV3Pool(pool).positions(keyMain);
-        (uint128 liquidityAlt, , , , ) = IUniswapV3Pool(pool).positions(keyAlt);
+        (uint128 liquidity, , , , ) = ISaucerSwapPool(pool).positions(keyMain);
+        (uint128 liquidityAlt, , , , ) = ISaucerSwapPool(pool).positions(keyAlt);
 
         // Burn 0 liquidity to make fees available to claim.
-        if (liquidity > 0) IUniswapV3Pool(pool).burn(positionMain.tickLower, positionMain.tickUpper, 0);
-        if (liquidityAlt > 0) IUniswapV3Pool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, 0);
+        if (liquidity > 0) ISaucerSwapPool(pool).burn(positionMain.tickLower, positionMain.tickUpper, 0);
+        if (liquidityAlt > 0) ISaucerSwapPool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, 0);
 
         // Collect fees from the pool.
-        (fee0, fee1) = IUniswapV3Pool(pool).collect(
+        (fee0, fee1) = ISaucerSwapPool(pool).collect(
             address(this),
             positionMain.tickLower,
             positionMain.tickUpper,
             type(uint128).max,
             type(uint128).max
         );
-        (feeAlt0, feeAlt1) = IUniswapV3Pool(pool).collect(
+        (feeAlt0, feeAlt1) = ISaucerSwapPool(pool).collect(
             address(this),
             positionAlt.tickLower,
             positionAlt.tickUpper,
@@ -593,7 +636,7 @@ contract StrategyPassiveManagerSaucerSwap is
         }
 
         (bytes32 keyMain, ) = getKeys();
-        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyMain);
+        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = ISaucerSwapPool(pool).positions(keyMain);
 
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice(),
@@ -612,7 +655,7 @@ contract StrategyPassiveManagerSaucerSwap is
         }
 
         (, bytes32 keyAlt) = getKeys();
-        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyAlt);
+        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = ISaucerSwapPool(pool).positions(keyAlt);
 
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice(),
@@ -656,7 +699,7 @@ contract StrategyPassiveManagerSaucerSwap is
      * @return tick The current tick of the pool.
      */
     function currentTick() public view returns (int24 tick) {
-        (, tick, , , , , ) = IUniswapV3Pool(pool).slot0();
+        (, tick, , , , , ) = ISaucerSwapPool(pool).slot0();
     }
 
     /**
@@ -682,11 +725,20 @@ contract StrategyPassiveManagerSaucerSwap is
     }
 
     /**
+     * @notice Get the current mint fee required by SaucerSwap factory
+     * @return mintFee The mint fee in tinybars (HBAR)
+     */
+    function getMintFee() public view returns (uint256 mintFee) {
+        address poolFactory = ISaucerSwapPool(pool).factory();
+        return IUniswapV3Factory(poolFactory).mintFee();
+    }
+
+    /**
      * @notice The tick distance of the pool.
      * @return int24 The tick distance/spacing of the pool.
      */
     function _tickDistance() private view returns (int24) {
-        return IUniswapV3Pool(pool).tickSpacing();
+        return ISaucerSwapPool(pool).tickSpacing();
     }
 
     /**
@@ -702,6 +754,9 @@ contract StrategyPassiveManagerSaucerSwap is
         // Set minting to false BEFORE external calls to prevent reentrancy
         minting = false;
 
+        // Validate requested amounts against expected amounts with slippage tolerance
+        _validateMintSlippage(amount0, amount1);
+
         if (amount0 > 0) {
             _transferTokens(lpToken0, address(this), pool, amount0, true);
         }
@@ -709,6 +764,102 @@ contract StrategyPassiveManagerSaucerSwap is
             _transferTokens(lpToken1, address(this), pool, amount1, true);
         }
     }
+
+    /**
+     * @notice Validates that the requested mint amounts are within acceptable slippage tolerance
+     * @param amount0 Amount of token0 requested by the pool
+     * @param amount1 Amount of token1 requested by the pool
+     */
+    function _validateMintSlippage(uint256 amount0, uint256 amount1) private view {
+        // Allow up to MINT_SLIPPAGE_TOLERANCE (5%) more than expected amounts
+        uint256 maxAmount0 = expectedAmount0 + (expectedAmount0 * MINT_SLIPPAGE_TOLERANCE / 10000);
+        uint256 maxAmount1 = expectedAmount1 + (expectedAmount1 * MINT_SLIPPAGE_TOLERANCE / 10000);
+        
+        // Check if requested amounts exceed maximum allowed amounts
+        if (amount0 > maxAmount0 || amount1 > maxAmount1) {
+            revert MintSlippageExceeded();
+        }
+        
+        // Also check if we have sufficient balance to fulfill the request
+        (uint256 bal0, uint256 bal1) = balancesOfThis();
+        if (amount0 > bal0 || amount1 > bal1) {
+            revert MintSlippageExceeded();
+        }
+    }
+
+    /**
+     * @notice Validates pre-mint conditions to prevent excessive slippage
+     * @param currentSqrtPrice Current sqrt price of the pool
+     * @param bal0 Current balance of token0
+     * @param bal1 Current balance of token1
+     */
+    function _validatePreMintConditions(uint160 currentSqrtPrice, uint256 bal0, uint256 bal1) private view {
+        // Check if pool is still calm (additional safety check)
+        if (!isCalm()) revert NotCalm();
+        
+        // Ensure we have reasonable token balances
+        if (bal0 == 0 && bal1 == 0) revert InvalidInput();
+        
+        // Check current price hasn't deviated too much from TWAP
+        int56 twapTick = SaucerSwapCLMLib.getTwap(pool, twapInterval);
+        uint160 sqrtPriceTWAP = TickMath.getSqrtRatioAtTick(int24(twapTick));
+        uint256 priceDeviation;
+        
+        if (currentSqrtPrice > sqrtPriceTWAP) {
+            priceDeviation = ((currentSqrtPrice - sqrtPriceTWAP) * 10000) / sqrtPriceTWAP;
+        } else {
+            priceDeviation = ((sqrtPriceTWAP - currentSqrtPrice) * 10000) / sqrtPriceTWAP;
+        }
+        
+        // Revert if price deviation exceeds maximum allowed
+        if (priceDeviation > uint256(int256(maxTickDeviation))) revert NotCalm();
+    }
+
+    /**
+     * @notice Calculates liquidity with dynamic price validation
+     * @param initialSqrtPrice The initial sqrt price used for calculation
+     * @param tickLower Lower tick of the position
+     * @param tickUpper Upper tick of the position
+     * @param amount0 Amount of token0 available
+     * @param amount1 Amount of token1 available
+     * @return liquidity The calculated liquidity amount
+     * @return adjustedSqrtPrice The adjusted sqrt price used for calculation
+     */
+    function _calculateLiquidityWithPriceCheck(
+        uint160 initialSqrtPrice,
+        int24 tickLower,
+        int24 tickUpper,
+        uint256 amount0,
+        uint256 amount1
+    ) private view returns (uint128 liquidity, uint160 adjustedSqrtPrice) {
+        // Get current price from pool
+        adjustedSqrtPrice = sqrtPrice();
+        
+        // Calculate price deviation
+        uint256 priceDeviation;
+        if (adjustedSqrtPrice > initialSqrtPrice) {
+            priceDeviation = ((adjustedSqrtPrice - initialSqrtPrice) * 10000) / initialSqrtPrice;
+        } else {
+            priceDeviation = ((initialSqrtPrice - adjustedSqrtPrice) * 10000) / initialSqrtPrice;
+        }
+        
+        // If price has moved too much, use current price; otherwise use initial price
+        if (priceDeviation > PRICE_DEVIATION_TOLERANCE) {
+            adjustedSqrtPrice = sqrtPrice();
+        } else {
+            adjustedSqrtPrice = initialSqrtPrice;
+        }
+        
+        // Calculate liquidity with the adjusted price
+        liquidity = LiquidityAmounts.getLiquidityForAmounts(
+            adjustedSqrtPrice,
+            TickMath.getSqrtRatioAtTick(tickLower),
+            TickMath.getSqrtRatioAtTick(tickUpper),
+            amount0,
+            amount1
+        );
+    }
+
 
     /// @notice Sets the tick positions for the main and alternative positions.
     function _setTicks() private onlyCalmPeriods {
