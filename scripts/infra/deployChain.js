@@ -223,17 +223,17 @@ async function main() {
   }
 
   // Deploy vault V7 MultiToken if not already deployed
-  if (!isContractDeployed(addresses.vaultV7MultiToken)) {
-    console.log("Deploying Vault V7 MultiToken");
-    const VaultV7MultiToken = await ethers.getContractFactory("BeefyVaultV7HederaMultiToken");
-    const vault7MultiToken = await VaultV7MultiToken.deploy({ gasLimit: 5000000 });
-    await vault7MultiToken.deployed();
-    console.log(`Vault V7 MultiToken deployed to ${vault7MultiToken.address}`);
-    addresses.vaultV7MultiToken = vault7MultiToken.address;
-    saveAddresses(addresses);
-  } else {
-    console.log(`Vault V7 MultiToken already deployed at ${addresses.vaultV7MultiToken}`);
-  }
+  // if (!isContractDeployed(addresses.vaultV7MultiToken)) {
+  //   console.log("Deploying Vault V7 MultiToken");
+  //   const VaultV7MultiToken = await ethers.getContractFactory("BeefyVaultV7HederaMultiToken");
+  //   const vault7MultiToken = await VaultV7MultiToken.deploy({ gasLimit: 5000000 });
+  //   await vault7MultiToken.deployed();
+  //   console.log(`Vault V7 MultiToken deployed to ${vault7MultiToken.address}`);
+  //   addresses.vaultV7MultiToken = vault7MultiToken.address;
+  //   saveAddresses(addresses);
+  // } else {
+  //   console.log(`Vault V7 MultiToken already deployed at ${addresses.vaultV7MultiToken}`);
+  // }
 
   // Deploy CLM Vault if not already deployed
   if (!isContractDeployed(addresses.clmVault)) {
@@ -252,7 +252,7 @@ async function main() {
   if (!isContractDeployed(addresses.vaultFactory)) {
     console.log("Deploying Vault Factory");
     const VaultFactory = await ethers.getContractFactory("BeefyVaultV7FactoryHedera");
-    const vaultFactory = await VaultFactory.deploy(addresses.vaultV7, addresses.vaultV7MultiToken, { gasLimit: 5000000 });
+    const vaultFactory = await VaultFactory.deploy(addresses.vaultV7, addresses.clmVault, { gasLimit: 5000000 });
     await vaultFactory.deployed();
     console.log(`Vault Factory deployed to ${vaultFactory.address}`);
     addresses.vaultFactory = vaultFactory.address;
