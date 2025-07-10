@@ -336,6 +336,9 @@ library SaucerSwapLariLib {
         address unirouter,
         RewardToken[] storage rewardTokens
     ) external {
+        // Skip if unirouter is zero address (not used in LARI strategies)
+        if (unirouter == address(0)) return;
+        
         // Only approve non-native tokens (HTS tokens need ERC20 approvals for swapping)
         if (lpToken0 != native) {
             IERC20Metadata(lpToken0).approve(unirouter, type(uint256).max);
@@ -358,6 +361,9 @@ library SaucerSwapLariLib {
         address unirouter,
         RewardToken[] storage rewardTokens
     ) external {
+        // Skip if unirouter is zero address (not used in LARI strategies)
+        if (unirouter == address(0)) return;
+        
         // Only approve non-native tokens (HTS tokens need ERC20 approvals for swapping)
         if (lpToken0 != native) {
             try IERC20Metadata(lpToken0).approve(unirouter, type(uint256).max) {
@@ -392,6 +398,9 @@ library SaucerSwapLariLib {
         address unirouter,
         RewardToken[] storage rewardTokens
     ) external {
+        // Skip if unirouter is zero address (not used in LARI strategies)
+        if (unirouter == address(0)) return;
+        
         // Only revoke approvals for non-native tokens
         if (lpToken0 != native) {
             IERC20Metadata(lpToken0).approve(unirouter, 0);
