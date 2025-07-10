@@ -3,76 +3,51 @@ pragma solidity 0.8.23;
 
 import {IERC20Metadata} from "@openzeppelin-4/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
-import {SignedMath} from "@openzeppelin-4/contracts/utils/math/SignedMath.sol";
 import {AddressUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
 import "../Common/StratFeeManagerInitializable.sol";
-import "../../interfaces/uniswap/IUniswapV3Pool.sol";
+import {IUniswapV3Pool as ISaucerSwapPool} from "../../interfaces/saucerswap/IUniswapV3Pool.sol";
 import "../../utils/LiquidityAmounts.sol";
 import "../../utils/TickMath.sol";
 import "../../utils/TickUtils.sol";
-import "../../utils/Univ3Utils.sol";
 import "../../utils/FullMath.sol";
 import "../../interfaces/beefy/IBeefyVaultConcLiq.sol";
 import "../../interfaces/beefy/IStrategyFactory.sol";
 import "../../interfaces/beefy/IStrategyConcLiq.sol";
-import "../../interfaces/beefy/IBeefySwapper.sol";
 import "../../interfaces/uniswap/IQuoter.sol";
 import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
-import "../../utils/UniswapV3Utils.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../utils/GasFeeThrottler.sol";
 import "../../interfaces/oracle/IBeefyOracle.sol";
 import "../Bonzo/SaucerSwapCLMLib.sol";
+import "../Bonzo/SaucerSwapLariLib.sol";
 
-/// @title Beefy LARI Rewards CLM Strategy for SaucerSwap (Hedera)
-/// @author Bonzo Team, adapted from Beefy
-/// @notice This contract manages concentrated liquidity positions on SaucerSwap while harvesting LARI rewards
-contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFeeManagerInitializable, IStrategyConcLiq, GasFeeThrottler {
+contract SaucerSwapLariRewardsCLMStrategy is
+    ReentrancyGuardUpgradeable,
+    StratFeeManagerInitializable,
+    IStrategyConcLiq,
+    GasFeeThrottler
+{
     using SafeERC20 for IERC20Metadata;
     using TickMath for int24;
     using AddressUpgradeable for address payable;
-
-    /// @notice The precision for pricing.
     uint256 private constant PRECISION = 1e36;
-    uint256 private constant SQRT_PRECISION = 1e18;
-
-    /// @notice The max and min ticks univ3 allows.
-    int56 private constant MIN_TICK = -887272;
-    int56 private constant MAX_TICK = 887272;
-
-    /// @notice Address of the Hedera Token Service precompile
+    uint256 private constant DURATION = 21600;
     address private constant HTS_PRECOMPILE = address(0x167);
-
-    /// @notice HTS success response code
     int64 private constant HTS_SUCCESS = 22;
-
-    /// @notice Error code when binding to the HTS precompile fails.
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
-
-    /// @notice Duration over which rewards are locked (6 hours)
-    uint256 public constant DURATION = 21600;
-
-    /// @notice The address of the SaucerSwap V3 pool.
+    uint256 public constant MINT_SLIPPAGE_TOLERANCE = 500;
+    uint256 public constant PRICE_DEVIATION_TOLERANCE = 200;
     address public pool;
-    /// @notice The address of the quoter.
     address public quoter;
-    /// @notice The address of the first token in the liquidity pool.
     address public lpToken0;
-    /// @notice The address of the second token in the liquidity pool.
     address public lpToken1;
-
-    /// @notice The fees that are collected in the strategy but have not yet completed the harvest process.
     uint256 public fees0;
     uint256 public fees1;
-
-    /// @notice The struct to store our tick positioning.
     struct Position {
         int24 tickLower;
         int24 tickUpper;
     }
-
-    /// @notice Struct for initialization parameters to reduce stack depth
     struct InitParams {
         address pool;
         address quoter;
@@ -82,8 +57,6 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         address beefyOracle;
         address[] rewardTokens;
     }
-
-    /// @notice Struct for balance information to reduce stack depth
     struct BalanceInfo {
         uint256 token0Bal;
         uint256 token1Bal;
@@ -92,77 +65,28 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         uint256 altAmount0;
         uint256 altAmount1;
     }
-
-    /// @notice Dynamic reward tokens structure
-    struct RewardToken {
-        address token;
-        bool isHTS;
-        bool isActive;
-        address[] toLp0Route;
-        address[] toLp1Route;
-    }
-
-    /// @notice The main position of the strategy.
     Position public positionMain;
-
-    /// @notice The alternative position of the strategy.
     Position public positionAlt;
-
-    /// @notice The width of the position, thats a multiplier for tick spacing to find our range.
     int24 public positionWidth;
-
-    /// @notice the max tick deviations we will allow for deposits/harvests.
     int56 public maxTickDeviation;
-
-    /// @notice The twap interval seconds we use for the twap check.
     uint32 public twapInterval;
-
-    /// @notice Bool switch to prevent reentrancy on the mint callback.
     bool private minting;
-
-    /// @notice Initializes the ticks on first deposit.
+    uint256 private expectedAmount0;
+    uint256 private expectedAmount1;
     bool private initTicks;
-
-    /// @notice The timestamp of the last deposit
     uint256 private lastDeposit;
-
-    /// @notice Address of the native token (WHBAR for fee payments)
     address public native;
-
-    /// @notice Address of the strategy factory
     address public factory;
-
-    /// @notice Get the current mint fee required by SaucerSwap factory
-    /// @return mintFee The mint fee in tinybars (HBAR)
-    function getMintFee() public view returns (uint256 mintFee) {
-        address poolFactory = IUniswapV3Pool(pool).factory();
-        return IUniswapV3Factory(poolFactory).mintFee();
-    }
-
-    /// @notice Total locked profits for token0 and token1
     uint256 public totalLocked0;
     uint256 public totalLocked1;
-
-    /// @notice Timestamp of last harvest
     uint256 public lastHarvest;
-
-    /// @notice Timestamp of last position adjustment
     uint256 public lastPositionAdjustment;
-
-    /// @notice Beefy Oracle for price feeds
     address public beefyOracle;
-
-    /// @notice Leftover token amounts after liquidity addition
     uint256 public leftover0;
     uint256 public leftover1;
-
-    /// @notice Array of reward tokens
-    RewardToken[] public rewardTokens;
-    
-    /// @notice Mapping for quick lookup
+    SaucerSwapLariLib.RewardToken[] public rewardTokens;
     mapping(address => uint256) private rewardTokenIndex;
     mapping(address => bool) private isRewardToken;
-
     // Errors
     error NotAuthorized();
     error NotPool();
@@ -189,8 +113,6 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
     event RewardTokenAdded(address indexed token, bool isHTS);
     event RewardTokenRemoved(address indexed token);
     event RewardTokenUpdated(address indexed token, bool isActive);
-
-    /// @notice Modifier to only allow deposit/harvest actions when current price is within a certain deviation of twap.
     modifier onlyCalmPeriods() {
         _onlyCalmPeriods();
         _;
@@ -201,106 +123,72 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         _;
     }
 
-    /// @notice function to only allow deposit/harvest actions when current price is within a certain deviation of twap.
+    function getMintFee() public view returns (uint256 mintFee) {
+        address poolFactory = ISaucerSwapPool(pool).factory();
+        return IUniswapV3Factory(poolFactory).mintFee();
+    }
+
     function _onlyCalmPeriods() private view {
         if (!isCalm()) revert NotCalm();
     }
 
-    /// @notice function to only allow deposit/harvest actions when current price is within a certain deviation of twap.
     function isCalm() public view returns (bool) {
         return SaucerSwapCLMLib.isPoolCalm(pool, twapInterval, maxTickDeviation);
     }
 
-    /**
-     * @notice Initializes the strategy and the inherited strat fee manager.
-     * @dev Make sure cardinality is set appropriately for the twap.
-     * @param _params The initialization parameters struct.
-     * @param _commonAddresses The common addresses needed for the strat fee manager.
-     */
     function initialize(InitParams calldata _params, CommonAddresses calldata _commonAddresses) external initializer {
         __StratFeeManager_init(_commonAddresses);
         __ReentrancyGuard_init();
 
         pool = _params.pool;
         quoter = _params.quoter;
-        lpToken0 = IUniswapV3Pool(_params.pool).token0();
-        lpToken1 = IUniswapV3Pool(_params.pool).token1();
+        lpToken0 = ISaucerSwapPool(_params.pool).token0();
+        lpToken1 = ISaucerSwapPool(_params.pool).token1();
         native = _params.native;
         factory = _params.factory;
         beefyOracle = _params.beefyOracle;
-
-        // Our width multiplier. The tick distance of each side will be width * tickSpacing.
-        positionWidth = _params.positionWidth;
-
-        // Set the twap interval to 120 seconds.
-        twapInterval = 120;
-        
-        // Set default max tick deviation
-        maxTickDeviation = 200;
-
-        // Associate both tokens with this contract (all tokens on Hedera are HTS except native HBAR)
+        positionWidth = _params.positionWidth; // Our width multiplier. The tick distance of each side will be width * tickSpacing.
+        twapInterval = 120; // Set the twap interval to 120 seconds.
+        maxTickDeviation = 200; // Set default max tick deviation
         if (lpToken0 != native) {
-            _safeAssociateToken(lpToken0);
+            SaucerSwapCLMLib.safeAssociateToken(lpToken0);
         }
         if (lpToken1 != native) {
-            _safeAssociateToken(lpToken1);
+            SaucerSwapCLMLib.safeAssociateToken(lpToken1);
         }
-
-        // Initialize reward tokens
         for (uint256 i = 0; i < _params.rewardTokens.length; i++) {
             _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
-
-        // Give allowances - use try-catch to handle any HTS approval issues
         _safeGiveAllowances();
     }
 
-    /// @notice Only allows the vault to call a function.
     function _onlyVault() private view {
         if (msg.sender != vault) revert NotVault();
     }
 
-    /// @notice Called during deposit and withdraw to remove liquidity and harvest fees for accounting purposes.
     function beforeAction() external {
         _onlyVault();
         _claimEarnings();
         _removeLiquidity();
     }
 
-    /// @notice Called during deposit to add all liquidity back to their positions.
     function deposit() external onlyCalmPeriods {
         _onlyVault();
-
-        // Get current balances before adding liquidity
-        (uint256 balBefore0, uint256 balBefore1) = balancesOfThis();
-
-        // Add all liquidity
+        (uint256 balBefore0, uint256 balBefore1) = balancesOfThis(); // Get current balances before adding liquidity
         if (!initTicks) {
             _setTicks();
             initTicks = true;
         }
-
         _addLiquidity();
-
-        // Calculate leftover amounts after liquidity addition
         (uint256 balAfter0, uint256 balAfter1) = balancesOfThis();
         leftover0 = balAfter0;
         leftover1 = balAfter1;
-
         lastDeposit = block.timestamp;
-
-        // Emit deposit event with the amounts that were deposited
         emit Deposit(vault, balBefore0, balBefore1);
     }
 
-    /**
-     * @notice Withdraws the specified amount of tokens from the strategy as calculated by the vault.
-     * @param _amount0 The amount of token0 to withdraw.
-     * @param _amount1 The amount of token1 to withdraw.
-     */
     function withdraw(uint256 _amount0, uint256 _amount1) external {
         _onlyVault();
-
         if (block.timestamp == lastDeposit) _onlyCalmPeriods();
 
         // Liquidity has already been removed in beforeAction() so this is just a simple withdraw.
@@ -310,36 +198,40 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         if (_amount1 > 0) {
             _transferTokens(lpToken1, address(this), vault, _amount1, true);
         }
-
-        // Emit withdraw event with the amounts that were withdrawn
         emit Withdraw(vault, _amount0, _amount1);
-
-        // After we take what is needed we add it all back to our positions.
         if (!_isPaused()) _addLiquidity();
     }
 
-    /// @notice Adds liquidity to the main and alternative positions called on deposit, harvest and withdraw.
     function _addLiquidity() private onlyCalmPeriods {
         _whenStrategyNotPaused();
-
         (uint256 bal0, uint256 bal1) = balancesOfThis();
-
-        // Then we fetch how much liquidity we get for adding at the main position ticks with our token balances.
+        uint256 mintFee = getMintFee();
         uint160 sqrtprice = sqrtPrice();
-        uint128 liquidity = LiquidityAmounts.getLiquidityForAmounts(
+        (uint128 liquidity, uint160 adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
-            TickMath.getSqrtRatioAtTick(positionMain.tickLower),
-            TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
+            positionMain.tickLower,
+            positionMain.tickUpper,
             bal0,
             bal1
         );
-
-        bool amountsOk = _checkAmounts(liquidity, positionMain.tickLower, positionMain.tickUpper);
-
-        // Flip minting to true and call the pool to mint the liquidity.
+        (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPrice(),
+            TickMath.getSqrtRatioAtTick(positionMain.tickLower),
+            TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
+            liquidity
+        );
+        bool amountsOk = SaucerSwapCLMLib.checkAmounts(amount0, amount1);
         if (liquidity > 0 && amountsOk) {
+            _validatePreMintConditions(adjustedSqrtPrice, bal0, bal1);
+            require(address(this).balance >= mintFee, "Insufficient HBAR for mint fee");
+            (expectedAmount0, expectedAmount1) = LiquidityAmounts.getAmountsForLiquidity(
+                adjustedSqrtPrice,
+                TickMath.getSqrtRatioAtTick(positionMain.tickLower),
+                TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
+                liquidity
+            );
             minting = true;
-            IUniswapV3Pool(pool).mint(
+            ISaucerSwapPool(pool).mint{value: mintFee}(
                 address(this),
                 positionMain.tickLower,
                 positionMain.tickUpper,
@@ -347,9 +239,7 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
                 "Beefy Main"
             );
         } else _onlyCalmPeriods();
-
         (bal0, bal1) = balancesOfThis();
-
         // Fetch how much liquidity we get for adding at the alternative position ticks with our token balances.
         liquidity = LiquidityAmounts.getLiquidityForAmounts(
             sqrtprice,
@@ -358,11 +248,10 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
             bal0,
             bal1
         );
-
         // Flip minting to true and call the pool to mint the liquidity.
         if (liquidity > 0) {
             minting = true;
-            IUniswapV3Pool(pool).mint(
+            ISaucerSwapPool(pool).mint(
                 address(this),
                 positionAlt.tickLower,
                 positionAlt.tickUpper,
@@ -372,19 +261,16 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         }
     }
 
-    /// @notice Removes liquidity from the main and alternative positions, called on deposit, withdraw and harvest.
     function _removeLiquidity() private {
         // First we fetch our position keys in order to get our liquidity balances from the pool.
         (bytes32 keyMain, bytes32 keyAlt) = getKeys();
-
         // Fetch the liquidity balances from the pool.
-        (uint128 liquidity, , , , ) = IUniswapV3Pool(pool).positions(keyMain);
-        (uint128 liquidityAlt, , , , ) = IUniswapV3Pool(pool).positions(keyAlt);
-
+        (uint128 liquidity, , , , ) = ISaucerSwapPool(pool).positions(keyMain);
+        (uint128 liquidityAlt, , , , ) = ISaucerSwapPool(pool).positions(keyAlt);
         // If we have liquidity in the positions we remove it and collect our tokens.
         if (liquidity > 0) {
-            IUniswapV3Pool(pool).burn(positionMain.tickLower, positionMain.tickUpper, liquidity);
-            IUniswapV3Pool(pool).collect(
+            ISaucerSwapPool(pool).burn(positionMain.tickLower, positionMain.tickUpper, liquidity);
+            ISaucerSwapPool(pool).collect(
                 address(this),
                 positionMain.tickLower,
                 positionMain.tickUpper,
@@ -392,10 +278,9 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
                 type(uint128).max
             );
         }
-
         if (liquidityAlt > 0) {
-            IUniswapV3Pool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, liquidityAlt);
-            IUniswapV3Pool(pool).collect(
+            ISaucerSwapPool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, liquidityAlt);
+            ISaucerSwapPool(pool).collect(
                 address(this),
                 positionAlt.tickLower,
                 positionAlt.tickUpper,
@@ -404,122 +289,43 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
             );
         }
     }
-
-    /**
-     *  @notice Checks if the amounts are ok to add liquidity.
-     * @param _liquidity The liquidity to add.
-     * @param _tickLower The lower tick of the position.
-     * @param _tickUpper The upper tick of the position.
-     * @return bool True if the amounts are ok, false if not.
-     */
-    function _checkAmounts(uint128 _liquidity, int24 _tickLower, int24 _tickUpper) private view returns (bool) {
-        (uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(
-            sqrtPrice(),
-            TickMath.getSqrtRatioAtTick(_tickLower),
-            TickMath.getSqrtRatioAtTick(_tickUpper),
-            _liquidity
-        );
-
-        if (amount0 == 0 || amount1 == 0) return false;
-        else return true;
-    }
-
-    /// @notice Harvest call to claim fees from pool, charge fees for Beefy, process LARI rewards, then readjust our positions.
-    /// @param _callFeeRecipient The address to send the call fee to.
     function harvest(address _callFeeRecipient) external {
         _harvest(_callFeeRecipient);
     }
 
-    /// @notice Harvest call to claim fees from the pool, charge fees for Beefy, process LARI rewards, then readjust our positions.
-    /// @dev Call fee goes to the tx.origin.
     function harvest() external {
         _harvest(tx.origin);
     }
 
-    /// @notice Internal function to claim fees from the pool, charge fees for Beefy, process LARI rewards, then readjust our positions.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
         // Claim fees from the pool and collect them.
         _claimEarnings();
         _removeLiquidity();
-
-        // Process LARI rewards
         _processLariRewards();
-
         // Charge fees for Beefy and send them to the appropriate addresses, charge fees to accrued state fee amounts.
         (uint256 fee0, uint256 fee1) = _chargeFees(_callFeeRecipient, fees0, fees1);
-
         _addLiquidity();
-
         // Reset state fees to 0.
         fees0 = 0;
         fees1 = 0;
-
         // We stream the rewards over time to the LP.
         uint256 currentLock0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
         uint256 currentLock1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
         totalLocked0 = fee0 + currentLock0;
         totalLocked1 = fee1 + currentLock1;
-
         // Log the last time we claimed fees.
         lastHarvest = block.timestamp;
-
         // Log the fees post Beefy fees.
         emit Harvest(fee0, fee1);
     }
 
-    /// @notice Process LARI rewards from multiple reward tokens
     function _processLariRewards() private {
-        // Check if any reward tokens have routes set
-        bool hasRoutes = false;
-        for (uint256 i = 0; i < rewardTokens.length; i++) {
-            if (rewardTokens[i].isActive && 
-                (rewardTokens[i].toLp0Route.length > 1 || rewardTokens[i].toLp1Route.length > 1)) {
-                hasRoutes = true;
-                break;
-            }
-        }
-        if (!hasRoutes) return; // Skip processing if no routes
-
-        // Process each active reward token
-        for (uint256 i = 0; i < rewardTokens.length; i++) {
-            RewardToken storage rewardToken = rewardTokens[i];
-            if (!rewardToken.isActive) continue;
-
-            uint256 balance = IERC20Metadata(rewardToken.token).balanceOf(address(this));
-            if (balance == 0) continue;
-
-            emit LariHarvested(rewardToken.token, balance);
-
-            // Swap rewards to LP tokens
-            if (rewardToken.token != lpToken0 && rewardToken.toLp0Route.length > 1) {
-                uint256 balanceBefore = IERC20Metadata(lpToken0).balanceOf(address(this));
-                IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                _swapReward(balance / 2, rewardToken.toLp0Route);
-                uint256 balanceAfter = IERC20Metadata(lpToken0).balanceOf(address(this));
-                fees0 += balanceAfter - balanceBefore;
-            }
-            if (rewardToken.token != lpToken1 && rewardToken.toLp1Route.length > 1) {
-                uint256 balanceBefore = IERC20Metadata(lpToken1).balanceOf(address(this));
-                IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                _swapReward(balance / 2, rewardToken.toLp1Route);
-                uint256 balanceAfter = IERC20Metadata(lpToken1).balanceOf(address(this));
-                fees1 += balanceAfter - balanceBefore;
-            }
-        }
+        (uint256 newFees0, uint256 newFees1) = SaucerSwapLariLib.processLariRewards(rewardTokens, quoter, lpToken0, lpToken1, unirouter);
+        fees0 += newFees0;
+        fees1 += newFees1;
     }
 
-    /// @notice Swap reward tokens using BeefySwapper
-    function _swapReward(uint256 amount, address[] memory route) internal {
-        if (amount == 0 || route.length < 2) return;
-        
-        address tokenIn = route[0];
-        address tokenOut = route[route.length - 1];
-        
-        // Use BeefySwapper for token swaps
-        IBeefySwapper(unirouter).swap(tokenIn, tokenOut, amount);
-    }
 
-    /// @notice Function called to moveTicks of the position
     function moveTicks() external onlyCalmPeriods onlyRebalancers {
         _claimEarnings();
         _removeLiquidity();
@@ -527,145 +333,70 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         _addLiquidity();
     }
 
-    /// @notice Claims fees from the pool and collects them.
     function claimEarnings() external returns (uint256 fee0, uint256 fee1, uint256 feeAlt0, uint256 feeAlt1) {
         (fee0, fee1, feeAlt0, feeAlt1) = _claimEarnings();
     }
 
-    /// @notice Internal function to claim fees from the pool and collect them.
     function _claimEarnings() private returns (uint256 fee0, uint256 fee1, uint256 feeAlt0, uint256 feeAlt1) {
         // Claim fees
         (bytes32 keyMain, bytes32 keyAlt) = getKeys();
-        (uint128 liquidity, , , , ) = IUniswapV3Pool(pool).positions(keyMain);
-        (uint128 liquidityAlt, , , , ) = IUniswapV3Pool(pool).positions(keyAlt);
-
+        (uint128 liquidity, , , , ) = ISaucerSwapPool(pool).positions(keyMain);
+        (uint128 liquidityAlt, , , , ) = ISaucerSwapPool(pool).positions(keyAlt);
         // Burn 0 liquidity to make fees available to claim.
-        if (liquidity > 0) IUniswapV3Pool(pool).burn(positionMain.tickLower, positionMain.tickUpper, 0);
-        if (liquidityAlt > 0) IUniswapV3Pool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, 0);
-
+        if (liquidity > 0) ISaucerSwapPool(pool).burn(positionMain.tickLower, positionMain.tickUpper, 0);
+        if (liquidityAlt > 0) ISaucerSwapPool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, 0);
         // Collect fees from the pool.
-        (fee0, fee1) = IUniswapV3Pool(pool).collect(
+        (fee0, fee1) = ISaucerSwapPool(pool).collect(
             address(this),
             positionMain.tickLower,
             positionMain.tickUpper,
             type(uint128).max,
             type(uint128).max
         );
-        (feeAlt0, feeAlt1) = IUniswapV3Pool(pool).collect(
+        (feeAlt0, feeAlt1) = ISaucerSwapPool(pool).collect(
             address(this),
             positionAlt.tickLower,
             positionAlt.tickUpper,
             type(uint128).max,
             type(uint128).max
         );
-
         // Set the total fees collected to state.
         fees0 = fees0 + fee0 + feeAlt0;
         fees1 = fees1 + fee1 + feeAlt1;
     }
 
-    /**
-     * @notice Internal function to charge fees for Beefy and send them to the appropriate addresses.
-     * @param _callFeeRecipient The address to send the call fee to.
-     * @param _amount0 The amount of token0 to charge fees on.
-     * @param _amount1 The amount of token1 to charge fees on.
-     * @return _amountLeft0 The amount of token0 left after fees.
-     * @return _amountLeft1 The amount of token1 left after fees.
-     */
     function _chargeFees(
         address _callFeeRecipient,
         uint256 _amount0,
         uint256 _amount1
     ) private returns (uint256 _amountLeft0, uint256 _amountLeft1) {
         IFeeConfig.FeeCategory memory fees = getFees();
-
-        uint256 nativeEarned = _processToken0Fees(_amount0, fees.total);
-        nativeEarned += _processToken1Fees(_amount1, fees.total);
-
-        _amountLeft0 = _amount0 > 0 ? _amount0 - ((_amount0 * fees.total) / DIVISOR) : 0;
-        _amountLeft1 = _amount1 > 0 ? _amount1 - ((_amount1 * fees.total) / DIVISOR) : 0;
-
-        _distributeFees(_callFeeRecipient, nativeEarned, fees);
+        (_amountLeft0, _amountLeft1) = SaucerSwapLariLib.calculateFeesLeft(_amount0, _amount1, fees.total, DIVISOR);
+        (uint256 feeAmount0, uint256 feeAmount1) = SaucerSwapLariLib.calculateLPTokenFees(_amount0, _amount1, fees.total, DIVISOR);
+        SaucerSwapLariLib.distributeLPTokenFees(_callFeeRecipient, strategist, beefyFeeRecipient, feeAmount0, feeAmount1, fees.call, fees.strategist, DIVISOR, lpToken0, lpToken1, native);
     }
 
-    function _processToken0Fees(uint256 _amount0, uint256 _feePercent) private returns (uint256 nativeEarned) {
-        if (_amount0 == 0) return 0;
-
-        uint256 amountToSwap0 = (_amount0 * _feePercent) / DIVISOR;
-
-        if (lpToken0 == native) {
-            nativeEarned = amountToSwap0;
-        } else {
-            nativeEarned = IBeefySwapper(unirouter).swap(lpToken0, native, amountToSwap0);
-        }
-    }
-
-    function _processToken1Fees(uint256 _amount1, uint256 _feePercent) private returns (uint256 nativeEarned) {
-        if (_amount1 == 0) return 0;
-
-        uint256 amountToSwap1 = (_amount1 * _feePercent) / DIVISOR;
-
-        if (lpToken1 == native) {
-            nativeEarned = amountToSwap1;
-        } else {
-            nativeEarned = IBeefySwapper(unirouter).swap(lpToken1, native, amountToSwap1);
-        }
-    }
-
-    function _distributeFees(
-        address _callFeeRecipient,
-        uint256 _nativeEarned,
-        IFeeConfig.FeeCategory memory _fees
-    ) private {
-        uint256 callFeeAmount = (_nativeEarned * _fees.call) / DIVISOR;
-        uint256 strategistFeeAmount = (_nativeEarned * _fees.strategist) / DIVISOR;
-        uint256 beefyFeeAmount = _nativeEarned - callFeeAmount - strategistFeeAmount;
-
-        _transferTokens(native, address(this), _callFeeRecipient, callFeeAmount, true);
-        _transferTokens(native, address(this), strategist, strategistFeeAmount, true);
-        _transferTokens(native, address(this), beefyFeeRecipient, beefyFeeAmount, true);
-    }
-
-    /**
-     * @notice Returns total token balances in the strategy.
-     * @return token0Bal The amount of token0 in the strategy.
-     * @return token1Bal The amount of token1 in the strategy.
-     */
     function balances() public view returns (uint256 token0Bal, uint256 token1Bal) {
         (uint256 thisBal0, uint256 thisBal1) = balancesOfThis();
         BalanceInfo memory poolInfo = balancesOfPool();
         uint256 locked0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
         uint256 locked1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
-
         uint256 total0 = thisBal0 + poolInfo.token0Bal - locked0;
         uint256 total1 = thisBal1 + poolInfo.token1Bal - locked1;
         uint256 unharvestedFees0 = fees0;
         uint256 unharvestedFees1 = fees1;
-
         // If pair is so imbalanced that we no longer have any enough tokens to pay fees, we set them to 0.
         if (unharvestedFees0 > total0) unharvestedFees0 = total0;
         if (unharvestedFees1 > total1) unharvestedFees1 = total1;
-
         // For token0 and token1 we return balance of this contract + balance of positions - locked profit - feesUnharvested.
         return (total0 - unharvestedFees0, total1 - unharvestedFees1);
     }
 
-    /**
-     * @notice Returns total tokens sitting in the strategy.
-     * @dev Since SaucerSwap uses WHBAR (not native HBAR), all tokens including WHBAR are checked as ERC20 balances.
-     * @return token0Bal The amount of token0 in the strategy.
-     * @return token1Bal The amount of token1 in the strategy.
-     */
     function balancesOfThis() public view returns (uint256 token0Bal, uint256 token1Bal) {
-        // All tokens on SaucerSwap (including WHBAR) are ERC20 tokens
         token0Bal = IERC20Metadata(lpToken0).balanceOf(address(this));
         token1Bal = IERC20Metadata(lpToken1).balanceOf(address(this));
     }
 
-    /**
-     * @notice Returns total tokens in pool positions.
-     * @return balInfo The balance information struct containing all position amounts.
-     */
     function balancesOfPool() public view returns (BalanceInfo memory balInfo) {
         (balInfo.mainAmount0, balInfo.mainAmount1) = _getMainPositionAmounts();
         (balInfo.altAmount0, balInfo.altAmount1) = _getAltPositionAmounts();
@@ -678,17 +409,14 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         if (!initTicks) {
             return (0, 0);
         }
-
         (bytes32 keyMain, ) = getKeys();
-        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyMain);
-
+        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = ISaucerSwapPool(pool).positions(keyMain);
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice(),
             TickMath.getSqrtRatioAtTick(positionMain.tickLower),
             TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
             liquidity
         );
-
         amount0 += owed0;
         amount1 += owed1;
     }
@@ -697,91 +425,52 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         if (!initTicks) {
             return (0, 0);
         }
-
         (, bytes32 keyAlt) = getKeys();
-        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).positions(keyAlt);
-
+        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = ISaucerSwapPool(pool).positions(keyAlt);
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice(),
             TickMath.getSqrtRatioAtTick(positionAlt.tickLower),
             TickMath.getSqrtRatioAtTick(positionAlt.tickUpper),
             liquidity
         );
-
         amount0 += owed0;
         amount1 += owed1;
     }
 
-    /**
-     * @notice Returns the range of the pool, will always be the main position.
-     * @return lowerPrice The lower price of the position.
-     * @return upperPrice The upper price of the position.
-     */
     function range() external view returns (uint256 lowerPrice, uint256 upperPrice) {
         return SaucerSwapCLMLib.calculateRangePrices(positionMain.tickLower, positionMain.tickUpper);
     }
 
-    /**
-     * @notice Returns the keys for the main and alternative positions.
-     * @return keyMain The key for the main position.
-     * @return keyAlt The key for the alternative position.
-     */
     function getKeys() public view returns (bytes32 keyMain, bytes32 keyAlt) {
         keyMain = keccak256(abi.encodePacked(address(this), positionMain.tickLower, positionMain.tickUpper));
         keyAlt = keccak256(abi.encodePacked(address(this), positionAlt.tickLower, positionAlt.tickUpper));
     }
 
-    /**
-     * @notice The current tick of the pool.
-     * @return tick The current tick of the pool.
-     */
     function currentTick() public view returns (int24 tick) {
-        (, tick, , , , , ) = IUniswapV3Pool(pool).slot0();
+        (, tick, , , , , ) = ISaucerSwapPool(pool).slot0();
     }
 
-    /**
-     * @notice The current price of the pool.
-     */
     function price() public view returns (uint256 _price) {
         return SaucerSwapCLMLib.getPoolPrice(pool);
     }
 
-    /**
-     * @notice The sqrt price of the pool.
-     */
     function sqrtPrice() public view returns (uint160 sqrtPriceX96) {
         return SaucerSwapCLMLib.getPoolSqrtPrice(pool);
     }
 
-    /**
-     * @notice The swap fee variable is the fee charged for swaps in the underlying pool in 18 decimals
-     * @return fee The swap fee of the underlying pool
-     */
     function swapFee() external view override returns (uint256 fee) {
         return SaucerSwapCLMLib.getPoolFee(pool);
     }
 
-    /**
-     * @notice The tick distance of the pool.
-     * @return int24 The tick distance/spacing of the pool.
-     */
     function _tickDistance() private view returns (int24) {
-        return IUniswapV3Pool(pool).tickSpacing();
+        return ISaucerSwapPool(pool).tickSpacing();
     }
 
-    /**
-     * @notice Callback function for SaucerSwap V3 pool to call when minting liquidity.
-     * @param amount0 Amount of token0 owed to the pool
-     * @param amount1 Amount of token1 owed to the pool
-     * bytes Additional data but unused in this case.
-     */
     function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external nonReentrant {
         if (msg.sender != pool) revert NotPool();
         if (!minting) revert InvalidEntry();
-        
-        // Set minting to false BEFORE external calls to prevent reentrancy
         minting = false;
-        
+        _validateMintSlippage(amount0, amount1);
         if (amount0 > 0) {
             _transferTokens(lpToken0, address(this), pool, amount0, true);
         }
@@ -790,145 +479,60 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         }
     }
 
-    /// @notice Sets the tick positions for the main and alternative positions.
     function _setTicks() private onlyCalmPeriods {
         int24 tick = currentTick();
         int24 distance = _tickDistance();
         int24 width = positionWidth * distance;
-
         _setMainTick(tick, distance, width);
         _setAltTick(tick, distance, width);
-
         lastPositionAdjustment = block.timestamp;
     }
 
-    /// @notice Sets the main tick position.
     function _setMainTick(int24 tick, int24 distance, int24 width) private {
         (positionMain.tickLower, positionMain.tickUpper) = TickUtils.baseTicks(tick, width, distance);
     }
 
-    /// @notice Sets the alternative tick position.
     function _setAltTick(int24 tick, int24 distance, int24 width) private {
         (uint256 bal0, uint256 bal1) = balancesOfThis();
-
         // We calculate how much token0 we have in the price of token1.
         uint256 amount0;
-
         if (bal0 > 0) {
             amount0 = FullMath.mulDiv(bal0, price(), PRECISION);
         }
-
         // We set the alternative position based on the token that has the most value available.
         if (amount0 < bal1) {
             (positionAlt.tickLower, ) = TickUtils.baseTicks(tick, width, distance);
-
             (positionAlt.tickUpper, ) = TickUtils.baseTicks(tick, distance, distance);
         } else if (bal1 < amount0) {
             (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
-
             (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);
         } else {
             // Default case when both balances are 0 or equal - set alt position to token0 side (different from main)
             (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
-
             (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);
         }
-
         if (positionMain.tickLower == positionAlt.tickLower && positionMain.tickUpper == positionAlt.tickUpper)
             revert InvalidTicks();
     }
 
-    /**
-     * @notice Helper function to transfer tokens - handles native HBAR and HTS tokens
-     * @param token The token address
-     * @param from The sender address
-     * @param to The recipient address
-     * @param amount The amount to transfer
-     * @param isFromContract Whether the transfer is from this contract
-     */
-    function _transferTokens(address token, address from, address to, uint256 amount, bool isFromContract) internal {
-        if (amount == 0) return;
-
-        bool isNative = (token == native);
-
-        if (isNative) {
-            // For native tokens (HBAR), use native transfer
-            if (isFromContract) {
-                AddressUpgradeable.sendValue(payable(to), amount);
-            } else {
-                // When receiving native tokens, they should come with msg.value
-                require(msg.value >= amount, "Insufficient native token sent");
-            }
+    function _transferTokens(address token, address /* from */, address to, uint256 amount, bool isFromContract) internal {
+        if (isFromContract) {
+            SaucerSwapLariLib.transferTokens(token, to, amount, native);
         } else {
-            // All other tokens on Hedera are HTS tokens, use HTS precompile
-            _transferHTS(token, from, to, amount);
+            require(msg.value >= amount, "Insufficient native token sent");
         }
     }
 
-    /**
-     * @notice Transfer HTS tokens using standard ERC20 transferFrom
-     * @param token The HTS token address
-     * @param from The sender address
-     * @param to The recipient address
-     * @param amount The amount to transfer
-     */
-    function _transferHTS(address token, address from, address to, uint256 amount) internal {
-        if (from == address(this)) {
-            IERC20Metadata(token).safeTransfer(to, amount);
-        } else {
-            IERC20Metadata(token).safeTransferFrom(from, to, amount);
-        }
-    }
-
-    /**
-     * @notice Associate this contract with an HTS token
-     * @param token The HTS token address to associate with this contract
-     */
     function _associateToken(address token) internal {
-        if (token == address(0)) revert InvalidTokenAddress();
-
-        (bool success, bytes memory result) = HTS_PRECOMPILE.call(
-            abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
-        );
-        int64 responseCode = success ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
-
-        if (responseCode != HTS_SUCCESS) {
-            revert HTSAssociationFailed();
-        }
+        SaucerSwapCLMLib.safeAssociateToken(token);
     }
 
-    /**
-     * @notice Safely associate this contract with an HTS token without reverting
-     * @param token The HTS token address to associate with this contract
-     * @return success True if association succeeded or token was already associated
-     */
-    function _safeAssociateToken(address token) internal returns (bool success) {
-        if (token == address(0)) return false;
-
-        (bool callSuccess, bytes memory result) = HTS_PRECOMPILE.call(
-            abi.encodeWithSelector(IHederaTokenService.associateToken.selector, address(this), token)
-        );
-        int64 responseCode = callSuccess ? abi.decode(result, (int64)) : PRECOMPILE_BIND_ERROR;
-
-        // Success codes: 22 (SUCCESS) or 23 (TOKEN_ALREADY_ASSOCIATED_TO_ACCOUNT)
-        return responseCode == HTS_SUCCESS || responseCode == 23;
-    }
-
-    /**
-     * @notice Sets the deviation from the twap we will allow on adding liquidity.
-     * @param _maxDeviation The max deviation from twap we will allow.
-     */
     function setDeviation(int56 _maxDeviation) external onlyOwner {
         // Require the deviation to be less than or equal to 4 times the tick spacing.
         if (_maxDeviation >= _tickDistance() * 4) revert InvalidInput();
-
         maxTickDeviation = _maxDeviation;
     }
 
-    /**
-     * @notice The twap of the last minute from the pool.
-     * @return twapTick The twap of the last minute from the pool.
-     */
     function twap() public view returns (int56 twapTick) {
         return SaucerSwapCLMLib.getTwap(pool, twapInterval);
     }
@@ -936,14 +540,9 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
     function setTwapInterval(uint32 _interval) external onlyOwner {
         // Require the interval to be greater than 60 seconds.
         if (_interval < 60) revert InvalidInput();
-
         twapInterval = _interval;
     }
 
-    /**
-     * @notice set the unirouter address
-     * @param _unirouter The new unirouter address
-     */
     function setUnirouter(address _unirouter) external override onlyOwner {
         _removeAllowances();
         unirouter = _unirouter;
@@ -951,7 +550,6 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         emit SetUnirouter(_unirouter);
     }
 
-    /// @notice Retire the strategy and return all the dust to the fee recipient.
     function retireVault() external onlyOwner {
         if (IBeefyVaultConcLiq(vault).totalSupply() != 10 ** 3) revert NotAuthorized();
         panic(0, 0);
@@ -966,22 +564,15 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         _transferOwnership(address(0));
     }
 
-    /**
-     * @notice Remove Liquidity and Allowances, then pause deposits.
-     * @param _minAmount0 The minimum amount of token0 in the strategy after panic.
-     * @param _minAmount1 The minimum amount of token1 in the strategy after panic.
-     */
     function panic(uint256 _minAmount0, uint256 _minAmount1) public onlyManager {
         _claimEarnings();
         _removeLiquidity();
         _removeAllowances();
         _pause();
-
         (uint256 bal0, uint256 bal1) = balances();
         if (bal0 < _minAmount0 || bal1 < _minAmount1) revert TooMuchSlippage();
     }
 
-    /// @notice Unpause deposits, give allowances and add liquidity.
     function unpause() external onlyManager {
         if (owner() == address(0)) revert NotAuthorized();
         _giveAllowances();
@@ -990,216 +581,85 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         _addLiquidity();
     }
 
-    /// @notice gives swap permisions for the tokens to the unirouter.
     function _giveAllowances() private {
-        // Only approve non-native tokens (HTS tokens need ERC20 approvals for swapping)
-        if (lpToken0 != native) {
-            IERC20Metadata(lpToken0).approve(unirouter, type(uint256).max);
-        }
-        if (lpToken1 != native) {
-            IERC20Metadata(lpToken1).approve(unirouter, type(uint256).max);
-        }
-
-        // Give allowances for reward tokens
-        for (uint256 i = 0; i < rewardTokens.length; i++) {
-            if (rewardTokens[i].isActive && rewardTokens[i].token != native) {
-                IERC20Metadata(rewardTokens[i].token).approve(unirouter, type(uint256).max);
-            }
-        }
+        SaucerSwapLariLib.giveAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
     }
 
-    /// @notice safely gives swap permisions for the tokens to the unirouter without reverting.
     function _safeGiveAllowances() private {
-        // Only approve non-native tokens (HTS tokens need ERC20 approvals for swapping)
-        if (lpToken0 != native) {
-            try IERC20Metadata(lpToken0).approve(unirouter, type(uint256).max) {
-                // Approval succeeded
-            } catch {
-                // Approval failed - continue anyway
-            }
-        }
-        if (lpToken1 != native) {
-            try IERC20Metadata(lpToken1).approve(unirouter, type(uint256).max) {
-                // Approval succeeded
-            } catch {
-                // Approval failed - continue anyway
-            }
-        }
-
-        // Give allowances for reward tokens
-        for (uint256 i = 0; i < rewardTokens.length; i++) {
-            if (rewardTokens[i].isActive && rewardTokens[i].token != native) {
-                try IERC20Metadata(rewardTokens[i].token).approve(unirouter, type(uint256).max) {
-                    // Approval succeeded
-                } catch {
-                    // Approval failed - continue anyway
-                }
-            }
-        }
+        SaucerSwapLariLib.safeGiveAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
     }
 
-    /// @notice removes swap permisions for the tokens from the unirouter.
     function _removeAllowances() private {
-        // Only revoke approvals for non-native tokens
-        if (lpToken0 != native) {
-            IERC20Metadata(lpToken0).approve(unirouter, 0);
-        }
-        if (lpToken1 != native) {
-            IERC20Metadata(lpToken1).approve(unirouter, 0);
-        }
-
-        // Remove allowances for reward tokens
-        for (uint256 i = 0; i < rewardTokens.length; i++) {
-            if (rewardTokens[i].token != native) {
-                IERC20Metadata(rewardTokens[i].token).approve(unirouter, 0);
-            }
-        }
+        SaucerSwapLariLib.removeAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
     }
 
-    /// @notice Check if strategy is paused
     function _isPaused() internal view returns (bool) {
         return paused();
     }
 
-    /// @notice Check if strategy is not paused
     function _whenStrategyNotPaused() internal view {
         require(!paused(), "Strategy is paused");
     }
 
-    /// @notice Allow the owner to manually associate this contract with an HTS token
     function associateToken(address token) external onlyOwner {
         _associateToken(token);
     }
 
-    /// @notice Update Beefy Oracle address
     function setBeefyOracle(address _beefyOracle) external onlyOwner {
         require(_beefyOracle != address(0), "Invalid oracle address");
         beefyOracle = _beefyOracle;
     }
 
-    /// @notice Returns the price of the first token in native token
     function lpToken0ToNativePrice() external returns (uint256) {
-        uint256 amount = 10 ** IERC20Metadata(lpToken0).decimals() / 10;
-        if (lpToken0 == native) return amount * 10;
-
-        // For SaucerSwap, we can use a simple direct path since it's based on UniswapV3
-        // Path for token0 -> WHBAR (native)
-        bytes memory path = abi.encodePacked(lpToken0, uint24(3000), native);
-
-        try IQuoter(quoter).quoteExactInput(path, amount) returns (uint256 amountOut) {
-            return amountOut * 10;
-        } catch {
-            // If quoter fails, return 0 to indicate unavailable price
-            return 0;
-        }
+        return SaucerSwapLariLib.getLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
     }
 
-    /// @notice Returns the price of the second token in native token
     function lpToken1ToNativePrice() external returns (uint256) {
-        uint256 amount = 10 ** IERC20Metadata(lpToken1).decimals() / 10;
-        if (lpToken1 == native) return amount * 10;
-
-        // For SaucerSwap, we can use a simple direct path since it's based on UniswapV3
-        // Path for token1 -> WHBAR (native)
-        bytes memory path = abi.encodePacked(lpToken1, uint24(3000), native);
-
-        try IQuoter(quoter).quoteExactInput(path, amount) returns (uint256 amountOut) {
-            return amountOut * 10;
-        } catch {
-            // If quoter fails, return 0 to indicate unavailable price
-            return 0;
-        }
+        return SaucerSwapLariLib.getLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
     }
 
-    /**
-     * @dev Add a new reward token
-     */
     function addRewardToken(address _token, bool _isHTS) external onlyManager {
         if (isRewardToken[_token]) revert TokenExists();
         _addRewardToken(_token, _isHTS);
     }
 
     function _addRewardToken(address _token, bool _isHTS) internal {
-        require(_token != address(0), "Invalid token");
-        
-        rewardTokens.push(RewardToken({
-            token: _token,
-            isHTS: _isHTS,
-            isActive: true,
-            toLp0Route: new address[](0),
-            toLp1Route: new address[](0)
-        }));
-        
-        rewardTokenIndex[_token] = rewardTokens.length - 1;
-        isRewardToken[_token] = true;
-        
-        // Associate HTS token if needed
-        if (_isHTS && _token != lpToken0 && _token != lpToken1) {
-            _safeAssociateToken(_token);
-        }
-        
+        SaucerSwapLariLib.addRewardToken(rewardTokens, rewardTokenIndex, isRewardToken, _token, _isHTS, lpToken0, lpToken1);
         emit RewardTokenAdded(_token, _isHTS);
     }
 
-    /**
-     * @dev Update reward token status
-     */
     function updateRewardTokenStatus(address _token, bool _isActive) external onlyManager {
-        if (!isRewardToken[_token]) revert TokenNotFound();
-        uint256 index = rewardTokenIndex[_token];
-        rewardTokens[index].isActive = _isActive;
+        SaucerSwapLariLib.updateRewardTokenStatus(rewardTokens, rewardTokenIndex, isRewardToken, _token, _isActive);
         emit RewardTokenUpdated(_token, _isActive);
     }
 
-    /**
-     * @dev Set swap routes for reward tokens
-     * @param _token Reward token address
-     * @param _toLp0Route Array of routes to LP token 0
-     * @param _toLp1Route Array of routes to LP token 1
-     */
     function setRewardRoute(
         address _token,
         address[] calldata _toLp0Route,
         address[] calldata _toLp1Route
     ) external onlyManager {
-        if (!isRewardToken[_token]) revert TokenNotFound();
-        uint256 index = rewardTokenIndex[_token];
-        rewardTokens[index].toLp0Route = _toLp0Route;
-        rewardTokens[index].toLp1Route = _toLp1Route;
+        SaucerSwapLariLib.setRewardRoute(rewardTokens, rewardTokenIndex, isRewardToken, _token, _toLp0Route, _toLp1Route);
     }
 
     function removeRewardToken(address _token) external onlyManager {
-        if (!isRewardToken[_token]) revert TokenNotFound();
-        uint256 index = rewardTokenIndex[_token];
-        rewardTokens[index].isActive = false;
+        SaucerSwapLariLib.removeRewardToken(rewardTokens, rewardTokenIndex, isRewardToken, _token);
         emit RewardTokenRemoved(_token);
     }
 
-    /// @notice Get reward token information
-    function getRewardToken(uint256 index) external view returns (RewardToken memory) {
+    function getRewardToken(uint256 index) external view returns (SaucerSwapLariLib.RewardToken memory) {
         require(index < rewardTokens.length, "Index out of bounds");
         return rewardTokens[index];
     }
 
-    /// @notice Get total number of reward tokens
     function getRewardTokensLength() external view returns (uint256) {
         return rewardTokens.length;
     }
 
-    /**
-     * @notice Get leftover token amounts after liquidity addition
-     * @return leftover0Amount Amount of token0 left over
-     * @return leftover1Amount Amount of token1 left over
-     */
     function getLeftoverAmounts() external view returns (uint256 leftover0Amount, uint256 leftover1Amount) {
         _onlyVault();
         return (leftover0, leftover1);
     }
 
-    /**
-     * @notice Return leftover tokens to specified recipient
-     * @param recipient Address to receive leftover tokens
-     */
     function returnLeftovers(address recipient) external {
         _onlyVault();
         if (leftover0 > 0) {
@@ -1212,6 +672,24 @@ contract SaucerSwapLariRewardsCLMStrategy is ReentrancyGuardUpgradeable, StratFe
         }
     }
 
-    /// @notice Receive function to accept native token deposits
+    function _validatePreMintConditions(uint160 currentSqrtPrice, uint256 bal0, uint256 bal1) private view {
+        SaucerSwapCLMLib.validatePreMintConditions(pool, twapInterval, maxTickDeviation, currentSqrtPrice, bal0, bal1);
+    }
+
+    function _validateMintSlippage(uint256 amount0, uint256 amount1) private view {
+        (uint256 bal0, uint256 bal1) = balancesOfThis();
+        SaucerSwapCLMLib.validateMintSlippage(amount0, amount1, expectedAmount0, expectedAmount1, MINT_SLIPPAGE_TOLERANCE, bal0, bal1);
+    }
+
+    function _calculateLiquidityWithPriceCheck(
+        uint160 initialSqrtPrice,
+        int24 tickLower,
+        int24 tickUpper,
+        uint256 amount0,
+        uint256 amount1
+    ) private view returns (uint128 liquidity, uint160 adjustedSqrtPrice) {
+        return SaucerSwapCLMLib.calculateLiquidityWithPriceCheck(pool, initialSqrtPrice, tickLower, tickUpper, amount0, amount1, PRICE_DEVIATION_TOLERANCE);
+    }
+
     receive() external payable {}
 }

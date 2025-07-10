@@ -14,46 +14,22 @@ import {IBeefyOracle} from "../interfaces/oracle/IBeefyOracle.sol";
 import {IWHBAR} from "../Hedera/IWHBAR.sol";
 import "../utils/FullMath.sol";
 
-/**
- * @dev CLM vault for Hedera with HTS token support and HBAR/WHBAR integration.
- */
 contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using AddressUpgradeable for address payable;
 
-    /// @notice The strategy currently in use by the vault.
     IStrategyConcLiq public strategy;
-
-    /// @notice The initial shares that are burned as part of the first vault deposit.
     uint256 private constant MINIMUM_SHARES = 10 ** 3;
-
-    /// @notice The precision used to calculate the shares.
     uint256 private constant PRECISION = 1e36;
-
-    /// @notice The address we are sending the burned shares to.
     address private constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
-
-    /// @notice Address of the Hedera Token Service precompile
     address private constant HTS_PRECOMPILE = address(0x167);
-
-    /// @notice HTS success response code
     int64 private constant HTS_SUCCESS = 22;
-
-    /// @notice Error code when binding to the HTS precompile fails.
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
 
-    //testnet
     address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000003aD1;
     address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000003aD2;
 
-    // //mainnet
-    // address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000163B59;
-    // address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000163B5a;
-
-    /// @notice Beefy Oracle for token pricing
     address public beefyOracle;
-
-    // Errors
     error NoShares();
     error TooMuchSlippage();
     error NotEnoughTokens();
@@ -257,7 +233,6 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         hbarRequired = whbarAmount + mintFeeRequired;
     }
 
-    /// @notice Calculate optimal deposit amounts and fees (minimal implementation).
     function _getTokensRequired(
         uint256 /*_price*/,
         uint256 _amount0,
@@ -266,24 +241,21 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         uint256 _bal1,
         uint256 _swapFee
     ) private pure returns (uint256 depositAmount0, uint256 depositAmount1, uint256 feeAmount0, uint256 feeAmount1) {
-        // Minimal implementation to avoid stack depth issues
         if (_bal0 == 0 && _bal1 == 0) {
             return (_amount0, _amount1, 0, 0);
         }
 
-        // Just use proportional allocation with minimal swapping
         depositAmount0 = _amount0;
         depositAmount1 = _amount1;
 
-        // Apply minimal fees only if there's significant imbalance
         if (_bal0 > 0 && _bal1 > 0) {
             uint256 poolRatio = FullMath.mulDiv(_bal1, PRECISION, _bal0);
             uint256 userRatio = FullMath.mulDiv(_amount1, PRECISION, _amount0);
 
             if (userRatio > poolRatio * 2) {
-                feeAmount1 = FullMath.mulDiv(_amount1, _swapFee, 1e20); // 1% of swap fee
+                feeAmount1 = FullMath.mulDiv(_amount1, _swapFee, 1e20);
             } else if (poolRatio > userRatio * 2) {
-                feeAmount0 = FullMath.mulDiv(_amount0, _swapFee, 1e20); // 1% of swap fee
+                feeAmount0 = FullMath.mulDiv(_amount0, _swapFee, 1e20);
             }
         }
     }

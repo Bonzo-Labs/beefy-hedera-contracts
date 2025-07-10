@@ -44,10 +44,13 @@ if (CHAIN_TYPE === "testnet") {
     native: "0x0000000000000000000000000000000000003ad2", // WHBAR testnet
 
     // LARI reward tokens (testnet)
-    rewardTokens: process.env.REWARD_TOKENS ? process.env.REWARD_TOKENS.split(",") : [
-      "0x0000000000000000000000000000000000120f46", // SAUCE (example reward token)
-      // Add more reward tokens as needed
-    ],
+    rewardTokens: process.env.REWARD_TOKENS
+      ? process.env.REWARD_TOKENS.split(",")
+      : [
+          "0x0000000000000000000000000000000000120f46", // SAUCE (example reward token)
+          "0x0000000000000000000000000000000000003ad2", // WHBAR
+          "0x0000000000000000000000000000000000001549", // USDC
+        ],
 
     // Position configuration
     positionWidth: parseInt(process.env.POSITION_WIDTH) || 200,
@@ -71,9 +74,11 @@ if (CHAIN_TYPE === "testnet") {
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet
 
     // LARI reward tokens (mainnet)
-    rewardTokens: process.env.REWARD_TOKENS ? process.env.REWARD_TOKENS.split(",") : [
-      // Add mainnet reward tokens here
-    ],
+    rewardTokens: process.env.REWARD_TOKENS
+      ? process.env.REWARD_TOKENS.split(",")
+      : [
+          // Add mainnet reward tokens here
+        ],
 
     // Position configuration
     positionWidth: parseInt(process.env.POSITION_WIDTH) || 200,
@@ -138,12 +143,34 @@ async function deployNewStrategy() {
   await library.deployed();
   console.log("Library deployed to:", library.address);
 
-  // Deploy vault instance first
-  console.log("\n=== Creating CLM Vault Instance ===");
-  const VaultConcLiq = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
-  const vaultInstance = await VaultConcLiq.deploy({ gasLimit: 5000000 });
-  await vaultInstance.deployed();
-  console.log("Vault instance deployed to:", vaultInstance.address);
+  // Create vault instance using factory
+  console.log("\n=== Creating CLM Vault Instance via Factory ===");
+
+  // Connect to the vault factory
+  const vaultFactoryAddress = addresses.vaultFactory;
+  if (!vaultFactoryAddress || vaultFactoryAddress === ethers.constants.AddressZero) {
+    throw new Error("Vault factory address not found. Please deploy factory first.");
+  }
+
+  const vaultFactory = await ethers.getContractAt("BeefyVaultV7FactoryHedera", vaultFactoryAddress);
+  console.log("Connected to vault factory at:", vaultFactoryAddress);
+
+  // Create new CLM vault using the factory
+  console.log("Creating new CLM vault...");
+  const tx = await vaultFactory.cloneVaultCLM({ gasLimit: 1000000 });
+  const receipt = await tx.wait();
+
+  // Get the new vault address from the ProxyCreated event
+  const proxyCreatedEvent = receipt.events?.find(e => e.event === "ProxyCreated");
+  const vaultAddress = proxyCreatedEvent?.args?.proxy;
+  if (!vaultAddress) {
+    throw new Error("Failed to get vault address from ProxyCreated event");
+  }
+
+  console.log("New CLM vault created at:", vaultAddress);
+
+  // Connect to the newly created vault
+  const vaultInstance = await ethers.getContractAt("BeefyVaultConcLiqHedera", vaultAddress);
 
   // Deploy strategy with library linking
   console.log("\n=== Deploying SaucerSwapLariRewardsCLMStrategy ===");
@@ -209,23 +236,144 @@ async function deployNewStrategy() {
 
   // Initialize vault with strategy address
   console.log("\n=== Initializing Vault ===");
-  await vaultInstance.initialize(strategy.address, config.vaultName, config.vaultSymbol, addresses.beefyOracle, {
-    gasLimit: 5000000,
-  });
-  console.log("Vault initialized with strategy:", strategy.address);
+
+  try {
+    console.log("Calling vault.initialize...");
+    console.log("  Strategy Address:", strategy.address);
+    console.log("  Vault Name:", config.vaultName);
+    console.log("  Vault Symbol:", config.vaultSymbol);
+    console.log("  Oracle Address:", addresses.beefyOracle);
+
+    // Get token addresses from the strategy
+    const token0 = await strategy.lpToken0();
+    const token1 = await strategy.lpToken1();
+    
+    console.log("  Token0:", token0);
+    console.log("  Token1:", token1);
+
+    const vaultInitTx = await vaultInstance.initialize(
+      strategy.address,
+      config.vaultName,
+      config.vaultSymbol,
+      addresses.beefyOracle,
+      token0,
+      token1,
+      { gasLimit: 5000000 }
+    );
+
+    console.log("Vault initialization transaction hash:", vaultInitTx.hash);
+    const vaultReceipt = await vaultInitTx.wait();
+
+    console.log("Vault initialization transaction confirmed:");
+    console.log("  Status:", vaultReceipt.status);
+    console.log("  Gas Used:", vaultReceipt.gasUsed.toString());
+    console.log("  Block Number:", vaultReceipt.blockNumber);
+
+    // Check for any events that might indicate issues
+    if (vaultReceipt.events && vaultReceipt.events.length > 0) {
+      console.log("  Events:");
+      vaultReceipt.events.forEach((event, index) => {
+        console.log(`    ${index + 1}. ${event.event || "Unknown Event"}:`, event.args || event.data);
+      });
+    }
+
+    if (vaultReceipt.status !== 1) {
+      throw new Error(`Vault initialization transaction failed with status: ${vaultReceipt.status}`);
+    }
+
+    console.log("✅ Vault successfully initialized with strategy:", strategy.address);
+
+    // Verify vault initialization by checking strategy reference
+    try {
+      const vaultStrategy = await vaultInstance.strategy();
+      console.log("  Verified vault strategy reference:", vaultStrategy);
+      if (vaultStrategy.toLowerCase() !== strategy.address.toLowerCase()) {
+        console.warn("⚠️  WARNING: Vault strategy reference doesn't match deployed strategy!");
+      }
+    } catch (verifyError) {
+      console.warn("⚠️  Could not verify vault strategy reference:", verifyError.message);
+    }
+  } catch (error) {
+    console.error("❌ Vault initialization failed:");
+    console.error("  Error message:", error.message);
+
+    if (error.transaction) {
+      console.error("  Transaction hash:", error.transaction.hash);
+    }
+
+    if (error.receipt) {
+      console.error("  Transaction status:", error.receipt.status);
+      console.error("  Gas used:", error.receipt.gasUsed.toString());
+
+      // Log any revert reason if available
+      if (error.receipt.logs && error.receipt.logs.length > 0) {
+        console.error("  Transaction logs:");
+        error.receipt.logs.forEach((log, index) => {
+          console.error(`    ${index + 1}. Log:`, log);
+        });
+      }
+    }
+
+    if (error.reason) {
+      console.error("  Revert reason:", error.reason);
+    }
+
+    if (error.code) {
+      console.error("  Error code:", error.code);
+    }
+
+    // Provide helpful debugging information
+    console.error("\n🔍 Debugging Information:");
+    console.error("  - Check if vault proxy was created correctly");
+    console.error("  - Verify strategy address is valid:", strategy.address);
+    console.error("  - Check if oracle address is valid:", addresses.beefyOracle);
+    console.error("  - Ensure vault hasn't been initialized before");
+    console.error("  - Verify token association succeeded in vault");
+
+    throw new Error(`Vault initialization failed: ${error.message}`);
+  }
 
   // Set recommended parameters
   console.log("\n=== Setting Recommended Parameters ===");
 
-  // Set max tick deviation (example: 200 ticks)
-  const maxTickDeviation = 200;
-  await strategy.setDeviation(maxTickDeviation, { gasLimit: 1000000 });
-  console.log(`Max tick deviation set to: ${maxTickDeviation}`);
+  try {
+    // Set max tick deviation (example: 200 ticks)
+    const maxTickDeviation = 200;
+    console.log(`Setting max tick deviation to: ${maxTickDeviation}`);
+    const deviationTx = await strategy.setDeviation(maxTickDeviation, { gasLimit: 1000000 });
+    const deviationReceipt = await deviationTx.wait();
 
-  // Set TWAP interval (example: 300 seconds = 5 minutes)
-  const twapInterval = 300;
-  await strategy.setTwapInterval(twapInterval, { gasLimit: 1000000 });
-  console.log(`TWAP interval set to: ${twapInterval} seconds`);
+    if (deviationReceipt.status !== 1) {
+      throw new Error(`Set deviation transaction failed with status: ${deviationReceipt.status}`);
+    }
+    console.log(`✅ Max tick deviation set to: ${maxTickDeviation}`);
+
+    // Set TWAP interval (example: 300 seconds = 5 minutes)
+    const twapInterval = 300;
+    console.log(`Setting TWAP interval to: ${twapInterval} seconds`);
+    const twapTx = await strategy.setTwapInterval(twapInterval, { gasLimit: 1000000 });
+    const twapReceipt = await twapTx.wait();
+
+    if (twapReceipt.status !== 1) {
+      throw new Error(`Set TWAP interval transaction failed with status: ${twapReceipt.status}`);
+    }
+    console.log(`✅ TWAP interval set to: ${twapInterval} seconds`);
+  } catch (error) {
+    console.error("❌ Failed to set strategy parameters:");
+    console.error("  Error message:", error.message);
+
+    if (error.transaction) {
+      console.error("  Transaction hash:", error.transaction.hash);
+    }
+
+    if (error.receipt) {
+      console.error("  Transaction status:", error.receipt.status);
+    }
+
+    // Don't throw here - strategy is functional without these parameters
+    console.warn("⚠️  Strategy deployed successfully but parameter setting failed");
+    console.warn("  You can set these parameters manually later");
+  }
 
   // Configure reward token routes if specified
   console.log("\n=== Configuring Reward Token Routes ===");
@@ -240,7 +388,8 @@ async function deployNewStrategy() {
     // If reward token is different from LP tokens, set up swap routes
     if (rewardToken !== config.token0 && rewardToken !== config.token1) {
       // Example: SAUCE -> CLXY route (via WHBAR if needed)
-      if (rewardToken === "0x0000000000000000000000000000000000120f46") { // SAUCE
+      if (rewardToken === "0x0000000000000000000000000000000000120f46") {
+        // SAUCE
         toLp0Route = [rewardToken, config.native, config.token0]; // SAUCE -> WHBAR -> CLXY
         toLp1Route = [rewardToken, config.token1]; // SAUCE -> SAUCE (direct)
       } else {
@@ -311,11 +460,11 @@ async function deployNewStrategy() {
   console.log("\n=== Deployment Info (JSON) ===");
   console.log(JSON.stringify(deploymentInfo, null, 2));
 
-  return { 
-    strategy: strategy.address, 
-    vault: vaultInstance.address, 
+  return {
+    strategy: strategy.address,
+    vault: vaultInstance.address,
     library: library.address,
-    rewardTokensLength: config.rewardTokens.length
+    rewardTokensLength: config.rewardTokens.length,
   };
 }
 
