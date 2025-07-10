@@ -95,8 +95,12 @@ library SaucerSwapLariLib {
         if (amount == 0) return;
         bool isNative = (token == native);
         if (isNative) {
-            payable(to).transfer(amount);
+            // Use safe native transfer for HBAR (only used for mint fees in strategies)
+            (bool success, ) = payable(to).call{value: amount}("");
+            require(success, "Native transfer failed");
         } else {
+            // All other tokens (including WHBAR) are treated as standard ERC20/HTS tokens
+            // WHBAR conversion is handled exclusively by the vault
             SaucerSwapCLMLib.transferHTS(token, to, amount);
         }
     }

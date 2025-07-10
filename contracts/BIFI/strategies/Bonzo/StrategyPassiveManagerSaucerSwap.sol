@@ -174,6 +174,7 @@ contract StrategyPassiveManagerSaucerSwap is
     }
 
     function withdraw(uint256 _amount0, uint256 _amount1) external {
+        // It removes liquidity in beforeAction()
         _onlyVault();
         if (block.timestamp == lastDeposit) _onlyCalmPeriods();
         if (_amount0 > 0) {
@@ -366,17 +367,17 @@ contract StrategyPassiveManagerSaucerSwap is
             uint256 callFee0 = (_feeAmount0 * _fees.call) / DIVISOR;
             uint256 strategistFee0 = (_feeAmount0 * _fees.strategist) / DIVISOR;
             uint256 beefyFee0 = _feeAmount0 - callFee0 - strategistFee0;
-            
+
             if (callFee0 > 0) _transferTokens(lpToken0, address(this), _callFeeRecipient, callFee0, true);
             if (strategistFee0 > 0) _transferTokens(lpToken0, address(this), strategist, strategistFee0, true);
             if (beefyFee0 > 0) _transferTokens(lpToken0, address(this), beefyFeeRecipient, beefyFee0, true);
         }
-        
+
         if (_feeAmount1 > 0) {
             uint256 callFee1 = (_feeAmount1 * _fees.call) / DIVISOR;
             uint256 strategistFee1 = (_feeAmount1 * _fees.strategist) / DIVISOR;
             uint256 beefyFee1 = _feeAmount1 - callFee1 - strategistFee1;
-            
+
             if (callFee1 > 0) _transferTokens(lpToken1, address(this), _callFeeRecipient, callFee1, true);
             if (strategistFee1 > 0) _transferTokens(lpToken1, address(this), strategist, strategistFee1, true);
             if (beefyFee1 > 0) _transferTokens(lpToken1, address(this), beefyFeeRecipient, beefyFee1, true);
@@ -490,7 +491,15 @@ contract StrategyPassiveManagerSaucerSwap is
 
     function _validateMintSlippage(uint256 amount0, uint256 amount1) private view {
         (uint256 bal0, uint256 bal1) = balancesOfThis();
-        SaucerSwapCLMLib.validateMintSlippage(amount0, amount1, expectedAmount0, expectedAmount1, MINT_SLIPPAGE_TOLERANCE, bal0, bal1);
+        SaucerSwapCLMLib.validateMintSlippage(
+            amount0,
+            amount1,
+            expectedAmount0,
+            expectedAmount1,
+            MINT_SLIPPAGE_TOLERANCE,
+            bal0,
+            bal1
+        );
     }
 
     function _validatePreMintConditions(uint160 currentSqrtPrice, uint256 bal0, uint256 bal1) private view {
@@ -504,7 +513,16 @@ contract StrategyPassiveManagerSaucerSwap is
         uint256 amount0,
         uint256 amount1
     ) private view returns (uint128 liquidity, uint160 adjustedSqrtPrice) {
-        return SaucerSwapCLMLib.calculateLiquidityWithPriceCheck(pool, initialSqrtPrice, tickLower, tickUpper, amount0, amount1, PRICE_DEVIATION_TOLERANCE);
+        return
+            SaucerSwapCLMLib.calculateLiquidityWithPriceCheck(
+                pool,
+                initialSqrtPrice,
+                tickLower,
+                tickUpper,
+                amount0,
+                amount1,
+                PRICE_DEVIATION_TOLERANCE
+            );
     }
 
     function _setTicks() private onlyCalmPeriods {
@@ -530,7 +548,7 @@ contract StrategyPassiveManagerSaucerSwap is
         }
         if (amount0 < bal1) {
             (positionAlt.tickLower, ) = TickUtils.baseTicks(tick, width, distance);
-            (positionAlt.tickUpper, ) = TickUtils.baseTicks(tick, distance, distance);
+            (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, distance, distance);
         } else if (bal1 < amount0) {
             (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
             (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);
@@ -542,7 +560,13 @@ contract StrategyPassiveManagerSaucerSwap is
             revert InvalidTicks();
     }
 
-    function _transferTokens(address token, address /* from */, address to, uint256 amount, bool isFromContract) internal {
+    function _transferTokens(
+        address token,
+        address /* from */,
+        address to,
+        uint256 amount,
+        bool isFromContract
+    ) internal {
         if (amount == 0) return;
         bool isNative = (token == native);
         if (isNative) {

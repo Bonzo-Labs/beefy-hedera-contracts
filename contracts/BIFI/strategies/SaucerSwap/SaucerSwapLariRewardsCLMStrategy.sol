@@ -250,8 +250,19 @@ contract SaucerSwapLariRewardsCLMStrategy is
         );
         // Flip minting to true and call the pool to mint the liquidity.
         if (liquidity > 0) {
+            // Additional pre-mint validation for alternative position
+            _validatePreMintConditions(sqrtprice, bal0, bal1);
+            // Check we have sufficient HBAR for mint fee
+            require(address(this).balance >= mintFee, "Insufficient HBAR for alt mint fee");
+            // Calculate expected amounts for slippage protection
+            (expectedAmount0, expectedAmount1) = LiquidityAmounts.getAmountsForLiquidity(
+                sqrtprice,
+                TickMath.getSqrtRatioAtTick(positionAlt.tickLower),
+                TickMath.getSqrtRatioAtTick(positionAlt.tickUpper),
+                liquidity
+            );
             minting = true;
-            ISaucerSwapPool(pool).mint(
+            ISaucerSwapPool(pool).mint{value: mintFee}(
                 address(this),
                 positionAlt.tickLower,
                 positionAlt.tickUpper,

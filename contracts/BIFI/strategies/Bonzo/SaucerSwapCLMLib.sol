@@ -168,8 +168,15 @@ library SaucerSwapCLMLib {
         success = result && response.length > 0 && abi.decode(response, (int256)) == HTS_SUCCESS;
     }
     function transferHTS(address token, address to, uint256 amount) external {
-        (bool success,) = HTS_PRECOMPILE.call(abi.encodeWithSignature("transferToken(address,address,address,int64)", token, address(this), to, int64(uint64(amount))));
-        require(success, "HTS transfer failed");
+        // WHBAR and other ERC20-compatible tokens should use standard ERC20 transfer
+        // while pure HTS tokens use the precompile
+        try IERC20Metadata(token).transfer(to, amount) returns (bool success) {
+            require(success, "Token transfer failed");
+        } catch {
+            // Fallback to HTS precompile for pure HTS tokens
+            (bool success,) = HTS_PRECOMPILE.call(abi.encodeWithSignature("transferToken(address,address,address,int64)", token, address(this), to, int64(uint64(amount))));
+            require(success, "HTS transfer failed");
+        }
     }
 
     function validatePreMintConditions(
