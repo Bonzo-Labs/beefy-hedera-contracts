@@ -136,12 +136,22 @@ async function deployNewStrategy() {
     throw new Error("CLM Vault address not found. Please run deployChain.js first.");
   }
 
-  // Deploy library first
+  // Deploy both libraries
   console.log("\n=== Deploying SaucerSwapCLMLib ===");
-  const LibraryFactory = await ethers.getContractFactory("SaucerSwapCLMLib");
-  const library = await LibraryFactory.deploy({ gasLimit: 3000000 });
-  await library.deployed();
-  console.log("Library deployed to:", library.address);
+  const CLMLibraryFactory = await ethers.getContractFactory("SaucerSwapCLMLib");
+  const clmLibrary = await CLMLibraryFactory.deploy({ gasLimit: 3000000 });
+  await clmLibrary.deployed();
+  console.log("CLM Library deployed to:", clmLibrary.address);
+
+  console.log("\n=== Deploying SaucerSwapLariLib ===");
+  const LariLibraryFactory = await ethers.getContractFactory("SaucerSwapLariLib", {
+    libraries: {
+      SaucerSwapCLMLib: clmLibrary.address,
+    },
+  });
+  const lariLibrary = await LariLibraryFactory.deploy({ gasLimit: 3000000 });
+  await lariLibrary.deployed();
+  console.log("LARI Library deployed to:", lariLibrary.address);
 
   // Create vault instance using factory
   console.log("\n=== Creating CLM Vault Instance via Factory ===");
@@ -176,7 +186,8 @@ async function deployNewStrategy() {
   console.log("\n=== Deploying SaucerSwapLariRewardsCLMStrategy ===");
   const StrategyFactory = await ethers.getContractFactory("SaucerSwapLariRewardsCLMStrategy", {
     libraries: {
-      SaucerSwapCLMLib: library.address,
+      SaucerSwapCLMLib: clmLibrary.address,
+      SaucerSwapLariLib: lariLibrary.address,
     },
   });
 
@@ -201,7 +212,7 @@ async function deployNewStrategy() {
   // CommonAddresses struct: vault, unirouter, keeper, strategist, beefyFeeRecipient, beefyFeeConfig
   const commonAddresses = [
     vaultInstance.address, // vault - use actual vault address
-    addresses.beefySwapper || ethers.constants.AddressZero, // unirouter
+    ethers.constants.AddressZero, // unirouter - not used since we removed IBeefySwapper
     deployer.address, // keeper
     deployer.address, // strategist
     deployer.address, // beefyFeeRecipient
@@ -228,6 +239,8 @@ async function deployNewStrategy() {
     console.log("  TWAP Interval:", (await strategy.twapInterval()).toString());
     console.log("  Native:", await strategy.native());
     console.log("  Owner:", await strategy.owner());
+    console.log("  Token 0:", await strategy.lpToken0());
+    console.log("  Token 1:", await strategy.lpToken1());
     console.log("  Reward Tokens Length:", (await strategy.getRewardTokensLength()).toString());
   } catch (error) {
     console.error("Strategy initialization failed:", error);
@@ -412,12 +425,14 @@ async function deployNewStrategy() {
   console.log("\n=== Deployment Summary ===");
   console.log(`Strategy: ${strategy.address}`);
   console.log(`Vault: ${vaultInstance.address}`);
+  console.log(`CLM Library: ${clmLibrary.address}`);
+  console.log(`LARI Library: ${lariLibrary.address}`);
   console.log(`Pool: ${config.pool}`);
   console.log(`Token0: ${config.token0}`);
   console.log(`Token1: ${config.token1}`);
   console.log(`Position Width: ${config.positionWidth}`);
-  console.log(`Max Tick Deviation: ${maxTickDeviation}`);
-  console.log(`TWAP Interval: ${twapInterval}s`);
+  console.log(`Max Tick Deviation: 200 (if set successfully)`);
+  console.log(`TWAP Interval: 300s (if set successfully)`);
   console.log(`Reward Tokens: ${config.rewardTokens.length}`);
 
   console.log("\n=== Next Steps ===");
@@ -444,13 +459,14 @@ async function deployNewStrategy() {
   const deploymentInfo = {
     strategy: strategy.address,
     vault: vaultInstance.address,
-    library: library.address,
+    clmLibrary: clmLibrary.address,
+    lariLibrary: lariLibrary.address,
     pool: config.pool,
     token0: config.token0,
     token1: config.token1,
     positionWidth: config.positionWidth,
-    maxTickDeviation: maxTickDeviation,
-    twapInterval: twapInterval,
+    maxTickDeviation: 200, // Default value
+    twapInterval: 300, // Default value
     rewardTokens: config.rewardTokens,
     deployer: deployer.address,
     deploymentTime: new Date().toISOString(),
@@ -463,7 +479,8 @@ async function deployNewStrategy() {
   return {
     strategy: strategy.address,
     vault: vaultInstance.address,
-    library: library.address,
+    clmLibrary: clmLibrary.address,
+    lariLibrary: lariLibrary.address,
     rewardTokensLength: config.rewardTokens.length,
   };
 }

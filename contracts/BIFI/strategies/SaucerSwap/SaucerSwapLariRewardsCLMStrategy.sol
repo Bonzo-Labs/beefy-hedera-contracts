@@ -338,27 +338,17 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _claimEarnings() private returns (uint256 fee0, uint256 fee1, uint256 feeAlt0, uint256 feeAlt1) {
-        // Claim fees
-        (bytes32 keyMain, bytes32 keyAlt) = getKeys();
-        (uint128 liquidity, , , , ) = ISaucerSwapPool(pool).positions(keyMain);
-        (uint128 liquidityAlt, , , , ) = ISaucerSwapPool(pool).positions(keyAlt);
-        // Burn 0 liquidity to make fees available to claim.
-        if (liquidity > 0) ISaucerSwapPool(pool).burn(positionMain.tickLower, positionMain.tickUpper, 0);
-        if (liquidityAlt > 0) ISaucerSwapPool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, 0);
-        // Collect fees from the pool.
-        (fee0, fee1) = ISaucerSwapPool(pool).collect(
-            address(this),
+        (fee0, fee1) = SaucerSwapLariLib.claimMainPositionFees(
+            pool,
             positionMain.tickLower,
             positionMain.tickUpper,
-            type(uint128).max,
-            type(uint128).max
+            address(this)
         );
-        (feeAlt0, feeAlt1) = ISaucerSwapPool(pool).collect(
-            address(this),
+        (feeAlt0, feeAlt1) = SaucerSwapLariLib.claimAltPositionFees(
+            pool,
             positionAlt.tickLower,
             positionAlt.tickUpper,
-            type(uint128).max,
-            type(uint128).max
+            address(this)
         );
         // Set the total fees collected to state.
         fees0 = fees0 + fee0 + feeAlt0;
@@ -406,35 +396,23 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _getMainPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
-        if (!initTicks) {
-            return (0, 0);
-        }
-        (bytes32 keyMain, ) = getKeys();
-        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = ISaucerSwapPool(pool).positions(keyMain);
-        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
-            sqrtPrice(),
-            TickMath.getSqrtRatioAtTick(positionMain.tickLower),
-            TickMath.getSqrtRatioAtTick(positionMain.tickUpper),
-            liquidity
+        return SaucerSwapLariLib.getMainPositionAmounts(
+            pool,
+            address(this),
+            positionMain.tickLower,
+            positionMain.tickUpper,
+            initTicks
         );
-        amount0 += owed0;
-        amount1 += owed1;
     }
 
     function _getAltPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
-        if (!initTicks) {
-            return (0, 0);
-        }
-        (, bytes32 keyAlt) = getKeys();
-        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = ISaucerSwapPool(pool).positions(keyAlt);
-        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
-            sqrtPrice(),
-            TickMath.getSqrtRatioAtTick(positionAlt.tickLower),
-            TickMath.getSqrtRatioAtTick(positionAlt.tickUpper),
-            liquidity
+        return SaucerSwapLariLib.getAltPositionAmounts(
+            pool,
+            address(this),
+            positionAlt.tickLower,
+            positionAlt.tickUpper,
+            initTicks
         );
-        amount0 += owed0;
-        amount1 += owed1;
     }
 
     function range() external view returns (uint256 lowerPrice, uint256 upperPrice) {
@@ -489,28 +467,20 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _setMainTick(int24 tick, int24 distance, int24 width) private {
-        (positionMain.tickLower, positionMain.tickUpper) = TickUtils.baseTicks(tick, width, distance);
+        (positionMain.tickLower, positionMain.tickUpper) = SaucerSwapLariLib.setMainTick(tick, distance, width);
     }
 
     function _setAltTick(int24 tick, int24 distance, int24 width) private {
         (uint256 bal0, uint256 bal1) = balancesOfThis();
-        // We calculate how much token0 we have in the price of token1.
-        uint256 amount0;
-        if (bal0 > 0) {
-            amount0 = FullMath.mulDiv(bal0, price(), PRECISION);
-        }
-        // We set the alternative position based on the token that has the most value available.
-        if (amount0 < bal1) {
-            (positionAlt.tickLower, ) = TickUtils.baseTicks(tick, width, distance);
-            (positionAlt.tickUpper, ) = TickUtils.baseTicks(tick, distance, distance);
-        } else if (bal1 < amount0) {
-            (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
-            (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);
-        } else {
-            // Default case when both balances are 0 or equal - set alt position to token0 side (different from main)
-            (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
-            (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);
-        }
+        (positionAlt.tickLower, positionAlt.tickUpper) = SaucerSwapLariLib.setAltTick(
+            tick,
+            distance,
+            width,
+            bal0,
+            bal1,
+            price(),
+            PRECISION
+        );
         if (positionMain.tickLower == positionAlt.tickLower && positionMain.tickUpper == positionAlt.tickUpper)
             revert InvalidTicks();
     }

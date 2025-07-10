@@ -5,6 +5,11 @@ import {IERC20Metadata} from "@openzeppelin-4/contracts/token/ERC20/extensions/I
 import {SafeERC20} from "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../../interfaces/uniswap/IQuoter.sol";
 import "./SaucerSwapCLMLib.sol";
+import {IUniswapV3Pool} from "../../interfaces/saucerswap/IUniswapV3Pool.sol";
+import "../../utils/LiquidityAmounts.sol";
+import "../../utils/TickMath.sol";
+import "../../utils/TickUtils.sol";
+import "../../utils/FullMath.sol";
 
 library SaucerSwapLariLib {
     using SafeERC20 for IERC20Metadata;
@@ -400,5 +405,115 @@ library SaucerSwapLariLib {
                 IERC20Metadata(rewardTokens[i].token).approve(unirouter, 0);
             }
         }
+    }
+
+    function claimMainPositionFees(
+        address pool,
+        int24 tickLower,
+        int24 tickUpper,
+        address strategy
+    ) external returns (uint256 fee0, uint256 fee1) {
+        bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
+        IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
+        
+        (uint128 liquidity, , , , ) = poolContract.positions(key);
+        if (liquidity > 0) poolContract.burn(tickLower, tickUpper, 0);
+        (fee0, fee1) = poolContract.collect(strategy, tickLower, tickUpper, type(uint128).max, type(uint128).max);
+    }
+
+    function claimAltPositionFees(
+        address pool,
+        int24 tickLower,
+        int24 tickUpper,
+        address strategy
+    ) external returns (uint256 fee0, uint256 fee1) {
+        bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
+        IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
+        
+        (uint128 liquidity, , , , ) = poolContract.positions(key);
+        if (liquidity > 0) poolContract.burn(tickLower, tickUpper, 0);
+        (fee0, fee1) = poolContract.collect(strategy, tickLower, tickUpper, type(uint128).max, type(uint128).max);
+    }
+
+    function setMainTick(int24 tick, int24 distance, int24 width) external pure returns (int24 tickLower, int24 tickUpper) {
+        return TickUtils.baseTicks(tick, width, distance);
+    }
+
+    function setAltTick(
+        int24 tick,
+        int24 distance,
+        int24 width,
+        uint256 bal0,
+        uint256 bal1,
+        uint256 poolPrice,
+        uint256 precision
+    ) external pure returns (int24 tickLower, int24 tickUpper) {
+        // We calculate how much token0 we have in the price of token1.
+        uint256 amount0;
+        if (bal0 > 0) {
+            amount0 = FullMath.mulDiv(bal0, poolPrice, precision);
+        }
+        // We set the alternative position based on the token that has the most value available.
+        if (amount0 < bal1) {
+            (tickLower, ) = TickUtils.baseTicks(tick, width, distance);
+            (tickUpper, ) = TickUtils.baseTicks(tick, distance, distance);
+        } else if (bal1 < amount0) {
+            (, tickLower) = TickUtils.baseTicks(tick, distance, distance);
+            (, tickUpper) = TickUtils.baseTicks(tick, width, distance);
+        } else {
+            // Default case when both balances are 0 or equal - set alt position to token0 side (different from main)
+            (, tickLower) = TickUtils.baseTicks(tick, distance, distance);
+            (, tickUpper) = TickUtils.baseTicks(tick, width, distance);
+        }
+    }
+
+    function getMainPositionAmounts(
+        address pool,
+        address strategy,
+        int24 tickLower,
+        int24 tickUpper,
+        bool initTicks
+    ) external view returns (uint256 amount0, uint256 amount1) {
+        if (!initTicks) return (0, 0);
+        
+        bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
+        IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
+        
+        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = poolContract.positions(key);
+        uint160 sqrtPrice = SaucerSwapCLMLib.getPoolSqrtPrice(pool);
+        
+        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPrice,
+            TickMath.getSqrtRatioAtTick(tickLower),
+            TickMath.getSqrtRatioAtTick(tickUpper),
+            liquidity
+        );
+        amount0 += owed0;
+        amount1 += owed1;
+    }
+
+    function getAltPositionAmounts(
+        address pool,
+        address strategy,
+        int24 tickLower,
+        int24 tickUpper,
+        bool initTicks
+    ) external view returns (uint256 amount0, uint256 amount1) {
+        if (!initTicks) return (0, 0);
+        
+        bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
+        IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
+        
+        (uint128 liquidity, , , uint256 owed0, uint256 owed1) = poolContract.positions(key);
+        uint160 sqrtPrice = SaucerSwapCLMLib.getPoolSqrtPrice(pool);
+        
+        (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
+            sqrtPrice,
+            TickMath.getSqrtRatioAtTick(tickLower),
+            TickMath.getSqrtRatioAtTick(tickUpper),
+            liquidity
+        );
+        amount0 += owed0;
+        amount1 += owed1;
     }
 }
