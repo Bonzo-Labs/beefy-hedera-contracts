@@ -10,6 +10,7 @@ import "../../utils/LiquidityAmounts.sol";
 import "../../utils/TickMath.sol";
 import "../../utils/TickUtils.sol";
 import "../../utils/FullMath.sol";
+import "../../utils/UniswapV3Utils.sol";
 
 library SaucerSwapLariLib {
     using SafeERC20 for IERC20Metadata;
@@ -44,7 +45,7 @@ library SaucerSwapLariLib {
 
     function processRewardTokens(
         address[] memory rewardTokens,
-        address quoter,
+        address unirouter,
         address native
     ) external returns (uint256 totalNative) {
         for (uint256 i = 0; i < rewardTokens.length; i++) {
@@ -54,12 +55,12 @@ library SaucerSwapLariLib {
                 if (reward == native) {
                     totalNative += rewardBal;
                 } else {
+                    uint256 nativeBefore = IERC20Metadata(native).balanceOf(address(this));
                     bytes memory path = abi.encodePacked(reward, uint24(3000), native);
-                    try IQuoter(quoter).quoteExactInput(path, rewardBal) returns (uint256 amountOut) {
-                        if (amountOut > 0) {
-                            totalNative += amountOut;
-                        }
-                    } catch {}
+                    IERC20Metadata(reward).approve(unirouter, rewardBal);
+                    UniswapV3Utils.swap(unirouter, path, rewardBal);
+                    uint256 nativeAfter = IERC20Metadata(native).balanceOf(address(this));
+                    totalNative += nativeAfter - nativeBefore;
                 }
             }
         }
@@ -106,7 +107,7 @@ library SaucerSwapLariLib {
     }
 
     function swapRewardToNative(
-        address quoter,
+        address unirouter,
         address rewardToken,
         address native,
         uint256 rewardAmount
@@ -116,23 +117,24 @@ library SaucerSwapLariLib {
         }
         
         bytes memory path = abi.encodePacked(rewardToken, uint24(3000), native);
-        try IQuoter(quoter).quoteExactInput(path, rewardAmount) returns (uint256 amountOut) {
-            if (amountOut > 0) {
-                return amountOut;
-            }
-        } catch {}
-        
-        return 0;
+        return UniswapV3Utils.swap(unirouter, path, rewardAmount);
     }
 
-    function swapReward(uint256 amount, address[] memory route, address quoter) internal {
+    function swapReward(uint256 amount, address[] memory route, address unirouter) internal {
         if (amount == 0 || route.length < 2) return;
         address tokenIn = route[0];
         address tokenOut = route[route.length - 1];
         
         if (tokenIn == tokenOut) return;
         
-        swapRewardToNative(quoter, tokenIn, tokenOut, amount);
+        // Create fee array (3000 = 0.3% tier for all hops)
+        uint24[] memory fees = new uint24[](route.length - 1);
+        for (uint i = 0; i < fees.length; i++) {
+            fees[i] = 3000;
+        }
+        
+        bytes memory path = UniswapV3Utils.routeToPath(route, fees);
+        UniswapV3Utils.swap(unirouter, path, amount);
     }
 
     function associateRewardTokens(
@@ -206,10 +208,9 @@ library SaucerSwapLariLib {
 
     function processLariRewards(
         RewardToken[] storage rewardTokens,
-        address quoter,
+        address unirouter,
         address lpToken0,
-        address lpToken1,
-        address unirouter
+        address lpToken1
     ) external returns (uint256 fees0, uint256 fees1) {
         // Check if any reward tokens have routes set
         bool hasRoutes = false;
@@ -235,14 +236,14 @@ library SaucerSwapLariLib {
             if (rewardToken.token != lpToken0 && rewardToken.toLp0Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken0).balanceOf(address(this));
                 IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                swapReward(balance / 2, rewardToken.toLp0Route, quoter);
+                swapReward(balance / 2, rewardToken.toLp0Route, unirouter);
                 uint256 balanceAfter = IERC20Metadata(lpToken0).balanceOf(address(this));
                 fees0 += balanceAfter - balanceBefore;
             }
             if (rewardToken.token != lpToken1 && rewardToken.toLp1Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken1).balanceOf(address(this));
                 IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                swapReward(balance / 2, rewardToken.toLp1Route, quoter);
+                swapReward(balance / 2, rewardToken.toLp1Route, unirouter);
                 uint256 balanceAfter = IERC20Metadata(lpToken1).balanceOf(address(this));
                 fees1 += balanceAfter - balanceBefore;
             }
@@ -314,7 +315,7 @@ library SaucerSwapLariLib {
         rewardTokens[index].isActive = false;
     }
 
-    function getLpTokenToNativePrice(
+    function quoteLpTokenToNativePrice(
         address lpToken,
         address native,
         address quoter,

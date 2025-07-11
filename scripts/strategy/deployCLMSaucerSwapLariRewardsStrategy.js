@@ -139,7 +139,7 @@ async function deployNewStrategy() {
   // Deploy both libraries
   console.log("\n=== Deploying SaucerSwapCLMLib ===");
   const CLMLibraryFactory = await ethers.getContractFactory("SaucerSwapCLMLib");
-  const clmLibrary = await CLMLibraryFactory.deploy({ gasLimit: 3000000 });
+  const clmLibrary = await CLMLibraryFactory.deploy({ gasLimit: 5000000 });
   await clmLibrary.deployed();
   console.log("CLM Library deployed to:", clmLibrary.address);
 
@@ -149,7 +149,7 @@ async function deployNewStrategy() {
       SaucerSwapCLMLib: clmLibrary.address,
     },
   });
-  const lariLibrary = await LariLibraryFactory.deploy({ gasLimit: 3000000 });
+  const lariLibrary = await LariLibraryFactory.deploy({ gasLimit: 5000000 });
   await lariLibrary.deployed();
   console.log("LARI Library deployed to:", lariLibrary.address);
 
@@ -260,7 +260,7 @@ async function deployNewStrategy() {
     // Get token addresses from the strategy
     const token0 = await strategy.lpToken0();
     const token1 = await strategy.lpToken1();
-    
+
     console.log("  Token0:", token0);
     console.log("  Token1:", token1);
 

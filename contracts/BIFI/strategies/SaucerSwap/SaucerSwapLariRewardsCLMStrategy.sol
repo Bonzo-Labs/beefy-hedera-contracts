@@ -331,7 +331,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _processLariRewards() private {
-        (uint256 newFees0, uint256 newFees1) = SaucerSwapLariLib.processLariRewards(rewardTokens, quoter, lpToken0, lpToken1, unirouter);
+        (uint256 newFees0, uint256 newFees1) = SaucerSwapLariLib.processLariRewards(rewardTokens, unirouter, lpToken0, lpToken1);
         fees0 += newFees0;
         fees1 += newFees1;
     }
@@ -592,11 +592,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function lpToken0ToNativePrice() external returns (uint256) {
-        return SaucerSwapLariLib.getLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
+        return SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
     }
 
     function lpToken1ToNativePrice() external returns (uint256) {
-        return SaucerSwapLariLib.getLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
+        return SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
     }
 
     function addRewardToken(address _token, bool _isHTS) external onlyManager {
