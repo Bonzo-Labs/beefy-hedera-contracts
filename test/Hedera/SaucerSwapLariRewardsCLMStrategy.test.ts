@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { SaucerSwapLariRewardsCLMStrategy, BeefyVaultConcLiqHedera, IWHBAR } from "../../typechain-types";
+import { SaucerSwapLariRewardsCLMStrategy, BonzoVaultConcLiq, IWHBAR } from "../../typechain-types";
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
@@ -54,7 +54,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
   this.timeout(120000);
 
   let strategy: SaucerSwapLariRewardsCLMStrategy;
-  let vault: BeefyVaultConcLiqHedera;
+  let vault: BonzoVaultConcLiq;
   let deployer: SignerWithAddress;
   let keeper: SignerWithAddress;
   let user1: SignerWithAddress;
@@ -105,8 +105,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       console.log("Library deployed to:", library.address);
 
       // Deploy vault instance
-      console.log("Deploying BeefyVaultConcLiqHedera...");
-      const VaultConcLiq = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
+      console.log("Deploying BonzoVaultConcLiq...");
+      const VaultConcLiq = await ethers.getContractFactory("BonzoVaultConcLiq");
       const vaultInstance = await VaultConcLiq.deploy({ gasLimit: 5000000 });
       await vaultInstance.deployed();
       console.log("Vault deployed to:", vaultInstance.address);
@@ -152,7 +152,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
         gasLimit: 5000000,
       });
 
-      vault = vaultInstance as BeefyVaultConcLiqHedera;
+      vault = vaultInstance as BonzoVaultConcLiq;
       vaultAddress = vault.address;
 
       // Set recommended parameters

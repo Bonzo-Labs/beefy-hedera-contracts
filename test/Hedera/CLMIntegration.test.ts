@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { 
-  BeefyVaultConcLiqHedera,
+  BonzoVaultConcLiq,
   StrategyPassiveManagerSaucerSwap,
   IERC20Upgradeable
 } from "../../typechain-types";
@@ -12,7 +12,7 @@ describe("CLM Integration Tests", function () {
   // Set timeout to 180 seconds for integration tests
   this.timeout(180000);
 
-  let vault: BeefyVaultConcLiqHedera;
+  let vault: BonzoVaultConcLiq;
   let strategy: StrategyPassiveManagerSaucerSwap;
   let lpToken0: IERC20Upgradeable;
   let lpToken1: IERC20Upgradeable;
@@ -80,7 +80,7 @@ describe("CLM Integration Tests", function () {
     console.log("Strategy deployed to:", strategy.address);
 
     // Deploy vault
-    const VaultFactory = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
+    const VaultFactory = await ethers.getContractFactory("BonzoVaultConcLiq");
     vault = await VaultFactory.deploy();
     await vault.deployed();
     console.log("Vault deployed to:", vault.address);

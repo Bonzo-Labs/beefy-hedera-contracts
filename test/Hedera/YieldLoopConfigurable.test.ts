@@ -1,7 +1,7 @@
 import { ethers } from "hardhat";
 import { expect } from "chai";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { BeefyVaultV7Hedera, YieldLoopConfigurable, IERC20Upgradeable } from "../../typechain-types";
+import { BonzoVaultV7, YieldLoopConfigurable, IERC20Upgradeable } from "../../typechain-types";
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
@@ -48,7 +48,7 @@ describe("BeefyYieldLoopConfigurable", function () {
   // Set timeout to 60 seconds for all tests in this suite
   this.timeout(1000000);
 
-  let vault: BeefyVaultV7Hedera | any;
+  let vault: BonzoVaultV7 | any;
   let strategy: YieldLoopConfigurable | any;
   let want: IERC20Upgradeable | any;
   let output: IERC20Upgradeable | any;
@@ -90,7 +90,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("New vault deployed to:", vaultAddress);
 
       // Step 4: Connect to the newly created vault
-      vault = await ethers.getContractAt("BeefyVaultV7Hedera", vaultAddress);
+      vault = await ethers.getContractAt("BonzoVaultV7", vaultAddress);
 
       // Step 5: Initialize the strategy
       console.log("Initializing strategy...");
@@ -141,7 +141,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("Vault address:", VAULT_ADDRESS);
       console.log("Strategy address:", STRATEGY_ADDRESS);
 
-      vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
+      vault = await ethers.getContractAt("BonzoVaultV7", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("YieldLoopConfigurable", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
     }

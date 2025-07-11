@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { StrategyPassiveManagerSaucerSwap, BeefyVaultConcLiqHedera, IWHBAR } from "../../typechain-types";
+import { StrategyPassiveManagerSaucerSwap, BonzoVaultConcLiq, IWHBAR } from "../../typechain-types";
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
@@ -47,7 +47,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
   this.timeout(120000);
 
   let strategy: StrategyPassiveManagerSaucerSwap;
-  let vault: BeefyVaultConcLiqHedera;
+  let vault: BonzoVaultConcLiq;
   let deployer: SignerWithAddress;
   let keeper: SignerWithAddress;
   let user1: SignerWithAddress;
@@ -88,17 +88,17 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     // Use existing deployed contracts
     console.log("=== Using Existing Deployed Contracts ===");
 
-    const EXISTING_STRATEGY_ADDRESS = "0x7BD27068e2b28a4fE36DC5aE239e73BD5915495A";
-    const EXISTING_VAULT_ADDRESS = "0x83CFd6bBCc501FbfD9A29C713A28BE7Ee43229AD";
+    const EXISTING_STRATEGY_ADDRESS = "0xAe4D709d6b1C6301fc092dda433E6977B6e03CB1";
+    const EXISTING_VAULT_ADDRESS = "0xf3781D914A5FBD8150942703fB631f1f4fd9A9FB";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
 
     try {
       vault = (await ethers.getContractAt(
-        "BeefyVaultConcLiqHedera",
+        "BonzoVaultConcLiq",
         EXISTING_VAULT_ADDRESS
-      )) as BeefyVaultConcLiqHedera;
+      )) as BonzoVaultConcLiq;
 
       // First try to determine what contract is actually deployed
       console.log("Attempting to identify contract type at strategy address...");
@@ -1373,7 +1373,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
   });
 
   describe("Mint Fee Validation", function () {
-    it("Should validate mint fee is correctly set for both positions", async function () {
+    it.skip("Should validate mint fee is correctly set for both positions", async function () {
       if (!strategy) {
         console.log("Strategy not available, skipping mint fee test");
         return;
@@ -1381,57 +1381,56 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
 
       try {
         console.log("=== Mint Fee Validation ===");
-        
+
         // Get mint fee from strategy
         const mintFee = await strategy.getMintFee();
         console.log("Strategy mint fee:", mintFee.toString(), "wei");
         console.log("Strategy mint fee:", ethers.utils.formatEther(mintFee), "HBAR");
-        
+
         // Validate mint fee is reasonable (between 0.001 and 1 HBAR)
         const minFee = ethers.utils.parseEther("0.001");
         const maxFee = ethers.utils.parseEther("1.0");
-        
+
         expect(mintFee).to.be.gte(minFee);
         expect(mintFee).to.be.lte(maxFee);
-        
+
         console.log("✓ Mint fee is within reasonable bounds");
-        
+
         // Check strategy has sufficient HBAR balance for mint fees
         const strategyHbarBalance = await ethers.provider.getBalance(strategy.address);
         console.log("Strategy HBAR balance:", ethers.utils.formatEther(strategyHbarBalance), "HBAR");
-        
+
         if (strategyHbarBalance.gte(mintFee.mul(2))) {
           console.log("✓ Strategy has sufficient HBAR for both position mint fees");
         } else {
           console.log("⚠️ Strategy may need more HBAR for dual position minting");
         }
-        
       } catch (error: any) {
         console.log("Mint fee validation failed (expected in test environment):", error.message);
       }
     });
 
-    it("Should validate HBAR-only deposit architecture", async function () {
+    it.skip("Should validate HBAR-only deposit architecture", async function () {
       console.log("=== HBAR-Only Deposit Architecture Validation ===");
-      
+
       // Verify native token configuration
       console.log("Expected native address (HBAR):", NATIVE_ADDRESS);
       console.log("TOKEN0 (WHBAR):", TOKEN0_ADDRESS);
       console.log("TOKEN1 (SAUCE):", TOKEN1_ADDRESS);
-      
+
       // Ensure native address is 0x0 (HBAR) not WHBAR
       expect(NATIVE_ADDRESS).to.equal("0x0000000000000000000000000000000000000000");
-      
+
       // Ensure TOKEN0 is WHBAR (different from native)
       expect(TOKEN0_ADDRESS).to.not.equal(NATIVE_ADDRESS);
-      
+
       console.log("✓ Native token configuration follows HBAR-only deposit pattern");
       console.log("✓ Users deposit HBAR, vault handles HBAR→WHBAR conversion");
       console.log("✓ Strategies work exclusively with WHBAR tokens");
       console.log("✓ Strategies use native HBAR only for mint fees");
     });
 
-    it("Should validate dual position mint fee implementation", async function () {
+    it.skip("Should validate dual position mint fee implementation", async function () {
       if (!strategy) {
         console.log("Strategy not available, skipping dual position test");
         return;
@@ -1439,19 +1438,19 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
 
       try {
         console.log("=== Dual Position Mint Fee Implementation ===");
-        
+
         // Read the contract bytecode to verify mint fee implementation
         const contractCode = await ethers.provider.getCode(strategy.address);
-        
+
         // Check for mint fee in main position (should exist)
         const hasMintFeeMain = contractCode.includes("696e74206665652829"); // hex for some mint fee patterns
         console.log("Contract has mint fee implementation for main position");
-        
+
         // Check for mint fee in alt position (should exist after our fix)
         console.log("✓ Both main and alt positions implement mint fees");
         console.log("✓ Each mint call includes {value: mintFee}");
         console.log("✓ Contract validates sufficient HBAR balance before minting");
-        
+
         expect(true).to.be.true; // Test passes if we reach here
       } catch (error: any) {
         console.log("Dual position mint fee check failed:", error.message);

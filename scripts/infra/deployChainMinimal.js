@@ -72,8 +72,8 @@ async function main() {
 
   // Deploy Vault Factory
   console.log("Deploying Vault Factory...");
-  const VaultFactory = await ethers.getContractFactory("BeefyVaultV7FactoryHedera");
-  const VaultV7 = await ethers.getContractFactory("BeefyVaultV7Hedera");
+  const VaultFactory = await ethers.getContractFactory("BonzoVaultV7Factory");
+  const VaultV7 = await ethers.getContractFactory("BonzoVaultV7");
   const vault7 = await VaultV7.deploy({ gasLimit: 5000000 });
   await vault7.deployed();
   console.log(`Vault V7 deployed to ${vault7.address}`);
