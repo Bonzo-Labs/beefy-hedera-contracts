@@ -15,7 +15,7 @@ if (CHAIN_TYPE === "testnet") {
   AUSDC_TOKEN_ADDRESS = "0xee72C37fEc48C9FeC6bbD0982ecEb7d7a038841e"; // aUSDC token
   LENDING_POOL_ADDRESS = "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62"; // Bonzo lending pool
   REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller
-  UNIROUTER_ADDRESS = "0x00000000000000000000000000000000000026e7"; // Router address
+  UNIROUTER_ADDRESS = "0x0000000000000000000000000000000000159398"; // Router address
   nonManagerPK = process.env.NON_MANAGER_PK!;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");

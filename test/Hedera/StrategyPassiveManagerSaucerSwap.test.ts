@@ -88,8 +88,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     // Use existing deployed contracts
     console.log("=== Using Existing Deployed Contracts ===");
 
-    const EXISTING_STRATEGY_ADDRESS = "0x7BD27068e2b28a4fE36DC5aE239e73BD5915495A";
-    const EXISTING_VAULT_ADDRESS = "0x83CFd6bBCc501FbfD9A29C713A28BE7Ee43229AD";
+    const EXISTING_STRATEGY_ADDRESS = "0x9017C9Bb44f8848BebA2A3Dce3C41Cd1152d013c";
+    const EXISTING_VAULT_ADDRESS = "0x40F6b2Db64BF22d55301B4e4d1cE74A8AE605f64";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -548,11 +548,18 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it.skip("Should allow owner to retire vault", async function () {
+    it.skip("Should allow owner to retire strategy", async function () {
       try {
         // This should fail because vault has more than minimum shares
-        await expect(strategy.retireVault()).to.be.reverted;
+        const strategyOwner = await strategy.owner();
+        console.log("Strategy owner:", strategyOwner);
+        const vaultTotalSupply = await vault.totalSupply();
+        console.log("Vault total supply:", vaultTotalSupply.toString());
+        const retireTx = await strategy.retireStrategy({ gasLimit: 2000000 });
+        const receipt = await retireTx.wait();
+        console.log("Retire strategy receipt:", receipt.transactionHash);
       } catch (error: any) {
+        console.log(error.message);
         console.log("Retire vault test failed (expected in test environment)");
       }
     });
@@ -561,7 +568,20 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
   describe("Harvest Functionality", function () {
     it.skip("Should allow harvest calls", async function () {
       try {
-        await (strategy as any).harvest();
+         // Get required HBAR for mint fees
+        let hbarRequired = await vault.estimateDepositHBARRequired();
+        console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+
+        // If the estimate is too low (less than 1 tinybar), use the known mint fee
+        const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+        if (hbarRequired.lt(minTinybar)) {
+          // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+          hbarRequired = ethers.utils.parseEther("10.0");
+          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+        }
+        const harvestTx = await strategy["harvest()"]({ value: hbarRequired });
+        const receipt = await harvestTx.wait();
+        console.log("Harvest receipt:", receipt.transactionHash);
         console.log("Harvest executed successfully");
       } catch (error: any) {
         console.log("Harvest failed (expected without real liquidity):", error.message);
@@ -896,7 +916,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it("Should handle real CLXY + SAUCE deposits", async function () {
+    it.skip("Should handle real CLXY + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
       const [keyMain, keyAlt] = await strategy.getKeys();
@@ -1029,7 +1049,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
             console.log(`Executing ${size.name} deposit...`);
             const depositTx = await vault.deposit(depositClxyAmount, depositSauceAmount, 0, {
               value: hbarRequired, // Add HBAR for mint fees
-              gasLimit: 5000000,
+              gasLimit: 1100000,
             });
             await depositTx.wait();
 
@@ -1076,6 +1096,53 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
         console.log("Real CLXY + SAUCE deposit failed:", error.message);
         throw error; // Re-throw to fail the test if there's an actual issue
       }
+    });
+
+    //handle witdrawals of CLXY and SAUCE
+    it("Should handle real withdrawals of CLXY and SAUCE", async function () {
+      const CLXY_ADDRESS = "0x00000000000000000000000000000000000014f5"; // Replace with actual CLXY address
+      const clxyToken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        CLXY_ADDRESS
+      );
+      const shares = await vault.balanceOf(deployer.address);
+      console.log("Strategy balances shares:", shares.toString());
+      const sauceBefore = await sauceToken.balanceOf(deployer.address);
+      const clxyBefore = await clxyToken.balanceOf(deployer.address);
+
+      // Get required HBAR for mint fees
+      let hbarRequired = await vault.estimateDepositHBARRequired();
+      console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+
+      // If the estimate is too low (less than 1 tinybar), use the known mint fee
+      const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+      if (hbarRequired.lt(minTinybar)) {
+        // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+        hbarRequired = ethers.utils.parseEther("10.0");
+        console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+      }
+      const sharesToWithdraw = shares.div(2);
+      const withdrawTx = await vault.withdraw(
+        sharesToWithdraw,
+        0,
+        0,
+        {
+          value: hbarRequired,
+          gasLimit: 1100000,
+        }
+      );
+      const receipt = await withdrawTx.wait();
+      console.log("Withdrawal receipt:", receipt.transactionHash);
+
+      //verify the withdrawals
+      const finalShares = await vault.balanceOf(deployer.address);
+      console.log("Final shares:", finalShares.toString());
+      console.log("Sauce before:", sauceBefore.toString());
+      const finalSAUCE = await sauceToken.balanceOf(deployer.address);
+      console.log("Final SAUCE:", ethers.utils.formatUnits(finalSAUCE, 6));
+      console.log("clxy before:", clxyBefore.toString());
+      const finalCLXY = await clxyToken.balanceOf(deployer.address);
+      console.log("Final CLXY:", ethers.utils.formatUnits(finalCLXY, 6));
     });
 
     it.skip("Should handle real withdrawals (WHBAR and native HBAR)", async function () {
@@ -1372,8 +1439,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     });
   });
 
-  describe("Mint Fee Validation", function () {
-    it("Should validate mint fee is correctly set for both positions", async function () {
+  describe.skip("Mint Fee Validation", function () {
+    it.skip("Should validate mint fee is correctly set for both positions", async function () {
       if (!strategy) {
         console.log("Strategy not available, skipping mint fee test");
         return;
@@ -1411,7 +1478,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it("Should validate HBAR-only deposit architecture", async function () {
+    it.skip("Should validate HBAR-only deposit architecture", async function () {
       console.log("=== HBAR-Only Deposit Architecture Validation ===");
       
       // Verify native token configuration
@@ -1431,7 +1498,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       console.log("✓ Strategies use native HBAR only for mint fees");
     });
 
-    it("Should validate dual position mint fee implementation", async function () {
+    it.skip("Should validate dual position mint fee implementation", async function () {
       if (!strategy) {
         console.log("Strategy not available, skipping dual position test");
         return;

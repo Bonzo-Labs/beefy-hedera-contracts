@@ -189,6 +189,8 @@ contract StrategyPassiveManagerSaucerSwap is
 
     function _addLiquidity() private onlyCalmPeriods {
         _whenStrategyNotPaused();
+        uint256 hbarBalanceBefore = address(this).balance > 0 ? address(this).balance - msg.value : 0;
+
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = getMintFee();
         uint160 sqrtprice = sqrtPrice();
@@ -257,6 +259,12 @@ contract StrategyPassiveManagerSaucerSwap is
                 "Beefy Alt"
             );
         }
+        
+        uint256 hbarBalanceAfter = address(this).balance;
+        //return the excess hbar to caller
+        if (hbarBalanceAfter > hbarBalanceBefore) {
+            AddressUpgradeable.sendValue(payable(tx.origin), hbarBalanceAfter - hbarBalanceBefore);
+        }
     }
 
     function _removeLiquidity() private {
@@ -286,11 +294,11 @@ contract StrategyPassiveManagerSaucerSwap is
         }
     }
 
-    function harvest(address _callFeeRecipient) external {
+    function harvest(address _callFeeRecipient) external payable {
         _harvest(_callFeeRecipient);
     }
 
-    function harvest() external {
+    function harvest() external payable {
         _harvest(tx.origin);
     }
 
@@ -601,16 +609,14 @@ contract StrategyPassiveManagerSaucerSwap is
         emit SetUnirouter(_unirouter);
     }
 
-    function retireVault() external onlyOwner {
-        if (IBeefyVaultConcLiq(vault).totalSupply() != 10 ** 3) revert NotAuthorized();
+    function retireStrategy() external onlyOwner {
         panic(0, 0);
-        address feeRecipient = beefyFeeRecipient;
         (uint bal0, uint bal1) = balancesOfThis();
         if (bal0 > 0) {
-            _transferTokens(lpToken0, address(this), feeRecipient, bal0, true);
+            _transferTokens(lpToken0, address(this), vault, bal0, true);
         }
         if (bal1 > 0) {
-            _transferTokens(lpToken1, address(this), feeRecipient, bal1, true);
+            _transferTokens(lpToken1, address(this), vault, bal1, true);
         }
         _transferOwnership(address(0));
     }

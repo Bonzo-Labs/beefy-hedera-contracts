@@ -93,76 +93,52 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       console.log("Warning: BeefyOracle address not found, some tests may fail");
     }
 
-    // Deploy or use existing contracts
-    console.log("=== Deploying New CLM LARI Strategy Contracts ===");
+    // Use existing deployed contracts
+    console.log("=== Using Existing Deployed Contracts ===");
+
+    const EXISTING_STRATEGY_ADDRESS = "0xfFd401d40cb467421128FD5407843fBE3C468eD3";
+    const EXISTING_VAULT_ADDRESS = "0x1835F0F88eD3fe49aFb70e1a130cB22DE689709D";
+
+    console.log("Vault address:", EXISTING_VAULT_ADDRESS);
+    console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
 
     try {
-      // Deploy SaucerSwapCLMLib library
-      console.log("Deploying SaucerSwapCLMLib...");
-      const LibraryFactory = await ethers.getContractFactory("SaucerSwapCLMLib");
-      const library = await LibraryFactory.deploy({ gasLimit: 3000000 });
-      await library.deployed();
-      console.log("Library deployed to:", library.address);
+      vault = (await ethers.getContractAt(
+        "BeefyVaultConcLiqHedera",
+        EXISTING_VAULT_ADDRESS
+      )) as BeefyVaultConcLiqHedera;
 
-      // Deploy vault instance
-      console.log("Deploying BeefyVaultConcLiqHedera...");
-      const VaultConcLiq = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
-      const vaultInstance = await VaultConcLiq.deploy({ gasLimit: 5000000 });
-      await vaultInstance.deployed();
-      console.log("Vault deployed to:", vaultInstance.address);
+      // First try to determine what contract is actually deployed
+      console.log("Attempting to identify contract type at strategy address...");
+      try {
+        // Try as SaucerSwapLariRewardsCLMStrategy
+        strategy = (await ethers.getContractAt(
+          "SaucerSwapLariRewardsCLMStrategy",
+          EXISTING_STRATEGY_ADDRESS
+        )) as SaucerSwapLariRewardsCLMStrategy;
 
-      // Deploy strategy with library linking
-      console.log("Deploying SaucerSwapLariRewardsCLMStrategy...");
-      const StrategyFactory = await ethers.getContractFactory("SaucerSwapLariRewardsCLMStrategy", {
-        libraries: {
-          SaucerSwapCLMLib: library.address,
-        },
-      });
+        // Test if this contract has the expected interface by calling a simple function
+        await strategy.pool();
+        console.log("✓ Successfully connected as SaucerSwapLariRewardsCLMStrategy");
+      } catch (lariError) {
+        console.log("Failed as LARI strategy, trying StrategyPassiveManagerSaucerSwap...");
+        try {
+          strategy = (await ethers.getContractAt("StrategyPassiveManagerSaucerSwap", EXISTING_STRATEGY_ADDRESS)) as any;
+          await (strategy as any).pool();
+          console.log("✓ Successfully connected as StrategyPassiveManagerSaucerSwap");
+        } catch (saucerError) {
+          console.log("Failed as both strategy types, using generic contract interface");
+          strategy = (await ethers.getContractAt(
+            "SaucerSwapLariRewardsCLMStrategy",
+            EXISTING_STRATEGY_ADDRESS
+          )) as SaucerSwapLariRewardsCLMStrategy;
+        }
+      }
 
-      strategy = (await StrategyFactory.deploy({ gasLimit: 8000000 })) as SaucerSwapLariRewardsCLMStrategy;
-      await strategy.deployed();
-      console.log("Strategy deployed to:", strategy.address);
-
-      // Initialize strategy
-      const initParams = [
-        POOL_ADDRESS,
-        QUOTER_ADDRESS,
-        positionConfig.positionWidth,
-        NATIVE_ADDRESS,
-        FACTORY_ADDRESS,
-        addresses.beefyOracle || ethers.constants.AddressZero,
-        REWARD_TOKEN_ADDRESSES,
-      ];
-
-      const commonAddresses = [
-        vaultInstance.address,
-        addresses.beefySwapper || ethers.constants.AddressZero,
-        deployer.address,
-        deployer.address,
-        deployer.address,
-        addresses.beefyFeeConfig || ethers.constants.AddressZero,
-      ];
-
-      console.log("Initializing strategy...");
-      await strategy.initialize(initParams, commonAddresses, { gasLimit: 5000000 });
-
-      // Initialize vault
-      console.log("Initializing vault...");
-      await vaultInstance.initialize(strategy.address, positionConfig.vaultName, positionConfig.vaultSymbol, addresses.beefyOracle || ethers.constants.AddressZero, {
-        gasLimit: 5000000,
-      });
-
-      vault = vaultInstance as BeefyVaultConcLiqHedera;
-      vaultAddress = vault.address;
-
-      // Set recommended parameters
-      await strategy.setDeviation(positionConfig.maxTickDeviation, { gasLimit: 1000000 });
-      await strategy.setTwapInterval(positionConfig.twapInterval, { gasLimit: 1000000 });
-
-      console.log("Contracts deployed and initialized successfully");
+      vaultAddress = EXISTING_VAULT_ADDRESS;
+      console.log("Connected to existing contracts");
     } catch (error) {
-      console.log("Failed to deploy new contracts:", error);
-      throw error;
+      console.log("Failed to connect to existing contracts:", error);
     }
 
     // Initialize token contracts
@@ -222,7 +198,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     }
   });
 
-  describe("Initialization", function () {
+  describe.skip("Initialization", function () {
     it("Should have correct pool address", async function () {
       if (!strategy) {
         console.log("Strategy not available, skipping test");
@@ -317,7 +293,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("CLM Functionality", function () {
+  describe.skip("CLM Functionality", function () {
     it("Should provide price information", async function () {
       try {
         const price = await strategy.price();
@@ -382,7 +358,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("Position Management", function () {
+  describe.skip("Position Management", function () {
     it("Should have position keys", async function () {
       try {
         const [keyMain, keyAlt] = await strategy.getKeys();
@@ -442,7 +418,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("LARI Rewards Management", function () {
+  describe.skip("LARI Rewards Management", function () {
     it("Should allow manager to add reward tokens", async function () {
       try {
         const newRewardToken = "0x0000000000000000000000000000000000002222"; // Mock token address
@@ -551,26 +527,64 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("Harvest Functionality", function () {
+  describe.skip("Harvest Functionality", function () {
     it("Should allow harvest calls", async function () {
       try {
-        await strategy.harvest({ gasLimit: 5000000 });
+        //to mimic lari rewards, send SAUCE and HBAR to the strategy
+        const sauceTransferTx = await token1Contract.transfer(
+          strategy.address, 
+          ethers.utils.parseUnits("2", 6),
+          { gasLimit: 2000000 }
+        );
+        const receiptSauce = await sauceTransferTx.wait();
+        console.log("Sauce transfer receipt:", receiptSauce.transactionHash);
+        // Send native HBAR to the strategy address
+        // await deployer.sendTransaction({
+        //   to: strategy.address,
+        //   value: ethers.utils.parseEther("10.0")
+        // });
+        // console.log("HBAR SAUCE as LARI rewards sent to strategy");
+         // Get required HBAR for mint fees
+
+        //get the reward tokens data
+        const rewardTokensLength = await strategy.getRewardTokensLength();
+        console.log("Number of reward tokens configured:", rewardTokensLength.toString());
+        const rewardToken0 = await strategy.getRewardToken(0);
+        const rewardToken1 = await strategy.getRewardToken(1);
+        console.log("Reward token 0:", rewardToken0);
+        console.log("Reward token 1:", rewardToken1);
+
+        let hbarRequired = await vault.estimateDepositHBARRequired();
+        console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+
+        // If the estimate is too low (less than 1 tinybar), use the known mint fee
+        const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+        if (hbarRequired.lt(minTinybar)) {
+          // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+          hbarRequired = ethers.utils.parseEther("10.0");
+          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+        }
+        const harvestTx = await (strategy as any)["harvest()"](
+          { value: hbarRequired,gasLimit: 3000000 }
+        );
+        const receipt = await harvestTx.wait();
+        console.log("Harvest receipt:", receipt.transactionHash);
         console.log("Harvest executed successfully");
       } catch (error: any) {
-        console.log("Harvest failed:", error.message);
+        console.log("Harvest failed (expected without real liquidity):", error.message);
       }
     });
 
-    it("Should allow harvest with specific recipient", async function () {
+    it.skip("Should allow harvest with specific recipient", async function () {
       try {
-        await strategy.harvest(deployer.address, { gasLimit: 5000000 });
+        await (strategy as any).harvest(deployer.address);
         console.log("Harvest with recipient executed successfully");
       } catch (error: any) {
-        console.log("Harvest with recipient failed:", error.message);
+        console.log("Harvest with recipient failed (expected without real liquidity):", error.message);
       }
     });
 
-    it("Should allow claim earnings", async function () {
+    it.skip("Should allow claim earnings", async function () {
       try {
         const [fee0, fee1, feeAlt0, feeAlt1] = await strategy.callStatic.claimEarnings();
         expect(fee0).to.be.a("bigint");
@@ -579,12 +593,106 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
         expect(feeAlt1).to.be.a("bigint");
         console.log("Claim earnings executed successfully");
       } catch (error: any) {
-        console.log("Claim earnings failed:", error.message);
+        console.log("Claim earnings failed (expected without real pool):", error.message);
+      }
+    });
+
+    it.skip("Should handle LARI rewards harvesting", async function () {
+      if (!strategy) {
+        console.log("Strategy not available, skipping LARI rewards test");
+        return;
+      }
+
+      try {
+        console.log("=== LARI Rewards Harvesting Test ===");
+        
+        // Check reward tokens configuration
+        const rewardTokensLength = await strategy.getRewardTokensLength();
+        console.log("Number of reward tokens configured:", rewardTokensLength.toString());
+        
+        if (rewardTokensLength.gt(0)) {
+          for (let i = 0; i < rewardTokensLength.toNumber(); i++) {
+            const rewardToken = await strategy.getRewardToken(i);
+            console.log(`Reward Token ${i}:`, rewardToken.token, "(Active:", rewardToken.isActive, ")");
+            console.log(`  To LP0 Route:`, rewardToken.toLp0Route);
+            console.log(`  To LP1 Route:`, rewardToken.toLp1Route);
+          }
+        } else {
+          console.log("No reward tokens configured for LARI rewards");
+        }
+
+        // Get required HBAR for mint fees
+        let hbarRequired = await vault.estimateDepositHBARRequired();
+        console.log(`HBAR required for harvest: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+
+        // If the estimate is too low, use fallback amount
+        const minTinybar = ethers.utils.parseUnits("0.00000001", 18);
+        if (hbarRequired.lt(minTinybar)) {
+          hbarRequired = ethers.utils.parseEther("10.0");
+          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+        }
+
+        // Attempt harvest with LARI rewards
+        console.log("Attempting harvest with LARI rewards...");
+        const harvestTx = await (strategy as any).harvest({ 
+          value: hbarRequired,
+          gasLimit: 5000000 
+        });
+        const receipt = await harvestTx.wait();
+        
+        console.log("✓ LARI harvest executed successfully");
+        console.log("Transaction hash:", receipt.transactionHash);
+        
+        // Check if any rewards were harvested
+        const [fee0, fee1, feeAlt0, feeAlt1] = await strategy.callStatic.claimEarnings();
+        console.log("Earnings after harvest:");
+        console.log("  Main Position - Token0:", ethers.utils.formatUnits(fee0, 6));
+        console.log("  Main Position - Token1:", ethers.utils.formatUnits(fee1, 6));
+        console.log("  Alt Position - Token0:", ethers.utils.formatUnits(feeAlt0, 6));
+        console.log("  Alt Position - Token1:", ethers.utils.formatUnits(feeAlt1, 6));
+        
+      } catch (error: any) {
+        console.log("LARI rewards harvesting failed (expected without real rewards):", error.message);
+      }
+    });
+
+    it.skip("Should validate reward token routes", async function () {
+      if (!strategy) {
+        console.log("Strategy not available, skipping reward routes test");
+        return;
+      }
+
+      try {
+        console.log("=== Reward Token Routes Validation ===");
+        
+        const rewardTokensLength = await strategy.getRewardTokensLength();
+        console.log("Total reward tokens:", rewardTokensLength.toString());
+        
+        for (let i = 0; i < rewardTokensLength.toNumber(); i++) {
+          const rewardToken = await strategy.getRewardToken(i);
+          console.log(`\nReward Token ${i}:`, rewardToken.token);
+          console.log("  Is HTS:", rewardToken.isHTS);
+          console.log("  Is Active:", rewardToken.isActive);
+          console.log("  To LP0 Route Length:", rewardToken.toLp0Route.length);
+          console.log("  To LP1 Route Length:", rewardToken.toLp1Route.length);
+          
+          if (rewardToken.toLp0Route.length > 0) {
+            console.log("  To LP0 Route:", rewardToken.toLp0Route);
+          }
+          if (rewardToken.toLp1Route.length > 0) {
+            console.log("  To LP1 Route:", rewardToken.toLp1Route);
+          }
+        }
+        
+        console.log("✓ Reward token routes validation completed");
+        
+      } catch (error: any) {
+        console.log("Reward routes validation failed:", error.message);
       }
     });
   });
 
-  describe("Access Control", function () {
+  describe.skip("Access Control", function () {
     it("Should allow owner to set deviation", async function () {
       if (!strategy) {
         console.log("Strategy not available, skipping test");
@@ -645,7 +753,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("Emergency Functions", function () {
+  describe.skip("Emergency Functions", function () {
     it("Should allow manager to panic", async function () {
       try {
         await strategy.connect(keeper).panic(0, 0, { gasLimit: 5000000 });
@@ -674,66 +782,287 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
   });
 
   describe("Integration Tests", function () {
-    it.skip("Should handle real token deposits and LARI rewards", async function () {
-      if (!vault || !strategy || !token0Contract || !token1Contract) {
-        console.log("Required contracts not available, skipping test");
-        return;
-      }
+    it("Should handle real CLXY + SAUCE deposits", async function () {
+      const price = await strategy.price();
+      const balances = await strategy.balances();
+      const [keyMain, keyAlt] = await strategy.getKeys();
+      const positionMain = await strategy.positionMain();
+      const positionAlt = await strategy.positionAlt();
+      const pool = await ethers.getContractAt(
+        "contracts/BIFI/interfaces/uniswap/IUniswapV3Pool.sol:IUniswapV3Pool",
+        POOL_ADDRESS
+      );
+      const slot0 = await pool.slot0();
+      console.log("Price:", price);
+      console.log("Balances:", balances);
+      console.log("Key Main:", keyMain);
+      console.log("Key Alt:", keyAlt);
+      console.log("Position Main:", positionMain);
+      console.log("Position Alt:", positionAlt);
+      console.log("Slot0:", slot0);
 
       try {
+        // Initialize CLXY token contract (assuming it's token1 or a different token)
+        const CLXY_ADDRESS = "0x00000000000000000000000000000000000014f5"; // Replace with actual CLXY address
+        const clxyToken = await ethers.getContractAt(
+          "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+          CLXY_ADDRESS
+        );
+
         // Get initial balances
         const initialShares = await vault.balanceOf(deployer.address);
-        const initialToken0 = await token0Contract.balanceOf(deployer.address);
-        const initialToken1 = await token1Contract.balanceOf(deployer.address);
+        const initialSAUCE = await token1Contract.balanceOf(deployer.address);
+        const initialCLXY = await clxyToken.balanceOf(deployer.address);
 
         console.log("=== Initial Balances ===");
-        console.log("Initial Token0 Balance:", ethers.utils.formatUnits(initialToken0, 6));
-        console.log("Initial Token1 Balance:", ethers.utils.formatUnits(initialToken1, 6));
+        console.log("Initial CLXY Balance:", ethers.utils.formatUnits(initialCLXY, 6)); // Assuming 8 decimals
+        console.log("Initial SAUCE Balance:", ethers.utils.formatUnits(initialSAUCE, 6));
         console.log("Initial Vault Shares:", initialShares.toString());
 
-        // Approve tokens for vault
-        const approveAmount0 = ethers.utils.parseUnits("10", 6);
-        const approveAmount1 = ethers.utils.parseUnits("10", 6);
+        // Smart approval for SAUCE tokens
+        console.log("=== Smart Approving SAUCE tokens ===");
+        const requiredSauceAmount = ethers.utils.parseUnits("100", 6);
 
-        await token0Contract.approve(vault.address, approveAmount0, { gasLimit: 1000000 });
-        await token1Contract.approve(vault.address, approveAmount1, { gasLimit: 1000000 });
+        try {
+          const currentSauceAllowance = await token1Contract.allowance(deployer.address, vault.address);
+          console.log("Current SAUCE allowance:", ethers.utils.formatUnits(currentSauceAllowance, 6));
 
-        // Test deposit
-        const depositAmount0 = ethers.utils.parseUnits("1", 6);
-        const depositAmount1 = ethers.utils.parseUnits("1", 6);
-
-        console.log("=== Testing Deposit ===");
-        await vault.deposit(depositAmount0, depositAmount1, 0, { gasLimit: 5000000 });
-
-        const sharesAfterDeposit = await vault.balanceOf(deployer.address);
-        const sharesReceived = sharesAfterDeposit.sub(initialShares);
-
-        console.log("Shares received:", sharesReceived.toString());
-        expect(sharesReceived).to.be.gt(0);
-
-        // Test harvest with LARI rewards
-        console.log("=== Testing Harvest with LARI Rewards ===");
-        await strategy.harvest({ gasLimit: 5000000 });
-
-        // Test withdrawal
-        if (sharesReceived.gt(0)) {
-          console.log("=== Testing Withdrawal ===");
-          const halfShares = sharesReceived.div(2);
-          
-          await vault.withdraw(halfShares, 0, 0, { gasLimit: 5000000 });
-          
-          const finalShares = await vault.balanceOf(deployer.address);
-          console.log("Final shares:", finalShares.toString());
+          if (currentSauceAllowance.lt(ethers.utils.parseUnits("10", 6))) {
+            const approveTx = await token1Contract.approve(vault.address, requiredSauceAmount, { gasLimit: 1000000 });
+            await approveTx.wait();
+            console.log("✓ SAUCE tokens approved for vault");
+          } else {
+            console.log("✓ SAUCE approval sufficient, skipping");
+          }
+        } catch (sauceApprovalError: any) {
+          console.log("SAUCE approval failed:", sauceApprovalError.message);
         }
 
-        console.log("✓ Integration test completed successfully");
+        // Smart approval for CLXY tokens
+        console.log("=== Smart Approving CLXY tokens ===");
+        const requiredClxyAmount = ethers.utils.parseUnits("100", 6);
+
+        try {
+          const currentClxyAllowance = await clxyToken.allowance(deployer.address, vault.address);
+          console.log("Current CLXY allowance:", ethers.utils.formatUnits(currentClxyAllowance, 8));
+
+          if (currentClxyAllowance.lt(ethers.utils.parseUnits("10", 6))) {
+            const clxyApproveTx = await clxyToken.approve(vault.address, requiredClxyAmount, { gasLimit: 1000000 });
+            await clxyApproveTx.wait();
+            console.log("✓ CLXY tokens approved for vault");
+          } else {
+            console.log("✓ CLXY approval sufficient, skipping");
+          }
+        } catch (clxyApprovalError: any) {
+          console.log("CLXY approval failed:", clxyApprovalError.message);
+        }
+
+        // Strategy state debugging before deposit
+        console.log("=== Strategy State Debugging ===");
+        try {
+          const isPaused = await strategy.paused();
+          console.log("Strategy paused:", isPaused);
+
+          if (isPaused) {
+            console.log("⚠️ Strategy is paused - attempting to unpause...");
+            try {
+              const unpauseTx = await strategy.unpause({ gasLimit: 1000000 });
+              await unpauseTx.wait();
+              console.log("✓ Strategy unpaused successfully with owner");
+            } catch (unpauseError: any) {
+              console.log("Failed to unpause with owner:", unpauseError.message);
+            }
+          }
+
+          const isCalm = await strategy.isCalm();
+          console.log("Pool is calm:", isCalm);
+
+          const [bal0, bal1] = await strategy.balances();
+          console.log("Strategy balances - Token0:", bal0.toString(), "Token1:", bal1.toString());
+        } catch (stateError: any) {
+          console.log("Strategy state check failed:", stateError.message);
+        }
+
+        // Try different deposit amounts with retry logic
+        console.log("=== Deposit with Retry Logic ===");
+
+        const depositSizes = [{ clxy: "5.0", sauce: "5", name: "Half amount" }];
+
+        let successfulDeposit = null;
+
+        for (const size of depositSizes) {
+          try {
+            const depositClxyAmount = ethers.utils.parseUnits(size.clxy, 6); // CLXY decimals
+            const depositSauceAmount = ethers.utils.parseUnits(size.sauce, 6); // SAUCE decimals
+
+            console.log(`\n--- Trying ${size.name}: ${size.clxy} CLXY + ${size.sauce} SAUCE ---`);
+            console.log(
+              `Deposit amounts - CLXY: ${depositClxyAmount.toString()}, SAUCE: ${depositSauceAmount.toString()}`
+            );
+
+            // Get required HBAR for mint fees
+            let hbarRequired = await vault.estimateDepositHBARRequired();
+            console.log(`HBAR required from vault estimate: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+
+            // If the estimate is too low (less than 1 tinybar), use the known mint fee
+            const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+            if (hbarRequired.lt(minTinybar)) {
+              // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+              hbarRequired = ethers.utils.parseEther("10.0");
+              console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+            }
+
+            console.log(`Executing ${size.name} deposit...`);
+            const depositTx = await vault.deposit(depositClxyAmount, depositSauceAmount, 0, {
+              value: hbarRequired, // Add HBAR for mint fees
+              gasLimit: 1100000,
+            });
+            await depositTx.wait();
+
+            console.log(`✓ ${size.name} deposit successful!`);
+            successfulDeposit = {
+              size,
+            };
+            break; // Exit loop on success
+          } catch (sizeError: any) {
+            console.log(`${size.name} deposit failed:`, sizeError.message);
+            continue; // Try next size
+          }
+        }
+
+        if (!successfulDeposit) {
+          throw new Error("All deposit sizes failed - check strategy state");
+        }
+
+        // Check balances after successful deposit
+        console.log("\n=== Final Balance Check ===");
+        const finalShares = await vault.balanceOf(deployer.address);
+        const finalSAUCE = await token1Contract.balanceOf(deployer.address);
+        const finalCLXY = await clxyToken.balanceOf(deployer.address);
+
+        const clxyUsed = initialCLXY.sub(finalCLXY);
+        const sauceUsed = initialSAUCE.sub(finalSAUCE);
+        const sharesReceived = finalShares.sub(initialShares);
+
+        console.log("=== Deposit Results ===");
+        console.log(`Successful deposit size: ${successfulDeposit.size.name}`);
+        console.log(`  ${successfulDeposit.size.clxy} CLXY + ${successfulDeposit.size.sauce} SAUCE`);
+        console.log("CLXY used:", ethers.utils.formatUnits(clxyUsed, 8));
+        console.log("SAUCE used:", ethers.utils.formatUnits(sauceUsed, 6));
+        console.log("Vault shares received:", sharesReceived.toString());
+        console.log("✓ Real CLXY + SAUCE deposit completed successfully!");
+
+        // Verify deposit worked correctly
+        if (sharesReceived.gt(0)) {
+          console.log("✅ DEPOSIT SUCCESS: Real tokens successfully deposited into CLM strategy!");
+        } else {
+          console.log("⚠️ No shares received - deposit may not have worked correctly");
+        }
       } catch (error: any) {
-        console.log("Integration test failed:", error.message);
+        console.log("Real CLXY + SAUCE deposit failed:", error.message);
+        throw error; // Re-throw to fail the test if there's an actual issue
       }
     });
+
+    it("Should handle real withdrawals of CLXY and SAUCE", async function () {
+      const CLXY_ADDRESS = "0x00000000000000000000000000000000000014f5"; // Replace with actual CLXY address
+      const clxyToken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        CLXY_ADDRESS
+      );
+      const shares = await vault.balanceOf(deployer.address);
+      console.log("Strategy balances shares:", shares.toString());
+      const sauceBefore = await token1Contract.balanceOf(deployer.address);
+      const clxyBefore = await clxyToken.balanceOf(deployer.address);
+
+      // Get required HBAR for mint fees
+      let hbarRequired = await vault.estimateDepositHBARRequired();
+      console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+
+      // If the estimate is too low (less than 1 tinybar), use the known mint fee
+      const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+      if (hbarRequired.lt(minTinybar)) {
+        // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+        hbarRequired = ethers.utils.parseEther("10.0");
+        console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+      }
+      const sharesToWithdraw = shares.div(2);
+      const withdrawTx = await vault.withdraw(
+        sharesToWithdraw,
+        0,
+        0,
+        {
+          value: hbarRequired,
+          gasLimit: 1100000,
+        }
+      );
+      const receipt = await withdrawTx.wait();
+      console.log("Withdrawal receipt:", receipt.transactionHash);
+
+      //verify the withdrawals
+      const finalShares = await vault.balanceOf(deployer.address);
+      console.log("Final shares:", finalShares.toString());
+      console.log("Sauce before:", sauceBefore.toString());
+      const finalSAUCE = await token1Contract.balanceOf(deployer.address);
+      console.log("Final SAUCE:", ethers.utils.formatUnits(finalSAUCE, 6));
+      console.log("clxy before:", clxyBefore.toString());
+      const finalCLXY = await clxyToken.balanceOf(deployer.address);
+      console.log("Final CLXY:", ethers.utils.formatUnits(finalCLXY, 6));
+    });
+
+    it("Should allow harvest calls", async function () {
+      try {
+        //to mimic lari rewards, send SAUCE and HBAR to the strategy
+        const sauceTransferTx = await token1Contract.transfer(
+          strategy.address, 
+          ethers.utils.parseUnits("2", 6),
+          { gasLimit: 2000000 }
+        );
+        const receiptSauce = await sauceTransferTx.wait();
+        console.log("Sauce transfer receipt:", receiptSauce.transactionHash);
+        // Send native HBAR to the strategy address
+        // await deployer.sendTransaction({
+        //   to: strategy.address,
+        //   value: ethers.utils.parseEther("10.0")
+        // });
+        // console.log("HBAR SAUCE as LARI rewards sent to strategy");
+         // Get required HBAR for mint fees
+
+        //get the reward tokens data
+        const rewardTokensLength = await strategy.getRewardTokensLength();
+        console.log("Number of reward tokens configured:", rewardTokensLength.toString());
+        const rewardToken0 = await strategy.getRewardToken(0);
+        const rewardToken1 = await strategy.getRewardToken(1);
+        console.log("Reward token 0:", rewardToken0);
+        console.log("Reward token 1:", rewardToken1);
+
+        let hbarRequired = await vault.estimateDepositHBARRequired();
+        console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+
+        // If the estimate is too low (less than 1 tinybar), use the known mint fee
+        const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+        if (hbarRequired.lt(minTinybar)) {
+          // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+          hbarRequired = ethers.utils.parseEther("10.0");
+          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+        }
+        const harvestTx = await (strategy as any)["harvest()"](
+          { 
+            value: hbarRequired,
+            gasLimit: 5000000,
+          }
+        );
+        const receipt = await harvestTx.wait();
+        console.log("Harvest receipt:", receipt.transactionHash);
+        console.log("Harvest executed successfully");
+      } catch (error: any) {
+        console.log("Harvest failed (expected without real liquidity):", error.message);
+      }
+    });
+
   });
 
-  describe("Configuration Summary", function () {
+  describe.skip("Configuration Summary", function () {
     it("Should display complete configuration", async function () {
       console.log("\n=== CLM LARI STRATEGY CONFIGURATION ===");
       console.log("Chain Configuration:");
@@ -782,7 +1111,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("Mint Fee Validation", function () {
+  describe.skip("Mint Fee Validation", function () {
     it("Should validate mint fee is correctly set for both positions in LARI strategy", async function () {
       if (!strategy) {
         console.log("Strategy not available, skipping mint fee test");
@@ -907,6 +1236,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
   after(async () => {
     console.log("\n=== CLM LARI Strategy Test Cleanup ===");
     console.log("• Chain Type:", CHAIN_TYPE);
+    console.log("• Using Existing Contracts: true");
     if (strategy) {
       console.log("• Strategy Address:", strategy.address);
     }

@@ -11,6 +11,7 @@ import "../../utils/TickMath.sol";
 import "../../utils/TickUtils.sol";
 import "../../utils/FullMath.sol";
 import "../../utils/UniswapV3Utils.sol";
+import "../../Hedera/IWHBAR.sol";
 
 library SaucerSwapLariLib {
     using SafeERC20 for IERC20Metadata;
@@ -210,7 +211,9 @@ library SaucerSwapLariLib {
         RewardToken[] storage rewardTokens,
         address unirouter,
         address lpToken0,
-        address lpToken1
+        address lpToken1,
+        address native,
+        IWHBAR whbarContract
     ) external returns (uint256 fees0, uint256 fees1) {
         // Check if any reward tokens have routes set
         bool hasRoutes = false;
@@ -228,21 +231,30 @@ library SaucerSwapLariLib {
         for (uint256 i = 0; i < rewardTokens.length; i++) {
             RewardToken storage rewardToken = rewardTokens[i];
             if (!rewardToken.isActive) continue;
+            uint256 balance = 0;
+            if(rewardToken.token == native){
+                balance = address(this).balance - msg.value;
+                //wrap
+                IERC20Metadata(native).approve(unirouter, balance);
+                IWHBAR(whbarContract).deposit{value: balance}(address(this), address(this));
+            }else{
+                balance = IERC20Metadata(rewardToken.token).balanceOf(address(this));
+            }
             
-            uint256 balance = IERC20Metadata(rewardToken.token).balanceOf(address(this));
             if (balance == 0) continue;
+            IERC20Metadata(rewardToken.token).approve(unirouter, balance);
 
             // Swap rewards to LP tokens
             if (rewardToken.token != lpToken0 && rewardToken.toLp0Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken0).balanceOf(address(this));
-                IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
+                // IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
                 swapReward(balance / 2, rewardToken.toLp0Route, unirouter);
                 uint256 balanceAfter = IERC20Metadata(lpToken0).balanceOf(address(this));
                 fees0 += balanceAfter - balanceBefore;
             }
             if (rewardToken.token != lpToken1 && rewardToken.toLp1Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken1).balanceOf(address(this));
-                IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
+                // IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
                 swapReward(balance / 2, rewardToken.toLp1Route, unirouter);
                 uint256 balanceAfter = IERC20Metadata(lpToken1).balanceOf(address(this));
                 fees1 += balanceAfter - balanceBefore;

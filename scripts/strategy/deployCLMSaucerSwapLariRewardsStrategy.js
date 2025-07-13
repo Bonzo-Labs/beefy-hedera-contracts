@@ -35,7 +35,7 @@ if (CHAIN_TYPE === "testnet") {
     pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa", // SAUCE-CLXY pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000001535b2",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000001243ee",
-
+    unirouter: process.env.UNIROUTER_ADDRESS || "0x0000000000000000000000000000000000159398",
     // Token addresses (testnet)
     token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000014f5", // CLXY
     token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000120f46", // SAUCE
@@ -47,9 +47,8 @@ if (CHAIN_TYPE === "testnet") {
     rewardTokens: process.env.REWARD_TOKENS
       ? process.env.REWARD_TOKENS.split(",")
       : [
-          "0x0000000000000000000000000000000000120f46", // SAUCE (example reward token)
+          "0x0000000000000000000000000000000000120f46", // SAUCE
           "0x0000000000000000000000000000000000003ad2", // WHBAR
-          "0x0000000000000000000000000000000000001549", // USDC
         ],
 
     // Position configuration
@@ -65,7 +64,7 @@ if (CHAIN_TYPE === "testnet") {
     pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x", // Update with actual mainnet pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x", // Update with actual mainnet quoter
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x", // Update with actual mainnet factory
-
+    unirouter: process.env.UNIROUTER_ADDRESS || "0x", // Update with actual mainnet unirouter
     // Token addresses (mainnet)
     token0: process.env.TOKEN0_ADDRESS || "0x", // Update with actual mainnet token0
     token1: process.env.TOKEN1_ADDRESS || "0x", // Update with actual mainnet token1
@@ -212,7 +211,7 @@ async function deployNewStrategy() {
   // CommonAddresses struct: vault, unirouter, keeper, strategist, beefyFeeRecipient, beefyFeeConfig
   const commonAddresses = [
     vaultInstance.address, // vault - use actual vault address
-    ethers.constants.AddressZero, // unirouter - not used since we removed IBeefySwapper
+    config.unirouter,
     deployer.address, // keeper
     deployer.address, // strategist
     deployer.address, // beefyFeeRecipient
@@ -225,7 +224,8 @@ async function deployNewStrategy() {
 
   try {
     console.log("Calling strategy.initialize...");
-    const initTx = await strategy.initialize(initParams, commonAddresses, { gasLimit: 5000000 });
+    const initTx = await strategy.initialize(initParams, commonAddresses, 
+      { gasLimit: 6000000 });
     console.log("Initialization transaction hash:", initTx.hash);
     const receipt = await initTx.wait();
     console.log("Initialization transaction confirmed, status:", receipt.status);
@@ -399,13 +399,17 @@ async function deployNewStrategy() {
     let toLp1Route = [];
 
     // If reward token is different from LP tokens, set up swap routes
-    if (rewardToken !== config.token0 && rewardToken !== config.token1) {
+    // if (rewardToken !== config.token0 && rewardToken !== config.token1) {
       // Example: SAUCE -> CLXY route (via WHBAR if needed)
       if (rewardToken === "0x0000000000000000000000000000000000120f46") {
         // SAUCE
         toLp0Route = [rewardToken, config.native, config.token0]; // SAUCE -> WHBAR -> CLXY
         toLp1Route = [rewardToken, config.token1]; // SAUCE -> SAUCE (direct)
-      } else {
+      } else if(rewardToken == config.native){
+        toLp0Route = [rewardToken, config.token0];
+        toLp1Route = [rewardToken, config.token1];
+      }
+      else {
         // Generic route via native token
         toLp0Route = [rewardToken, config.native, config.token0];
         toLp1Route = [rewardToken, config.native, config.token1];
@@ -419,7 +423,7 @@ async function deployNewStrategy() {
       } catch (error) {
         console.log(`  Failed to set routes for ${rewardToken}:`, error.message);
       }
-    }
+    // }
   }
 
   console.log("\n=== Deployment Summary ===");

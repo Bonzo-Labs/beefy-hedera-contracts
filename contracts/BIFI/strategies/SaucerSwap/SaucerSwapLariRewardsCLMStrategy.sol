@@ -38,6 +38,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
     uint256 public constant MINT_SLIPPAGE_TOLERANCE = 500;
     uint256 public constant PRICE_DEVIATION_TOLERANCE = 200;
+
+    IWHBAR public whbarContract;
     address public pool;
     address public quoter;
     address public lpToken0;
@@ -159,7 +161,10 @@ contract SaucerSwapLariRewardsCLMStrategy is
         for (uint256 i = 0; i < _params.rewardTokens.length; i++) {
             _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
-        _safeGiveAllowances();
+        whbarContract = IWHBAR(
+            block.chainid == 295 ? 0x0000000000000000000000000000000000163B59 : 0x0000000000000000000000000000000000003aD1
+        );
+        // _safeGiveAllowances();
     }
 
     function _onlyVault() private view {
@@ -204,6 +209,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function _addLiquidity() private onlyCalmPeriods {
         _whenStrategyNotPaused();
+        uint256 hbarBalanceBefore = address(this).balance > 0 ? address(this).balance - msg.value : 0;
+
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = getMintFee();
         uint160 sqrtprice = sqrtPrice();
@@ -270,6 +277,13 @@ contract SaucerSwapLariRewardsCLMStrategy is
                 "Beefy Alt"
             );
         }
+
+
+        uint256 hbarBalanceAfter = address(this).balance;
+        //return the excess hbar to caller
+        if (hbarBalanceAfter > hbarBalanceBefore) {
+            AddressUpgradeable.sendValue(payable(tx.origin), hbarBalanceAfter - hbarBalanceBefore);
+        }
     }
 
     function _removeLiquidity() private {
@@ -300,22 +314,22 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
         }
     }
-    function harvest(address _callFeeRecipient) external {
+    function harvest(address _callFeeRecipient) external payable {
         _harvest(_callFeeRecipient);
     }
 
-    function harvest() external {
+    function harvest() external payable {
         _harvest(tx.origin);
     }
 
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
         // Claim fees from the pool and collect them.
         _claimEarnings();
-        _removeLiquidity();
+        // _removeLiquidity();
         _processLariRewards();
         // Charge fees for Beefy and send them to the appropriate addresses, charge fees to accrued state fee amounts.
         (uint256 fee0, uint256 fee1) = _chargeFees(_callFeeRecipient, fees0, fees1);
-        _addLiquidity();
+        //_addLiquidity();
         // Reset state fees to 0.
         fees0 = 0;
         fees1 = 0;
@@ -331,7 +345,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _processLariRewards() private {
-        (uint256 newFees0, uint256 newFees1) = SaucerSwapLariLib.processLariRewards(rewardTokens, unirouter, lpToken0, lpToken1);
+        (uint256 newFees0, uint256 newFees1) = SaucerSwapLariLib.processLariRewards(rewardTokens, unirouter, lpToken0, lpToken1, native, whbarContract);
         fees0 += newFees0;
         fees1 += newFees1;
     }
@@ -531,16 +545,14 @@ contract SaucerSwapLariRewardsCLMStrategy is
         emit SetUnirouter(_unirouter);
     }
 
-    function retireVault() external onlyOwner {
-        if (IBeefyVaultConcLiq(vault).totalSupply() != 10 ** 3) revert NotAuthorized();
+    function retireStrategy() external onlyOwner {
         panic(0, 0);
-        address feeRecipient = beefyFeeRecipient;
         (uint bal0, uint bal1) = balancesOfThis();
         if (bal0 > 0) {
-            _transferTokens(lpToken0, address(this), feeRecipient, bal0, true);
+            _transferTokens(lpToken0, address(this), vault, bal0, true);
         }
         if (bal1 > 0) {
-            _transferTokens(lpToken1, address(this), feeRecipient, bal1, true);
+            _transferTokens(lpToken1, address(this), vault, bal1, true);
         }
         _transferOwnership(address(0));
     }

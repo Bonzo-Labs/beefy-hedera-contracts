@@ -164,6 +164,9 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
      * @notice Returns total underlying token balances.
      */
     function balances() public view returns (uint amount0, uint amount1) {
+        if(OwnableUpgradeable(address(strategy)).owner() == address(0)) {
+            return (IERC20Upgradeable(strategy.lpToken0()).balanceOf(address(this)), IERC20Upgradeable(strategy.lpToken1()).balanceOf(address(this)));
+        }
         (amount0, amount1) = IStrategyConcLiq(strategy).balances();
     }
 
@@ -421,30 +424,44 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         return 0; // Placeholder, real calculation happens in _completeDeposit
     }
 
+    function _prepareWithdraw() internal {
+        if(OwnableUpgradeable(address(strategy)).owner() == address(0)) return;
+        uint256 totalMintFeeRequired = estimateDepositHBARRequired();
+
+        // Forward HBAR for mint fees to strategy if required
+        if (totalMintFeeRequired > 0) {
+            AddressUpgradeable.sendValue(payable(address(strategy)), totalMintFeeRequired);
+        }
+    }
+
     /**
      * @dev A helper function to call withdraw() with all the sender's funds.
      * @param _minAmount0 the minimum amount of token0 that the user wants to recieve with slippage.
      * @param _minAmount1 the minimum amount of token1 that the user wants to recieve with slippage.
      */
-    function withdrawAll(uint256 _minAmount0, uint256 _minAmount1) external {
+    function withdrawAll(uint256 _minAmount0, uint256 _minAmount1) external payable {
         withdraw(balanceOf(msg.sender), _minAmount0, _minAmount1);
     }
 
     /**
      * @dev Helper function to withdraw all funds and receive native HBAR for WHBAR tokens
      */
-    function withdrawAllAsHBAR(uint256 _minAmount0, uint256 _minAmount1) external {
+    function withdrawAllAsHBAR(uint256 _minAmount0, uint256 _minAmount1) external payable {
+        _prepareWithdraw();
         withdrawAsHBAR(balanceOf(msg.sender), _minAmount0, _minAmount1);
     }
 
     /**
      * @notice Withdraw tokens from vault as WHBAR tokens.
      */
-    function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public nonReentrant {
+    function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public payable nonReentrant {
+        _prepareWithdraw();
         if (_shares == 0) revert NoShares();
 
-        // Withdraw All Liquidity to Strat for Accounting.
-        strategy.beforeAction();
+        // Withdraw All Liquidity to Strat for Accounting if strategy is not retired.
+        if(OwnableUpgradeable(address(strategy)).owner() != address(0)) {
+            strategy.beforeAction();
+        }
 
         uint256 _totalSupply = totalSupply();
         _burn(msg.sender, _shares);
@@ -453,13 +470,19 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
 
         uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
         uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
+        (address token0, address token1) = wants();
 
-        strategy.withdraw(_amount0, _amount1);
+        if(
+            IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 
+            || 
+            IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
+        ) {
+           strategy.withdraw(_amount0, _amount1);
+        } 
 
         if (_amount0 < _minAmount0 || _amount1 < _minAmount1 || (_amount0 == 0 && _amount1 == 0))
             revert TooMuchSlippage();
 
-        (address token0, address token1) = wants();
         if (_amount0 > 0) {
             _transferTokens(token0, address(this), msg.sender, _amount0, true);
         }
@@ -479,6 +502,7 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
      * @param _minAmount1 Minimum amount of token1 to receive (slippage protection)
      */
     function withdrawAsHBAR(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public nonReentrant {
+        _prepareWithdraw();
         if (_shares == 0) revert NoShares();
 
         // Validate this function is only used with HBAR/WHBAR pools

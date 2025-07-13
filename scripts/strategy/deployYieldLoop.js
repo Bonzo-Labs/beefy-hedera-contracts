@@ -58,9 +58,9 @@ async function main() {
     output = want; // Output is same as want
     unirouter = "0x00000000000000000000000000000000000026e7"; // SaucerSwap router
   } else if (CHAIN_TYPE === "mainnet") {
-    want = "0x00000000000000000000000000000000007e545e"; // BONZO token mainnet
-    aToken = "0xC5aa104d5e7D9baE3A69Ddd5A722b8F6B69729c9"; // aBONZO token mainnet
-    debtToken = "0x1790C9169480c5C67D8011cd0311DDE1b2DC76e0"; // debtBONZO token mainnet
+    want = "0x00000000000000000000000000000000000b2ad5"; // Sauce token mainnet
+    aToken = "0x2bcC0a304c0bc816D501c7C647D958b9A5bc716d"; // aSauce token mainnet
+    debtToken = "0x736c5dbB8ADC643f04c1e13a9C25f28d3D4f0503"; // debtSauce token mainnet
     lendingPool = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
     rewardsController = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
     output = want; // Output is same as want
@@ -113,6 +113,7 @@ async function main() {
     output,
     isHederaToken,
     leverageLoops,
+    addresses.beefyOracle,
     commonAddresses,
     { gasLimit: 3000000 }
   );
