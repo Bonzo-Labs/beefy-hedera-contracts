@@ -162,7 +162,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
             _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
         whbarContract = IWHBAR(
-            block.chainid == 295 ? 0x0000000000000000000000000000000000163B59 : 0x0000000000000000000000000000000000003aD1
+            block.chainid == 295
+                ? 0x0000000000000000000000000000000000163B59
+                : 0x0000000000000000000000000000000000003aD1
         );
         // _safeGiveAllowances();
     }
@@ -174,7 +176,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function beforeAction() external {
         _onlyVault();
         _claimEarnings();
-        _removeLiquidity();
+        // _removeLiquidity();
     }
 
     function deposit() external onlyCalmPeriods {
@@ -196,7 +198,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         _onlyVault();
         if (block.timestamp == lastDeposit) _onlyCalmPeriods();
 
-        // Liquidity has already been removed in beforeAction() so this is just a simple withdraw.
+        _removeLiquidity(); // Since we commented it out in beforeAction(), we need to remove it here.
         if (_amount0 > 0) {
             _transferTokens(lpToken0, address(this), vault, _amount0, true);
         }
@@ -278,7 +280,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
         }
 
-
         uint256 hbarBalanceAfter = address(this).balance;
         //return the excess hbar to caller
         if (hbarBalanceAfter > hbarBalanceBefore) {
@@ -322,6 +323,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
         _harvest(tx.origin);
     }
 
+    // In the harvest function, we WILL NOT remove and add liquidity because this creates >50 child transactions and fails on-chain.
+    // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
         // Claim fees from the pool and collect them.
         _claimEarnings();
@@ -345,12 +348,20 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _processLariRewards() private {
-        (uint256 newFees0, uint256 newFees1) = SaucerSwapLariLib.processLariRewards(rewardTokens, unirouter, lpToken0, lpToken1, native, whbarContract);
+        (uint256 newFees0, uint256 newFees1) = SaucerSwapLariLib.processLariRewards(
+            rewardTokens,
+            unirouter,
+            lpToken0,
+            lpToken1,
+            native,
+            whbarContract
+        );
         fees0 += newFees0;
         fees1 += newFees1;
     }
 
-
+    // This function will be called by Bonzo every 30 min or so in order to re-balance the positions.
+    // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function moveTicks() external onlyCalmPeriods onlyRebalancers {
         _claimEarnings();
         _removeLiquidity();
@@ -387,8 +398,25 @@ contract SaucerSwapLariRewardsCLMStrategy is
     ) private returns (uint256 _amountLeft0, uint256 _amountLeft1) {
         IFeeConfig.FeeCategory memory fees = getFees();
         (_amountLeft0, _amountLeft1) = SaucerSwapLariLib.calculateFeesLeft(_amount0, _amount1, fees.total, DIVISOR);
-        (uint256 feeAmount0, uint256 feeAmount1) = SaucerSwapLariLib.calculateLPTokenFees(_amount0, _amount1, fees.total, DIVISOR);
-        SaucerSwapLariLib.distributeLPTokenFees(_callFeeRecipient, strategist, beefyFeeRecipient, feeAmount0, feeAmount1, fees.call, fees.strategist, DIVISOR, lpToken0, lpToken1, native);
+        (uint256 feeAmount0, uint256 feeAmount1) = SaucerSwapLariLib.calculateLPTokenFees(
+            _amount0,
+            _amount1,
+            fees.total,
+            DIVISOR
+        );
+        SaucerSwapLariLib.distributeLPTokenFees(
+            _callFeeRecipient,
+            strategist,
+            beefyFeeRecipient,
+            feeAmount0,
+            feeAmount1,
+            fees.call,
+            fees.strategist,
+            DIVISOR,
+            lpToken0,
+            lpToken1,
+            native
+        );
     }
 
     function balances() public view returns (uint256 token0Bal, uint256 token1Bal) {
@@ -421,23 +449,25 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _getMainPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
-        return SaucerSwapLariLib.getMainPositionAmounts(
-            pool,
-            address(this),
-            positionMain.tickLower,
-            positionMain.tickUpper,
-            initTicks
-        );
+        return
+            SaucerSwapLariLib.getMainPositionAmounts(
+                pool,
+                address(this),
+                positionMain.tickLower,
+                positionMain.tickUpper,
+                initTicks
+            );
     }
 
     function _getAltPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
-        return SaucerSwapLariLib.getAltPositionAmounts(
-            pool,
-            address(this),
-            positionAlt.tickLower,
-            positionAlt.tickUpper,
-            initTicks
-        );
+        return
+            SaucerSwapLariLib.getAltPositionAmounts(
+                pool,
+                address(this),
+                positionAlt.tickLower,
+                positionAlt.tickUpper,
+                initTicks
+            );
     }
 
     function range() external view returns (uint256 lowerPrice, uint256 upperPrice) {
@@ -510,7 +540,13 @@ contract SaucerSwapLariRewardsCLMStrategy is
             revert InvalidTicks();
     }
 
-    function _transferTokens(address token, address /* from */, address to, uint256 amount, bool isFromContract) internal {
+    function _transferTokens(
+        address token,
+        address /* from */,
+        address to,
+        uint256 amount,
+        bool isFromContract
+    ) internal {
         if (isFromContract) {
             SaucerSwapLariLib.transferTokens(token, to, amount, native);
         } else {
@@ -604,11 +640,13 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function lpToken0ToNativePrice() external returns (uint256) {
-        return SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
+        return
+            SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
     }
 
     function lpToken1ToNativePrice() external returns (uint256) {
-        return SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
+        return
+            SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
     }
 
     function addRewardToken(address _token, bool _isHTS) external onlyManager {
@@ -617,7 +655,15 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _addRewardToken(address _token, bool _isHTS) internal {
-        SaucerSwapLariLib.addRewardToken(rewardTokens, rewardTokenIndex, isRewardToken, _token, _isHTS, lpToken0, lpToken1);
+        SaucerSwapLariLib.addRewardToken(
+            rewardTokens,
+            rewardTokenIndex,
+            isRewardToken,
+            _token,
+            _isHTS,
+            lpToken0,
+            lpToken1
+        );
         emit RewardTokenAdded(_token, _isHTS);
     }
 
@@ -631,7 +677,14 @@ contract SaucerSwapLariRewardsCLMStrategy is
         address[] calldata _toLp0Route,
         address[] calldata _toLp1Route
     ) external onlyManager {
-        SaucerSwapLariLib.setRewardRoute(rewardTokens, rewardTokenIndex, isRewardToken, _token, _toLp0Route, _toLp1Route);
+        SaucerSwapLariLib.setRewardRoute(
+            rewardTokens,
+            rewardTokenIndex,
+            isRewardToken,
+            _token,
+            _toLp0Route,
+            _toLp1Route
+        );
     }
 
     function removeRewardToken(address _token) external onlyManager {
@@ -671,7 +724,15 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function _validateMintSlippage(uint256 amount0, uint256 amount1) private view {
         (uint256 bal0, uint256 bal1) = balancesOfThis();
-        SaucerSwapCLMLib.validateMintSlippage(amount0, amount1, expectedAmount0, expectedAmount1, MINT_SLIPPAGE_TOLERANCE, bal0, bal1);
+        SaucerSwapCLMLib.validateMintSlippage(
+            amount0,
+            amount1,
+            expectedAmount0,
+            expectedAmount1,
+            MINT_SLIPPAGE_TOLERANCE,
+            bal0,
+            bal1
+        );
     }
 
     function _calculateLiquidityWithPriceCheck(
@@ -681,7 +742,16 @@ contract SaucerSwapLariRewardsCLMStrategy is
         uint256 amount0,
         uint256 amount1
     ) private view returns (uint128 liquidity, uint160 adjustedSqrtPrice) {
-        return SaucerSwapCLMLib.calculateLiquidityWithPriceCheck(pool, initialSqrtPrice, tickLower, tickUpper, amount0, amount1, PRICE_DEVIATION_TOLERANCE);
+        return
+            SaucerSwapCLMLib.calculateLiquidityWithPriceCheck(
+                pool,
+                initialSqrtPrice,
+                tickLower,
+                tickUpper,
+                amount0,
+                amount1,
+                PRICE_DEVIATION_TOLERANCE
+            );
     }
 
     receive() external payable {}
