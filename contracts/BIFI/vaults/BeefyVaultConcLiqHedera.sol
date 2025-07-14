@@ -41,6 +41,7 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     error WHBARUnwrapFailed();
     error InvalidNativeAmount();
     error OnlyHBARWHBARPools();
+    error InsufficientHBARBalance(uint256 hbarBalance, uint256 hbarRequired);
 
     // Events
     event Deposit(address indexed user, uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1, uint256 leftover0, uint256 leftover1);
@@ -353,6 +354,10 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
 
         // Forward HBAR for mint fees to strategy if required
         if (vars.totalMintFeeRequired > 0) {
+            uint256 hbarBalance = address(this).balance;
+            if (hbarBalance < vars.totalMintFeeRequired) {
+                revert InsufficientHBARBalance(hbarBalance, vars.totalMintFeeRequired);
+            }
             AddressUpgradeable.sendValue(payable(address(strategy)), vars.totalMintFeeRequired);
         }
     }
@@ -484,10 +489,22 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
             revert TooMuchSlippage();
 
         if (_amount0 > 0) {
-            _transferTokens(token0, address(this), msg.sender, _amount0, true);
+            if(token0 == strategy.native()) {
+                //unwrap WHBAR to HBAR
+                uint256 unwrappedAmount = _unwrapWHBAR(_amount0);
+                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+            }else{
+                _transferTokens(token0, address(this), msg.sender, _amount0, true);
+            }
         }
         if (_amount1 > 0) {
-            _transferTokens(token1, address(this), msg.sender, _amount1, true);
+            if(token1 == strategy.native()) {
+                //unwrap WHBAR to HBAR
+                uint256 unwrappedAmount = _unwrapWHBAR(_amount1);
+                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+            }else{
+                _transferTokens(token1, address(this), msg.sender, _amount1, true);
+            }
         }
 
         emit Withdraw(msg.sender, _shares, _amount0, _amount1);
@@ -589,6 +606,9 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
 
         uint256 hbarBefore = address(this).balance;
 
+        //approve WHBAR to be withdrawn
+        IERC20Upgradeable(WHBAR_TOKEN).approve(_whbarContract, amount);
+
         try IWHBAR(_whbarContract).withdraw(amount) {
             uint256 hbarAfter = address(this).balance;
             uint256 hbarReceived = hbarAfter - hbarBefore;
@@ -626,10 +646,6 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
                     IERC20Upgradeable(token).safeTransfer(to, wrappedAmount);
                 }
 
-                // Return excess HBAR if any
-                if (msg.value > amount) {
-                    AddressUpgradeable.sendValue(payable(msg.sender), msg.value - amount);
-                }
                 return;
             } else if (isFromContract) {
                 // Normal WHBAR transfer from contract

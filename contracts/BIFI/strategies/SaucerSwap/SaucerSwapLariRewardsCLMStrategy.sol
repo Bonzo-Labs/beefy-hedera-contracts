@@ -315,11 +315,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
         }
     }
-    function harvest(address _callFeeRecipient) external payable {
+    function harvest(address _callFeeRecipient) external {
         _harvest(_callFeeRecipient);
     }
 
-    function harvest() external payable {
+    function harvest() external {
         _harvest(tx.origin);
     }
 
@@ -362,7 +362,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     // This function will be called by Bonzo every 30 min or so in order to re-balance the positions.
     // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
-    function moveTicks() external onlyCalmPeriods onlyRebalancers {
+    function moveTicks() external payable onlyCalmPeriods onlyRebalancers {
         _claimEarnings();
         _removeLiquidity();
         _setTicks();
@@ -499,7 +499,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         return ISaucerSwapPool(pool).tickSpacing();
     }
 
-    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external nonReentrant {
+    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external payable nonReentrant {
         if (msg.sender != pool) revert NotPool();
         if (!minting) revert InvalidEntry();
         minting = false;
@@ -755,4 +755,5 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     receive() external payable {}
+    fallback() external payable {}
 }

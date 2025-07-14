@@ -317,7 +317,7 @@ contract StrategyPassiveManagerSaucerSwap is
         emit Harvest(fee0, fee1);
     }
 
-    function moveTicks() external onlyCalmPeriods onlyRebalancers {
+    function moveTicks() external payable onlyCalmPeriods onlyRebalancers {
         _claimEarnings();
         _removeLiquidity();
         _setTicks();
@@ -484,7 +484,7 @@ contract StrategyPassiveManagerSaucerSwap is
         return ISaucerSwapPool(pool).tickSpacing();
     }
 
-    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external {
+    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external payable {
         if (msg.sender != pool) revert NotPool();
         if (!minting) revert InvalidEntry();
         minting = false;
@@ -723,4 +723,5 @@ contract StrategyPassiveManagerSaucerSwap is
     }
 
     receive() external payable {}
+    fallback() external payable {}
 }

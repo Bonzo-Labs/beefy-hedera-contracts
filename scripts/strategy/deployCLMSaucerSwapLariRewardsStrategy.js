@@ -32,12 +32,16 @@ let config;
 if (CHAIN_TYPE === "testnet") {
   config = {
     // SaucerSwap V3 addresses (testnet)
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa", // SAUCE-CLXY pool
+    // HBAR-SAUCE pool 0x37814edc1ae88cf27c0c346648721fb04e7e0ae7
+    // SAUCE-CLXY pool 0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7", // HBAR-SAUCE pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000001535b2",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000001243ee",
     unirouter: process.env.UNIROUTER_ADDRESS || "0x0000000000000000000000000000000000159398",
     // Token addresses (testnet)
-    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000014f5", // CLXY
+    // CLXY 0x00000000000000000000000000000000000014f5
+    // WHBAR 0x0000000000000000000000000000000000003ad2
+    token0: process.env.TOKEN0_ADDRESS || "0x0000000000000000000000000000000000003aD2", // HBAR
     token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000120f46", // SAUCE
 
     // Native token (WHBAR)
@@ -403,16 +407,27 @@ async function deployNewStrategy() {
       // Example: SAUCE -> CLXY route (via WHBAR if needed)
       if (rewardToken === "0x0000000000000000000000000000000000120f46") {
         // SAUCE
-        toLp0Route = [rewardToken, config.native, config.token0]; // SAUCE -> WHBAR -> CLXY
+        toLp0Route =  config.token0.toLowerCase() == config.native.toLowerCase() ? 
+        [rewardToken, config.token0] 
+        : 
+        [rewardToken, config.native, config.token0]; // SAUCE -> WHBAR -> CLXY
+        
         toLp1Route = [rewardToken, config.token1]; // SAUCE -> SAUCE (direct)
-      } else if(rewardToken == config.native){
+      } else if(rewardToken.toLowerCase() == config.native.toLowerCase()){
         toLp0Route = [rewardToken, config.token0];
         toLp1Route = [rewardToken, config.token1];
       }
       else {
         // Generic route via native token
-        toLp0Route = [rewardToken, config.native, config.token0];
-        toLp1Route = [rewardToken, config.native, config.token1];
+        toLp0Route = config.token0.toLowerCase() == config.native.toLowerCase() ? 
+        [rewardToken, config.token0] 
+        : 
+        [rewardToken, config.native, config.token0];
+        
+        toLp1Route = config.token1.toLowerCase() == config.native.toLowerCase() ? 
+        [rewardToken, config.token1] 
+        : 
+        [rewardToken, config.native, config.token1];
       }
 
       try {

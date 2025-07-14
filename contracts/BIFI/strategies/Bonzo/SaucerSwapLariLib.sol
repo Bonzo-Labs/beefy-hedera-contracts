@@ -12,6 +12,7 @@ import "../../utils/TickUtils.sol";
 import "../../utils/FullMath.sol";
 import "../../utils/UniswapV3Utils.sol";
 import "../../Hedera/IWHBAR.sol";
+import {AddressUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 
 library SaucerSwapLariLib {
     using SafeERC20 for IERC20Metadata;
@@ -95,16 +96,17 @@ library SaucerSwapLariLib {
 
     function transferTokens(address token, address to, uint256 amount, address native) internal {
         if (amount == 0) return;
-        bool isNative = (token == native);
-        if (isNative) {
-            // Use safe native transfer for HBAR (only used for mint fees in strategies)
-            (bool success, ) = payable(to).call{value: amount}("");
-            require(success, "Native transfer failed");
-        } else {
-            // All other tokens (including WHBAR) are treated as standard ERC20/HTS tokens
-            // WHBAR conversion is handled exclusively by the vault
-            SaucerSwapCLMLib.transferHTS(token, to, amount);
-        }
+        SaucerSwapCLMLib.transferHTS(token, to, amount);
+       
+        // bool isNative = (token == native);
+        // if (isNative) {
+        //     // Use safe native transfer for HBAR (only used for mint fees in strategies)
+        //     AddressUpgradeable.sendValue(payable(to), amount);
+        // } else {
+        //     // All other tokens (including WHBAR) are treated as standard ERC20/HTS tokens
+        //     // WHBAR conversion is handled exclusively by the vault
+        //     SaucerSwapCLMLib.transferHTS(token, to, amount);
+        // }
     }
 
     function swapRewardToNative(

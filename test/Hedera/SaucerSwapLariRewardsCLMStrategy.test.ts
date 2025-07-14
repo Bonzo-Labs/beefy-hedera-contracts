@@ -20,15 +20,18 @@ let nonManagerPK: string | undefined;
 
 if (CHAIN_TYPE === "testnet") {
   addresses = require("../../scripts/deployed-addresses.json");
-  POOL_ADDRESS = "0x1a6Ca726e07a11849176b3C3b8e2cEda7553b9Aa"; // SAUCE-CLXY pool
+  // POOL_ADDRESS = "0x1a6Ca726e07a11849176b3C3b8e2cEda7553b9Aa"; // SAUCE-CLXY pool
+  POOL_ADDRESS = "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7"; // HBAR-SAUCE pool
   QUOTER_ADDRESS = "0x00000000000000000000000000000000001535b2"; // SaucerSwap quoter testnet
   FACTORY_ADDRESS = "0x00000000000000000000000000000000001243ee"; // SaucerSwap factory testnet
-  TOKEN0_ADDRESS = "0x00000000000000000000000000000000000014f5"; // CLXY testnet
+  // TOKEN0_ADDRESS = "0x00000000000000000000000000000000000014f5"; // CLXY testnet
+  TOKEN0_ADDRESS = "0x0000000000000000000000000000000000003aD2"; // HBAR testnet
   TOKEN1_ADDRESS = "0x0000000000000000000000000000000000120f46"; // SAUCE testnet
-  NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000"; // HBAR (native) testnet
+  NATIVE_ADDRESS = "0x0000000000000000000000000000000000003aD2"; // HBAR (native) testnet
   WHBAR_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000003aD1";
   REWARD_TOKEN_ADDRESSES = [
     "0x0000000000000000000000000000000000120f46", // SAUCE as reward token
+    "0x0000000000000000000000000000000000003aD2", // HBAR as reward token
     // Add more reward tokens as needed
   ];
   nonManagerPK = process.env.NON_MANAGER_PK;
@@ -96,8 +99,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     // Use existing deployed contracts
     console.log("=== Using Existing Deployed Contracts ===");
 
-    const EXISTING_STRATEGY_ADDRESS = "0xfFd401d40cb467421128FD5407843fBE3C468eD3";
-    const EXISTING_VAULT_ADDRESS = "0x1835F0F88eD3fe49aFb70e1a130cB22DE689709D";
+    const EXISTING_STRATEGY_ADDRESS = "0x314fd6520B560228fCFB750a60B18e030920c73B";
+    const EXISTING_VAULT_ADDRESS = "0x9C4116ac95dFe8D81df4969C4315a8e83D9ebF13";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -781,7 +784,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("Integration Tests", function () {
+  describe.skip("Integration Tests SAUCE-CLXY", function () {
     it("Should handle real CLXY + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
@@ -1060,6 +1063,336 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       }
     });
 
+    it.skip("Should allow moveTicks calls", async function () {
+      const positionMain = await strategy.positionMain();
+      const positionAlt = await strategy.positionAlt();
+      console.log("Position main:", positionMain);
+      console.log("Position alt:", positionAlt);
+      const moveTicksTx = await (strategy as any)["moveTicks()"](
+        { 
+          gasLimit: 3000000,
+        }
+      );
+      const receipt = await moveTicksTx.wait();
+      console.log("Move ticks receipt:", receipt.transactionHash);
+      console.log("Move ticks executed successfully");
+      const positionMainAfter = await strategy.positionMain();
+      const positionAltAfter = await strategy.positionAlt();
+      console.log("Position main after:", positionMainAfter);
+      console.log("Position alt after:", positionAltAfter);
+    });
+  });
+
+  describe("Integration Tests HBAR-SAUCE", function () {
+      it.skip("Should handle real HBAR + SAUCE deposits", async function () {
+        const price = await strategy.price();
+        const balances = await strategy.balances();
+        const [keyMain, keyAlt] = await strategy.getKeys();
+        const positionMain = await strategy.positionMain();
+        const positionAlt = await strategy.positionAlt();
+        const pool = await ethers.getContractAt(
+          "contracts/BIFI/interfaces/uniswap/IUniswapV3Pool.sol:IUniswapV3Pool",
+          POOL_ADDRESS
+        );
+        const slot0 = await pool.slot0();
+        console.log("Price:", price);
+        console.log("Balances:", balances);
+        console.log("Key Main:", keyMain);
+        console.log("Key Alt:", keyAlt);
+        console.log("Position Main:", positionMain);
+        console.log("Position Alt:", positionAlt);
+        console.log("Slot0:", slot0);
+  
+        try {
+
+          // Get initial balances
+          const initialShares = await vault.balanceOf(deployer.address);
+          const initialSAUCE = await token1Contract.balanceOf(deployer.address);
+          const initialHBAR = await deployer.getBalance();
+  
+          console.log("=== Initial Balances ===");
+          console.log("Initial HBAR Balance:", ethers.utils.formatEther(initialHBAR));
+          console.log("Initial SAUCE Balance:", ethers.utils.formatUnits(initialSAUCE, 6));
+          console.log("Initial Vault Shares:", initialShares.toString());
+          
+          const mintFee = await strategy.getMintFee();
+          console.log("Mint fee=====:", mintFee);
+
+          // Smart approval for SAUCE tokens
+          console.log("=== Smart Approving SAUCE tokens ===");
+          const requiredSauceAmount = ethers.utils.parseUnits("100", 6);
+  
+          try {
+            const currentSauceAllowance = await token1Contract.allowance(deployer.address, vault.address);
+            console.log("Current SAUCE allowance:", ethers.utils.formatUnits(currentSauceAllowance, 6));
+  
+            if (currentSauceAllowance.lt(ethers.utils.parseUnits("10", 6))) {
+              const approveTx = await token1Contract.approve(vault.address, requiredSauceAmount, { gasLimit: 1000000 });
+              await approveTx.wait();
+              console.log("✓ SAUCE tokens approved for vault");
+            } else {
+              console.log("✓ SAUCE approval sufficient, skipping");
+            }
+          } catch (sauceApprovalError: any) {
+            console.log("SAUCE approval failed:", sauceApprovalError.message);
+          }
+  
+          // Strategy state debugging before deposit
+          console.log("=== Strategy State Debugging ===");
+          try {
+            const isPaused = await strategy.paused();
+            console.log("Strategy paused:", isPaused);
+  
+            if (isPaused) {
+              console.log("⚠️ Strategy is paused - attempting to unpause...");
+              try {
+                const unpauseTx = await strategy.unpause({ gasLimit: 1000000 });
+                await unpauseTx.wait();
+                console.log("✓ Strategy unpaused successfully with owner");
+              } catch (unpauseError: any) {
+                console.log("Failed to unpause with owner:", unpauseError.message);
+              }
+            }
+  
+            const isCalm = await strategy.isCalm();
+            console.log("Pool is calm:", isCalm);
+  
+            const [bal0, bal1] = await strategy.balances();
+            console.log("Strategy balances - Token0:", bal0.toString(), "Token1:", bal1.toString());
+          } catch (stateError: any) {
+            console.log("Strategy state check failed:", stateError.message);
+          }
+  
+          // Try different deposit amounts with retry logic
+          console.log("=== Deposit with Retry Logic ===");
+  
+          const depositSizes = [{ hbar: "5.0", sauce: "5", name: "Half amount" }];
+  
+          let successfulDeposit = null;
+  
+          for (const size of depositSizes) {
+            try {
+              const depositHBARAmount = ethers.utils.parseUnits(size.hbar, 18); // HBAR decimals
+              const depositSauceAmount = ethers.utils.parseUnits(size.sauce, 6); // SAUCE decimals
+  
+              console.log(`\n--- Trying ${size.name}: ${size.hbar} HBAR + ${size.sauce} SAUCE ---`);
+              console.log(
+                `Deposit amounts - HBAR: ${depositHBARAmount.toString()}, SAUCE: ${depositSauceAmount.toString()}`
+              );
+  
+              // Get required HBAR for mint fees
+              let hbarRequired = await vault.estimateDepositHBARRequired();
+              console.log(`HBAR required from vault estimate: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+  
+              // If the estimate is too low (less than 1 tinybar), use the known mint fee
+              const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+              if (hbarRequired.lt(minTinybar)) {
+                // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+                hbarRequired = ethers.utils.parseEther("11.0");
+                console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+              }
+              hbarRequired = hbarRequired.add(depositHBARAmount);
+              console.log(`HBAR required for deposit: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+              console.log(`Executing ${size.name} deposit...`);
+              const depositTx = await vault.deposit(depositHBARAmount.div(10**10), depositSauceAmount, 0, {
+                value: hbarRequired, // Add HBAR for mint fees
+                gasLimit: 1500000,
+              });
+              await depositTx.wait();
+  
+              console.log(`✓ ${size.name} deposit successful!`);
+              successfulDeposit = {
+                size,
+              };
+              break; // Exit loop on success
+            } catch (sizeError: any) {
+              console.log(`${size.name} deposit failed:`, sizeError.message);
+              continue; // Try next size
+            }
+          }
+  
+          if (!successfulDeposit) {
+            throw new Error("All deposit sizes failed - check strategy state");
+          }
+  
+          // Check balances after successful deposit
+          console.log("\n=== Final Balance Check ===");
+          const finalShares = await vault.balanceOf(deployer.address);
+          const finalSAUCE = await token1Contract.balanceOf(deployer.address);
+          const finalHBAR = await deployer.getBalance();
+  
+          const hbarUsed = initialHBAR.sub(finalHBAR);
+          const sauceUsed = initialSAUCE.sub(finalSAUCE);
+          const sharesReceived = finalShares.sub(initialShares);
+  
+          console.log("=== Deposit Results ===");
+          console.log(`Successful deposit size: ${successfulDeposit.size.name}`);
+          console.log(`  ${successfulDeposit.size.hbar} HBAR + ${successfulDeposit.size.sauce} SAUCE`);
+          console.log("HBAR used:", ethers.utils.formatEther(hbarUsed));
+          console.log("SAUCE used:", ethers.utils.formatUnits(sauceUsed, 6));
+          console.log("Vault shares received:", sharesReceived.toString());
+          console.log("✓ Real HBAR + SAUCE deposit completed successfully!");
+  
+          // Verify deposit worked correctly
+          if (sharesReceived.gt(0)) {
+            console.log("✅ DEPOSIT SUCCESS: Real tokens successfully deposited into CLM strategy!");
+          } else {
+            console.log("⚠️ No shares received - deposit may not have worked correctly");
+          }
+        } catch (error: any) {
+          console.log("Real HBAR + SAUCE deposit failed:", error.message);
+          throw error; // Re-throw to fail the test if there's an actual issue
+        }
+      });
+  
+      it("Should handle real withdrawals of HBAR and SAUCE", async function () {
+        const shares = await vault.balanceOf(deployer.address);
+        console.log("Strategy balances shares:", shares.toString());
+        const sauceBefore = await token1Contract.balanceOf(deployer.address);
+        const hbarBefore = await deployer.getBalance();
+  
+        // Get required HBAR for mint fees
+        let hbarRequired = await vault.estimateDepositHBARRequired();
+        console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+  
+        // If the estimate is too low (less than 1 tinybar), use the known mint fee
+        const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+        if (hbarRequired.lt(minTinybar)) {
+          // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+          hbarRequired = ethers.utils.parseEther("10.0");
+          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+        }
+        const sharesToWithdraw = shares.div(2);
+        const withdrawTx = await vault.withdraw(
+          sharesToWithdraw,
+          0,
+          0,
+          {
+            value: hbarRequired,
+            gasLimit: 1500000,
+          }
+        );
+        const receipt = await withdrawTx.wait();
+        console.log("Withdrawal receipt:", receipt.transactionHash);
+  
+        //verify the withdrawals
+        const finalShares = await vault.balanceOf(deployer.address);
+        console.log("Final shares:", finalShares.toString());
+        console.log("Sauce before:", sauceBefore.toString());
+        const finalSAUCE = await token1Contract.balanceOf(deployer.address);
+        console.log("Final SAUCE:", ethers.utils.formatUnits(finalSAUCE, 6));
+        console.log("HBAR before:", hbarBefore.toString());
+        const finalHBAR = await deployer.getBalance();
+        console.log("Final HBAR:", ethers.utils.formatEther(finalHBAR));
+      });
+  
+      it.skip("Should allow harvest calls", async function () {
+        try {
+          //to mimic lari rewards, send SAUCE and HBAR to the strategy
+          const sauceTransferTx = await token1Contract.transfer(
+            strategy.address, 
+            ethers.utils.parseUnits("2", 6),
+            { gasLimit: 2000000 }
+          );
+          const receiptSauce = await sauceTransferTx.wait();
+          console.log("Sauce transfer receipt:", receiptSauce.transactionHash);
+          // Send native HBAR to the strategy address
+          // await deployer.sendTransaction({
+          //   to: strategy.address,
+          //   value: ethers.utils.parseEther("10.0")
+          // });
+          // console.log("HBAR SAUCE as LARI rewards sent to strategy");
+           // Get required HBAR for mint fees
+  
+          //get the reward tokens data
+          const rewardTokensLength = await strategy.getRewardTokensLength();
+          console.log("Number of reward tokens configured:", rewardTokensLength.toString());
+          const rewardToken0 = await strategy.getRewardToken(0);
+          const rewardToken1 = await strategy.getRewardToken(1);
+          console.log("Reward token 0:", rewardToken0);
+          console.log("Reward token 1:", rewardToken1);
+  
+          let hbarRequired = await vault.estimateDepositHBARRequired();
+          console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+  
+          // If the estimate is too low (less than 1 tinybar), use the known mint fee
+          const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+          if (hbarRequired.lt(minTinybar)) {
+            // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+            hbarRequired = ethers.utils.parseEther("10.0");
+            console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+          }
+          const harvestTx = await (strategy as any)["harvest()"](
+            { 
+              // value: hbarRequired,
+              gasLimit: 5000000,
+            }
+          );
+          const receipt = await harvestTx.wait();
+          console.log("Harvest receipt:", receipt.transactionHash);
+          console.log("Harvest executed successfully");
+        } catch (error: any) {
+          console.log("Harvest failed (expected without real liquidity):", error.message);
+        }
+      });
+  
+      it.skip("Should allow moveTicks calls", async function () {
+        const positionMain = await strategy.positionMain();
+        const positionAlt = await strategy.positionAlt();
+        console.log("Position main:", positionMain);
+        console.log("Position alt:", positionAlt);
+        let hbarRequired = await vault.estimateDepositHBARRequired();
+        console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+
+        // If the estimate is too low (less than 1 tinybar), use the known mint fee
+        const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
+        if (hbarRequired.lt(minTinybar)) {
+          // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
+          hbarRequired = ethers.utils.parseEther("10.0");
+          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
+        }
+        const moveTicksTx = await (strategy as any)["moveTicks()"](
+          { 
+            value: hbarRequired,
+            gasLimit: 3000000,
+          }
+        );
+        const receipt = await moveTicksTx.wait();
+        console.log("Move ticks receipt:", receipt.transactionHash);
+        console.log("Move ticks executed successfully");
+        const positionMainAfter = await strategy.positionMain();
+        const positionAltAfter = await strategy.positionAlt();
+        console.log("Position main after:", positionMainAfter);
+        console.log("Position alt after:", positionAltAfter);
+      });
+  });
+
+  describe.skip("Retire Strategy", function () {
+    it("should retire the strategy", async function () {
+      const retireTx = await strategy.retireStrategy();
+      const receipt = await retireTx.wait();
+      console.log("Retire receipt:", receipt.transactionHash);
+      console.log("Strategy retired successfully");
+    });
+    it("should revert deposit after retirement; withdrawals should work", async function () {
+      const depositTx = await vault.deposit(ethers.utils.parseUnits("1", 6), ethers.utils.parseUnits("1", 6), 0, {
+        value: ethers.utils.parseEther("10.0"),
+        gasLimit: 1100000,
+      });
+      await expect(depositTx.wait()).to.be.reverted;
+      const shares = await vault.balanceOf(deployer.address);
+      console.log("Shares before withdrawal:", shares.toString());
+
+      const sharesToWithdraw = shares.div(2);
+      const withdrawTx = await vault.withdraw(sharesToWithdraw, 0, 0, {
+        gasLimit: 1100000,
+      });
+      const receipt = await withdrawTx.wait();
+      console.log("Withdrawal receipt:", receipt.transactionHash);
+      console.log("Withdrawal successful");
+      const sharesAfter = await vault.balanceOf(deployer.address);
+      console.log("Shares after withdrawal:", sharesAfter.toString());
+    });
   });
 
   describe.skip("Configuration Summary", function () {
