@@ -41,7 +41,7 @@ interface IUniswapV3Factory {
 
     /// @notice Returns current mint fee
     /// @dev this can be changed by the current owner via setMintFee
-    /// @return current mint fee in tiny cents
+    /// @return current mint fee in tinycent US
     function mintFee() external view returns(uint256);
 
     /// @notice Returns the tick spacing for a given fee amount, if enabled, or 0 if not enabled
@@ -92,8 +92,8 @@ interface IUniswapV3Factory {
     /// @dev only the owner of the contract can call this function
     function setPoolCreateFee(uint256 _poolCreateFee) external;
 
-    /// @notice sets the mint fee in tinybars to deter malicious state expansion
-    /// @param _mintFee the new deposit fee
+    /// @notice sets the mint fee in tinycent US to deter malicious state expansion
+    /// @param _mintFee the new deposit fee in tinycent US
     /// @dev only the owner of the contract can call this function
     function setMintFee(uint256 _mintFee) external;
 

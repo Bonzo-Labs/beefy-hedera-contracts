@@ -70,7 +70,7 @@ contract StrategyPassiveManagerSaucerSwap is
     bool private minting;
     uint256 private expectedAmount0;
     uint256 private expectedAmount1;
-    uint256 public constant MINT_SLIPPAGE_TOLERANCE = 500;
+    uint256 public constant MINT_SLIPPAGE_TOLERANCE = 1000;
     uint256 public constant PRICE_DEVIATION_TOLERANCE = 200;
     bool private initTicks;
     uint256 private lastDeposit;
@@ -192,7 +192,7 @@ contract StrategyPassiveManagerSaucerSwap is
         uint256 hbarBalanceBefore = address(this).balance > 0 ? address(this).balance - msg.value : 0;
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
-        uint256 mintFee = getMintFee();
+        uint256 mintFee = updateMintFeeWithFreshPrice();
         uint160 sqrtprice = sqrtPrice();
         (uint128 liquidity, uint160 adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
@@ -477,7 +477,62 @@ contract StrategyPassiveManagerSaucerSwap is
 
     function getMintFee() public view returns (uint256 mintFee) {
         address poolFactory = ISaucerSwapPool(pool).factory();
+        uint256 tinycentUSFee = IUniswapV3Factory(poolFactory).mintFee();
+        //add 20% to the mint fee
+        mintFee = (tinycentUSFee * 110) / 100;
+        // Convert tinycent US to HBAR using oracle
+        if (beefyOracle != address(0)) {
+            // USDC addresses for different networks
+            address usdcAddress;
+            if (block.chainid == 296) { // Hedera testnet
+                usdcAddress = 0x0000000000000000000000000000000000001549;
+            } else if (block.chainid == 295) { // Hedera mainnet
+                usdcAddress = 0x000000000000000000000000000000000006f89a;
+            }
+            
+            try IBeefyOracle(beefyOracle).getPriceInUSD(native) returns (uint256 hbarPrice) {
+                if (hbarPrice > 0) {
+                    //get the price of usdc in hbar
+                    //hbar price is in usd
+                    //1e26: 1e18 * 1e8 (1e18 is the decimals of usdc, 1e8 is the decimals of hbar)
+                    //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
+                    mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                } else {
+                    revert("USDC price is zero");
+                }
+            } catch {
+                revert("USDC price fetch failed in getMintFee");
+            }
+        } else {
+            revert("BeefyOracle not set");
+        }
+    }
+
+    function getRawMintFee() public view returns (uint256 tinycentUSFee) {
+        address poolFactory = ISaucerSwapPool(pool).factory();
         return IUniswapV3Factory(poolFactory).mintFee();
+    }
+
+    function updateMintFeeWithFreshPrice() public returns (uint256 mintFee) {
+        address poolFactory = ISaucerSwapPool(pool).factory();
+        uint256 tinycentUSFee = IUniswapV3Factory(poolFactory).mintFee();
+        //add 10% to the mint fee
+        mintFee = (tinycentUSFee * 110) / 100;
+        
+        if (beefyOracle != address(0)) {
+            try IBeefyOracle(beefyOracle).getFreshPriceInUSD(native) returns (uint256 hbarPrice, bool success) {
+                if (success && hbarPrice > 0) {
+                    mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                } else {
+                    revert("Fresh HBAR price fetch failed");
+                }
+            } catch {
+                revert("Fresh HBAR price fetch failed in updateMintFeeWithFreshPrice");
+            }
+        } else {
+            revert("BeefyOracle not set");
+        }
+        return mintFee;
     }
 
     function _tickDistance() private view returns (int24) {
@@ -576,15 +631,10 @@ contract StrategyPassiveManagerSaucerSwap is
         bool isFromContract
     ) internal {
         if (amount == 0) return;
-        bool isNative = (token == native);
-        if (isNative) {
-            if (isFromContract) {
-                AddressUpgradeable.sendValue(payable(to), amount);
-            } else {
-                require(msg.value >= amount, "Insufficient native token sent");
-            }
-        } else {
+        if(isFromContract) {
             SaucerSwapCLMLib.transferHTS(token, to, amount);
+        } else {
+            require(msg.value >= amount, "Insufficient native token sent");
         }
     }
 

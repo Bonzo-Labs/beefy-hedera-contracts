@@ -30,12 +30,14 @@ if (CHAIN_TYPE === "testnet") {
   nonManagerPK = process.env.NON_MANAGER_PK;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
-  POOL_ADDRESS = "0x0000000000000000000000000000000000000000"; // TODO: Update with actual mainnet pool
-  QUOTER_ADDRESS = "0x0000000000000000000000000000000000000000"; // TODO: Update with actual mainnet quoter
-  FACTORY_ADDRESS = "0x0000000000000000000000000000000000000000"; // TODO: Update with actual mainnet factory
-  TOKEN0_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // WHBAR mainnet
-  TOKEN1_ADDRESS = "0x0000000000000000000000000000000000000000"; // TODO: Update with actual mainnet token1
-  NATIVE_ADDRESS = "0x0000000000000000000000000000000000000000"; // HBAR (native) mainnet
+  POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
+  // POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
+  QUOTER_ADDRESS = "0x00000000000000000000000000000000003c4370"; // TODO: Update with actual mainnet quoter
+  FACTORY_ADDRESS = "0x00000000000000000000000000000000003c3951"; // TODO: Update with actual mainnet factory
+  TOKEN0_ADDRESS = "0x000000000000000000000000000000000006f89a"; // USDC mainnet
+  TOKEN1_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE mainnet
+  // TOKEN1_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR mainnet
+  NATIVE_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR (native) mainnet
   WHBAR_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000163B59";
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET;
 } else {
@@ -88,8 +90,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     // Use existing deployed contracts
     console.log("=== Using Existing Deployed Contracts ===");
 
-    const EXISTING_STRATEGY_ADDRESS = "0x9017C9Bb44f8848BebA2A3Dce3C41Cd1152d013c";
-    const EXISTING_VAULT_ADDRESS = "0x40F6b2Db64BF22d55301B4e4d1cE74A8AE605f64";
+    const EXISTING_STRATEGY_ADDRESS = "0x4b0C98Df51EA320AeCEe73bB424EB76800d054C9";
+    const EXISTING_VAULT_ADDRESS = "0x232ffb8d58450B98A5A68dB565c290dbFf5f1b14";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -572,14 +574,11 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
         let hbarRequired = await vault.estimateDepositHBARRequired();
         console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
 
-        // If the estimate is too low (less than 1 tinybar), use the known mint fee
-        const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
-        if (hbarRequired.lt(minTinybar)) {
-          // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
-          hbarRequired = ethers.utils.parseEther("10.0");
-          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
-        }
-        const harvestTx = await strategy["harvest()"]({ value: hbarRequired });
+        const harvestTx = await strategy["harvest()"](
+          { 
+            value: hbarRequired.mul(10**10), 
+            gasLimit: 2000000 
+          });
         const receipt = await harvestTx.wait();
         console.log("Harvest receipt:", receipt.transactionHash);
         console.log("Harvest executed successfully");
@@ -702,7 +701,320 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it.skip("Should handle real HBAR + SAUCE deposits", async function () {
+    //Mainnet: USDC-SAUCE POOL ========================================================
+    //handle deposits of USDC and SAUCE
+    it.skip("mainnet:Should handle real USDC + SAUCE deposits", async function () {
+      const price = await strategy.price();
+      const balances = await strategy.balances();
+      const [keyMain, keyAlt] = await strategy.getKeys();
+      const positionMain = await strategy.positionMain();
+      const positionAlt = await strategy.positionAlt();
+      const pool = await ethers.getContractAt(
+        "contracts/BIFI/interfaces/uniswap/IUniswapV3Pool.sol:IUniswapV3Pool",
+        POOL_ADDRESS
+      );
+      const slot0 = await pool.slot0();
+      console.log("Price:", price);
+      console.log("Balances:", balances);
+      console.log("Key Main:", keyMain);
+      console.log("Key Alt:", keyAlt);
+      console.log("Position Main:", positionMain);
+      console.log("Position Alt:", positionAlt);
+      console.log("Slot0:", slot0);
+
+      try {
+        // Initialize CLXY token contract (assuming it's token1 or a different token)
+        const USDC_ADDRESS = TOKEN0_ADDRESS; // Replace with actual CLXY address
+        const usdcToken = await ethers.getContractAt(
+          "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+          USDC_ADDRESS
+        );
+
+        // Get initial balances
+        const initialShares = await vault.balanceOf(deployer.address);
+        const initialSAUCE = await sauceToken.balanceOf(deployer.address);
+        const initialUSDC = await usdcToken.balanceOf(deployer.address);
+
+        console.log("=== Initial Balances ===");
+        console.log("Initial USDC Balance:", ethers.utils.formatUnits(initialUSDC, 6)); // Assuming 8 decimals
+        console.log("Initial SAUCE Balance:", ethers.utils.formatUnits(initialSAUCE, 6));
+        console.log("Initial Vault Shares:", initialShares.toString());
+
+        // Smart approval for SAUCE tokens
+        console.log("=== Smart Approving SAUCE tokens ===");
+        const requiredSauceAmount = ethers.utils.parseUnits("1", 6);
+
+        try {
+          const currentSauceAllowance = await sauceToken.allowance(deployer.address, vault.address);
+          console.log("Current SAUCE allowance:", ethers.utils.formatUnits(currentSauceAllowance, 6));
+
+          if (currentSauceAllowance.lt(ethers.utils.parseUnits("1", 6))) {
+            const approveTx = await sauceToken.approve(vault.address, requiredSauceAmount, { gasLimit: 1000000 });
+            await approveTx.wait();
+            console.log("✓ SAUCE tokens approved for vault");
+          } else {
+            console.log("✓ SAUCE approval sufficient, skipping");
+          }
+        } catch (sauceApprovalError: any) {
+          console.log("SAUCE approval failed:", sauceApprovalError.message);
+        }
+
+        // Smart approval for USDC tokens
+        console.log("=== Smart Approving USDC tokens ===");
+        const requiredUSDCAmount = ethers.utils.parseUnits("1", 6);
+
+        try {
+          const currentUSDCAllowance = await usdcToken.allowance(deployer.address, vault.address);
+          console.log("Current USDC allowance:", ethers.utils.formatUnits(currentUSDCAllowance, 6));
+
+          if (currentUSDCAllowance.lt(ethers.utils.parseUnits("1", 6))) {
+            const usdcApproveTx = await usdcToken.approve(vault.address, requiredUSDCAmount, { gasLimit: 1000000 });
+            await usdcApproveTx.wait();
+            console.log("✓ USDC tokens approved for vault");
+          } else {
+            console.log("✓ USDC approval sufficient, skipping");
+          }
+        } catch (usdcApprovalError: any) {
+          console.log("USDC approval failed:", usdcApprovalError.message);
+        }
+
+        // Strategy state debugging before deposit
+        console.log("=== Strategy State Debugging ===");
+        try {
+          const isPaused = await strategy.paused();
+          console.log("Strategy paused:", isPaused);
+
+          if (isPaused) {
+            console.log("⚠️ Strategy is paused - attempting to unpause...");
+            try {
+              const unpauseTx = await strategy.unpause({ gasLimit: 1000000 });
+              await unpauseTx.wait();
+              console.log("✓ Strategy unpaused successfully with owner");
+            } catch (unpauseError: any) {
+              console.log("Failed to unpause with owner:", unpauseError.message);
+            }
+          }
+
+          const isCalm = await strategy.isCalm();
+          console.log("Pool is calm:", isCalm);
+
+          const [bal0, bal1] = await strategy.balances();
+          console.log("Strategy balances - Token0:", bal0.toString(), "Token1:", bal1.toString());
+        } catch (stateError: any) {
+          console.log("Strategy state check failed:", stateError.message);
+        }
+
+        // Try different deposit amounts with retry logic
+        console.log("=== Deposit with Retry Logic ===");
+
+        const depositSizes = [{ usdc: "0.1", sauce: "0.1", name: "fractional amount" }];
+
+        let successfulDeposit = null;
+
+        for (const size of depositSizes) {
+          try {
+            const depositUSDCAmount = ethers.utils.parseUnits(size.usdc, 6); // USDC decimals
+            const depositSauceAmount = ethers.utils.parseUnits(size.sauce, 6); // SAUCE decimals
+
+            console.log(`\n--- Trying ${size.name}: ${size.usdc} USDC + ${size.sauce} SAUCE ---`);
+            console.log(
+              `Deposit amounts - USDC: ${depositUSDCAmount.toString()}, SAUCE: ${depositSauceAmount.toString()}`
+            );
+
+            // Get required HBAR for mint fees
+            let hbarRequired = await vault.estimateDepositHBARRequired();
+            console.log(`HBAR required from vault estimate: ${hbarRequired}`);
+
+            let hbarReqStrat = await strategy.getMintFee();
+            console.log(`HBAR required from strategy estimate: ${hbarReqStrat.toString()}`);
+
+            const rawMintFee = await strategy.getRawMintFee();
+            console.log(`Raw mint fee: ${rawMintFee.toString()}`);
+           
+            console.log(`Executing ${size.name} deposit...`);
+            const depositTx = await vault.deposit(depositUSDCAmount, depositSauceAmount, 0, {
+              value: hbarRequired.mul(10**10), // Add HBAR for mint fees
+              gasLimit: 1500000,
+            });
+            const receipt = await depositTx.wait();
+
+            console.log(`✓ ${size.name} deposit successful!, tx hash: ${receipt.transactionHash}`);
+            successfulDeposit = {
+              size,
+            };
+            break; // Exit loop on success
+          } catch (sizeError: any) {
+            console.log(`${size.name} deposit failed:`, sizeError.message);
+            continue; // Try next size
+          }
+        }
+
+        if (!successfulDeposit) {
+          throw new Error("All deposit sizes failed - check strategy state");
+        }
+
+        // Check balances after successful deposit
+        console.log("\n=== Final Balance Check ===");
+        const finalShares = await vault.balanceOf(deployer.address);
+        const finalSAUCE = await sauceToken.balanceOf(deployer.address);
+        const finalUSDC = await usdcToken.balanceOf(deployer.address);
+
+        const usdcUsed = initialUSDC.sub(finalUSDC);
+        const sauceUsed = initialSAUCE.sub(finalSAUCE);
+        const sharesReceived = finalShares.sub(initialShares);
+
+        console.log("=== Deposit Results ===");
+        console.log(`Successful deposit size: ${successfulDeposit.size.name}`);
+        console.log(`  ${successfulDeposit.size.usdc} USDC + ${successfulDeposit.size.sauce} SAUCE`);
+        console.log("USDC used:", ethers.utils.formatUnits(usdcUsed, 6));
+        console.log("SAUCE used:", ethers.utils.formatUnits(sauceUsed, 6));
+        console.log("Vault shares received:", sharesReceived.toString());
+        console.log("✓ Real USDC + SAUCE deposit completed successfully!");
+
+        // Verify deposit worked correctly
+        if (sharesReceived.gt(0)) {
+          console.log("✅ DEPOSIT SUCCESS: Real tokens successfully deposited into CLM strategy!");
+        } else {
+          console.log("⚠️ No shares received - deposit may not have worked correctly");
+        }
+      } catch (error: any) {
+        console.log("Real CLXY + SAUCE deposit failed:", error.message);
+        throw error; // Re-throw to fail the test if there's an actual issue
+      }
+
+    });
+
+    //handle withdrawals of USDC and SAUCE
+    it.skip("mainnet:Should handle real withdrawals of USDC and SAUCE", async function () {
+      const USDC_ADDRESS = "0x000000000000000000000000000000000006f89a"; // Replace with actual USDC address
+      const usdcToken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        USDC_ADDRESS
+      );
+      const shares = await vault.balanceOf(deployer.address);
+      console.log("Strategy balances shares:", shares.toString());
+      const sauceBefore = await sauceToken.balanceOf(deployer.address);
+      const usdcBefore = await usdcToken.balanceOf(deployer.address);
+
+      // Get required HBAR for mint fees
+      let hbarRequired = await vault.estimateDepositHBARRequired();
+      console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
+
+      const sharesToWithdraw = shares.div(2);
+      const withdrawTx = await vault.withdraw(
+        sharesToWithdraw,
+        0,
+        0,
+        {
+          value: hbarRequired.mul(10**10),
+          gasLimit: 1100000,
+        }
+      );
+      const receipt = await withdrawTx.wait();
+      console.log("Withdrawal receipt:", receipt.transactionHash);
+
+      //verify the withdrawals
+      const finalShares = await vault.balanceOf(deployer.address);
+      console.log("Final shares:", finalShares.toString());
+      console.log("Sauce before:", sauceBefore.toString());
+      const finalSAUCE = await sauceToken.balanceOf(deployer.address);
+      console.log("Final SAUCE:", ethers.utils.formatUnits(finalSAUCE, 6));
+      console.log("usdc before:", usdcBefore.toString());
+      const finalUSDC = await usdcToken.balanceOf(deployer.address);
+      console.log("Final USDC:", ethers.utils.formatUnits(finalUSDC, 6));
+    });
+
+    //Mainnet: USDC-HBAR POOL ========================================================
+    //handle deposits of USDC and HBAR
+    it("mainnet:Should handle real USDC + HBAR deposits", async function () {
+      const price = await strategy.price();
+      const balances = await strategy.balances();
+      const [keyMain, keyAlt] = await strategy.getKeys();
+      const [bal0, bal1] = await strategy.balances();
+      console.log("Strategy balances - Token0:", bal0.toString(), "Token1:", bal1.toString());
+      console.log("Strategy price:", price.toString());
+      console.log("Strategy balances:", balances.toString());
+      console.log("Strategy keys:", keyMain, keyAlt);
+      console.log("Strategy balances - Token0:", bal0.toString(), "Token1:", bal1.toString());
+      const usdcToken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        TOKEN0_ADDRESS
+      );
+      const initialHBAR = await deployer.getBalance();
+      const initialShares = await vault.balanceOf(deployer.address);
+      const initialUSDC = await usdcToken.balanceOf(deployer.address);
+
+      console.log("Initial HBAR Balance:", ethers.utils.formatEther(initialHBAR));
+      console.log("Initial USDC Balance:", ethers.utils.formatUnits(initialUSDC, 6));
+      console.log("Initial Vault Shares:", initialShares.toString());
+
+      const hbarAmount = ethers.utils.parseUnits("0.2", 8); // 0.1 HBAR
+      const usdcAmount = ethers.utils.parseUnits("0.1", 6); // 0.1 USDC
+
+      //smart approve for usdc
+      const approveTx = await usdcToken.approve(vault.address, usdcAmount, { gasLimit: 1000000 });
+      await approveTx.wait();
+      console.log("✓ USDC tokens approved for vault");
+
+      let hbarRequired = await vault.estimateDepositHBARRequired();
+      console.log(`HBAR required from vault estimate: ${hbarRequired}`);
+      hbarRequired = (hbarRequired.add(hbarAmount)).mul(10**10);
+      console.log(`HBAR required for deposit: ${hbarRequired}`);
+
+      const depositTx = await vault.deposit(usdcAmount, hbarAmount, 0, {
+        value: hbarRequired,
+        gasLimit: 2000000,
+      });
+      const receipt = await depositTx.wait();
+      console.log(`✓ Deposit successful!, tx hash: ${receipt.transactionHash}`);
+
+      const finalShares = await vault.balanceOf(deployer.address);
+      const finalHBAR = await deployer.getBalance();
+      const finalUSDC = await usdcToken.balanceOf(deployer.address);
+
+      console.log("Final HBAR Balance:", ethers.utils.formatEther(finalHBAR));
+      console.log("Final USDC Balance:", ethers.utils.formatUnits(finalUSDC, 6));
+      console.log("Final Vault Shares:", finalShares.toString());
+      console.log("✓ Real USDC + HBAR deposit completed successfully!");
+    });
+
+    //handle withdrawals of USDC and HBAR
+    it("mainnet:Should handle real withdrawals of USDC and HBAR", async function () {
+      const usdcToken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        TOKEN0_ADDRESS
+      );
+      const shares = await vault.balanceOf(deployer.address);
+      const hbarBefore = await deployer.getBalance();
+      const usdcBefore = await usdcToken.balanceOf(deployer.address);
+      let hbarRequired = await vault.estimateDepositHBARRequired();
+      console.log(`HBAR required from vault estimate: ${hbarRequired}`);
+      const sharesToWithdraw = shares.div(2);
+      const withdrawTx = await vault.withdraw(
+        sharesToWithdraw,
+        0,
+        0,
+        {
+          value: hbarRequired.mul(10**10),
+          gasLimit: 2000000,
+        }
+      );
+      const receipt = await withdrawTx.wait();
+      console.log("Withdrawal receipt:", receipt.transactionHash);
+
+      const finalShares = await vault.balanceOf(deployer.address);
+      console.log("Final shares:", finalShares.toString());
+      console.log("HBAR before:", hbarBefore.toString());
+      const finalHBAR = await deployer.getBalance();
+      console.log("Final HBAR:", ethers.utils.formatEther(finalHBAR));
+      console.log("usdc before:", usdcBefore.toString());
+      const finalUSDC = await usdcToken.balanceOf(deployer.address);
+      console.log("Final USDC:", ethers.utils.formatUnits(finalUSDC, 6));
+    });
+
+    //TESTNET: HBAR-SAUCE POOL ========================================================
+    //handle deposits of HBAR and SAUCE
+    it.skip("testnet:Should handle real HBAR + SAUCE deposits", async function () {
       if (!vault || !strategy || !sauceToken) {
         console.log("Vault, strategy, or SAUCE token not available, skipping test");
         return;
@@ -916,7 +1228,9 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it.skip("Should handle real CLXY + SAUCE deposits", async function () {
+    //TESTNET: CLXY-SAUCE POOL ========================================================
+    //handle deposits of CLXY and SAUCE
+    it.skip("testnet:Should handle real CLXY + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
       const [keyMain, keyAlt] = await strategy.getKeys();
@@ -1099,7 +1413,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
     });
 
     //handle witdrawals of CLXY and SAUCE
-    it("Should handle real withdrawals of CLXY and SAUCE", async function () {
+    it.skip("testnet:Should handle real withdrawals of CLXY and SAUCE", async function () {
       const CLXY_ADDRESS = "0x00000000000000000000000000000000000014f5"; // Replace with actual CLXY address
       const clxyToken = await ethers.getContractAt(
         "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
@@ -1145,7 +1459,8 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       console.log("Final CLXY:", ethers.utils.formatUnits(finalCLXY, 6));
     });
 
-    it.skip("Should handle real withdrawals (WHBAR and native HBAR)", async function () {
+
+    it.skip("testnet:Should handle real withdrawals (WHBAR and native HBAR)", async function () {
       if (!vault || !sauceToken) {
         console.log("Vault or SAUCE token not available, skipping test");
         return;
@@ -1225,7 +1540,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       }
     });
 
-    it.skip("Should handle mixed ratio HBAR/SAUCE deposits", async function () {
+    it.skip("testnet:Should handle mixed ratio HBAR/SAUCE deposits", async function () {
       if (!vault || !sauceToken) {
         console.log("Vault or SAUCE token not available, skipping test");
         return;
@@ -1357,6 +1672,37 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
       console.log("=== End Usage Guide ===\n");
 
       expect(true).to.be.true;
+    });
+  });
+
+  describe("Retire Strategy", function () {
+    it.skip("should retire the strategy", async function () {
+      const retireTx = await strategy.retireStrategy();
+      const receipt = await retireTx.wait();
+      console.log("Retire receipt:", receipt.transactionHash);
+      console.log("Strategy retired successfully");
+    });   
+    it.skip("should revert deposit after retirement; withdrawals should work", async function () {
+      const depositTx = await vault.deposit(ethers.utils.parseUnits("0.1", 6), ethers.utils.parseUnits("0.1", 8), 0, {
+        value: ethers.utils.parseEther("0.1"),
+        gasLimit: 2000000,
+      });
+      await expect(depositTx.wait()).to.be.reverted;
+      const shares = await vault.balanceOf(deployer.address);
+      console.log("Shares before withdrawal:", shares.toString());
+
+      const hbarRequired = await vault.estimateDepositHBARRequired();
+      console.log(`HBAR required from vault estimate: ${hbarRequired}`);
+      const sharesToWithdraw = shares.div(2);
+      const withdrawTx = await vault.withdraw(sharesToWithdraw, 0, 0, {
+        value: hbarRequired.mul(10**10),
+        gasLimit: 2000000,
+      });
+      const receipt = await withdrawTx.wait();
+      console.log("Withdrawal receipt:", receipt.transactionHash);
+      console.log("Withdrawal successful");
+      const sharesAfter = await vault.balanceOf(deployer.address);
+      console.log("Shares after withdrawal:", sharesAfter.toString());
     });
   });
 

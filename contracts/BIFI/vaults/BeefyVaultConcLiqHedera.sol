@@ -25,9 +25,12 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
-
-    address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000003aD1;
-    address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000003aD2;
+    //testnet
+    // address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000003aD1;
+    // address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000003aD2;
+    //mainnet
+    address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000163B59;
+    address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000163B5a;
 
     address public beefyOracle;
     error NoShares();
@@ -389,16 +392,28 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
 
         // Return leftover tokens to user if any
         if (vars.leftover0 > 0) {
-            _transferTokens(vars.token0, address(this), recipient, vars.leftover0, true);
+            if(isWHBAR(vars.token0)) {
+                _unwrapWHBAR(vars.leftover0);
+                AddressUpgradeable.sendValue(payable(recipient), vars.leftover0);
+            }else{
+                _transferTokens(vars.token0, address(this), recipient, vars.leftover0, true);
+            }
         }
         if (vars.leftover1 > 0) {
-            _transferTokens(vars.token1, address(this), recipient, vars.leftover1, true);
+            if(isWHBAR(vars.token1)) {
+                _unwrapWHBAR(vars.leftover1);
+                AddressUpgradeable.sendValue(payable(recipient), vars.leftover1);
+            }else{
+                _transferTokens(vars.token1, address(this), recipient, vars.leftover1, true);
+            }
         }
 
         // Return excess HBAR to user if any
         uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
         if (msg.value > actualHBARUsed) {
-            AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
+            if(address(this).balance >= msg.value - actualHBARUsed) {
+                AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
+            }
         }
 
         _mint(recipient, shares);

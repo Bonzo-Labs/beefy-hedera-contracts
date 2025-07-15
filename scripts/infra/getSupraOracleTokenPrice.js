@@ -52,8 +52,9 @@ async function main() {
       console.log(`\nGetting price for token: ${token}`);
       
       // Get the price from the oracle
-      const price = await beefyOracle.getFreshPrice(token);
+      const price = await beefyOracle.getPrice(token);
       console.log(`Price for token ${token}: ${JSON.stringify(price)}`);
+      console.log(`Price for token ${token}: ${price.toString()}`);
       
       // Get additional price information if available
     //   try {

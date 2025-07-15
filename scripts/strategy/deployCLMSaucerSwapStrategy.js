@@ -54,13 +54,18 @@ if (CHAIN_TYPE === "testnet") {
 } else if (CHAIN_TYPE === "mainnet") {
   config = {
     // SaucerSwap V3 addresses (mainnet)
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x", // Update with actual mainnet pool
-    quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x", // Update with actual mainnet quoter
-    factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x", // Update with actual mainnet factory
+    // USDC-HBAR pool: 0xc5b707348da504e9be1bd4e21525459830e7b11d
+    // USDC-SAUCE pool: 0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xc5b707348da504e9be1bd4e21525459830e7b11d", // Update with actual mainnet pool
+    quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000003c4370", // Update with actual mainnet quoter
+    factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000003c3951", // Update with actual mainnet factory
 
     // Token addresses (mainnet)
-    token0: process.env.TOKEN0_ADDRESS || "0x", // Update with actual mainnet token0
-    token1: process.env.TOKEN1_ADDRESS || "0x", // Update with actual mainnet token1
+    // USDC: 0x000000000000000000000000000000000006f89a
+    // HBAR: 0x0000000000000000000000000000000000163b5a
+    // SAUCE: 0x00000000000000000000000000000000000b2ad5
+    token0: process.env.TOKEN0_ADDRESS || "0x000000000000000000000000000000000006f89a", // Update with actual mainnet token0
+    token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000163b5a", // Update with actual mainnet token1
 
     // Native token (WHBAR)
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet

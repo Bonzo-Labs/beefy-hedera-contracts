@@ -16,8 +16,7 @@ if(process.env.CHAIN_TYPE === "mainnet") {
   const whbarAddress = "0x0000000000000000000000000000000000163b5a";
   const usdcAddress = "0x000000000000000000000000000000000006f89a";
   const grelfAddress = "0x000000000000000000000000000000000011afa2"
-  // tokenAddresses = [sauceAddress, whbarAddress, usdcAddress];
-  tokenAddresses = [grelfAddress];
+  tokenAddresses = [sauceAddress, whbarAddress, usdcAddress, grelfAddress];
 } else {
   addresses = require("../deployed-addresses.json");
   supraOracleAddress = "0xA55d9ac9aca329f5687e1cC286d0847e3f02062e"; // Supra Oracle address
@@ -60,7 +59,7 @@ async function main() {
   // 1. Deploy BeefyOracleSupra library
   if(deployNewOracle) {
     const BeefyOracleSupra = await ethers.getContractFactory("BeefyOracleSupra", deployer);
-    const beefyOracleSupra = await BeefyOracleSupra.deploy({gasLimit: 3000000});
+    const beefyOracleSupra = await BeefyOracleSupra.deploy({gasLimit: 1000000});
     await beefyOracleSupra.deployed();
     console.log("BeefyOracleSupra deployed to:", beefyOracleSupra.address);
     beefyOracleSupraAddress = beefyOracleSupra.address;
