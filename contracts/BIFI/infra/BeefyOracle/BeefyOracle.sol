@@ -33,6 +33,10 @@ contract BeefyOracle is OwnableUpgradeable {
     /// @notice Oracle library address and payload for delegating the price calculation of a token
     mapping(address => SubOracle) public subOracle;
 
+    /// @notice Price of a token in usd
+    mapping(address => LatestPrice) public priceInUSD;  
+    mapping(address=>SubOracle) public subOracleForUSD;
+
     /// @notice Length of time in seconds before a price goes stale
     uint256 public staleness;
 
@@ -51,6 +55,10 @@ contract BeefyOracle is OwnableUpgradeable {
     /// @notice New staleness has been set
     /// @param staleness Length of time a price stays fresh for
     event SetStaleness(uint256 staleness);
+
+    event SetOracleForUSD(address indexed token, address oracle, bytes data);
+
+    event PriceUpdatedInUSD(address indexed token, uint256 price, uint256 timestamp);
 
     /// @notice Initialize the contract
     /// @dev Ownership is transferred to msg.sender
@@ -86,6 +94,27 @@ contract BeefyOracle is OwnableUpgradeable {
             if (success) {
                 latestPrice[_token] = LatestPrice({price: price, timestamp: block.timestamp});
                 emit PriceUpdated(_token, price, block.timestamp);
+            }
+        }
+    }
+
+    function getPriceInUSD(address _token) external view returns (uint256 price) {
+        price = priceInUSD[_token].price;
+    }
+
+    function getFreshPriceInUSD(address _token) external returns (uint256 price, bool success) {
+        (price, success) = _getFreshPriceInUSD(_token);
+    }
+
+    function _getFreshPriceInUSD(address _token) private returns (uint256 price, bool success) {
+        if (priceInUSD[_token].timestamp + staleness > block.timestamp) {
+            price = priceInUSD[_token].price;
+            success = true;
+        } else {
+            (price, success) = ISubOracle(subOracleForUSD[_token].oracle).getPrice(subOracleForUSD[_token].data);
+            if (success) {
+                priceInUSD[_token] = LatestPrice({price: price, timestamp: block.timestamp});
+                emit PriceUpdatedInUSD(_token, price, block.timestamp);
             }
         }
     }
@@ -128,6 +157,31 @@ contract BeefyOracle is OwnableUpgradeable {
         _getFreshPrice(_token);
         emit SetOracle(_token, _oracle, _data);
     }
+
+    function setOracleForUSD(address _token, address _oracle, bytes calldata _data) external onlyOwner {
+        _setOracleForUSD(_token, _oracle, _data);
+    }
+
+    function setOraclesForUSD(
+        address[] calldata _tokens,
+        address[] calldata _oracles,
+        bytes[] calldata _datas
+    ) external onlyOwner {
+        uint256 tokenLength = _tokens.length;
+        for (uint i; i < tokenLength;) {
+            _setOracleForUSD(_tokens[i], _oracles[i], _datas[i]);
+            unchecked { ++i; }
+        }
+    }
+
+    function _setOracleForUSD(address _token, address _oracle, bytes calldata _data) private {
+        ISubOracle(_oracle).validateData(_data);
+        subOracleForUSD[_token] = SubOracle({oracle: _oracle, data: _data});
+        _getFreshPriceInUSD(_token);
+        emit SetOracleForUSD(_token, _oracle, _data);
+    }
+
+    
 
     /// @notice Owner function to set the staleness
     /// @param _staleness Length of time in seconds before a price becomes stale
