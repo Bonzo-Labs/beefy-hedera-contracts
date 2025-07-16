@@ -482,14 +482,6 @@ contract StrategyPassiveManagerSaucerSwap is
         mintFee = (tinycentUSFee * 110) / 100;
         // Convert tinycent US to HBAR using oracle
         if (beefyOracle != address(0)) {
-            // USDC addresses for different networks
-            address usdcAddress;
-            if (block.chainid == 296) { // Hedera testnet
-                usdcAddress = 0x0000000000000000000000000000000000001549;
-            } else if (block.chainid == 295) { // Hedera mainnet
-                usdcAddress = 0x000000000000000000000000000000000006f89a;
-            }
-            
             try IBeefyOracle(beefyOracle).getPriceInUSD(native) returns (uint256 hbarPrice) {
                 if (hbarPrice > 0) {
                     //get the price of usdc in hbar
@@ -498,10 +490,10 @@ contract StrategyPassiveManagerSaucerSwap is
                     //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
                 } else {
-                    revert("USDC price is zero");
+                    revert("HBAR price is zero");
                 }
             } catch {
-                revert("USDC price fetch failed in getMintFee");
+                revert("HBAR price fetch failed in getMintFee");
             }
         } else {
             revert("BeefyOracle not set");
@@ -628,14 +620,10 @@ contract StrategyPassiveManagerSaucerSwap is
         address /* from */,
         address to,
         uint256 amount,
-        bool isFromContract
+        bool /* isFromContract */
     ) internal {
         if (amount == 0) return;
-        if(isFromContract) {
-            SaucerSwapCLMLib.transferHTS(token, to, amount);
-        } else {
-            require(msg.value >= amount, "Insufficient native token sent");
-        }
+        SaucerSwapCLMLib.transferHTS(token, to, amount);
     }
 
     function setDeviation(int56 _maxDeviation) external onlyOwner {

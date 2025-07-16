@@ -36,7 +36,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
-    uint256 public constant MINT_SLIPPAGE_TOLERANCE = 500;
+    uint256 public constant MINT_SLIPPAGE_TOLERANCE = 1000;
     uint256 public constant PRICE_DEVIATION_TOLERANCE = 200;
 
     IWHBAR public whbarContract;
@@ -125,11 +125,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         _;
     }
 
-    function getMintFee() public view returns (uint256 mintFee) {
-        address poolFactory = ISaucerSwapPool(pool).factory();
-        return IUniswapV3Factory(poolFactory).mintFee();
-    }
-
     function _onlyCalmPeriods() private view {
         if (!isCalm()) revert NotCalm();
     }
@@ -214,7 +209,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         uint256 hbarBalanceBefore = address(this).balance > 0 ? address(this).balance - msg.value : 0;
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
-        uint256 mintFee = getMintFee();
+        uint256 mintFee = updateMintFeeWithFreshPrice();
         uint160 sqrtprice = sqrtPrice();
         (uint128 liquidity, uint160 adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
@@ -354,7 +349,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
             lpToken0,
             lpToken1,
             native,
-            whbarContract
+            whbarContract,
+            pool
         );
         fees0 += newFees0;
         fees1 += newFees1;
@@ -470,6 +466,55 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
     }
 
+        function getMintFee() public view returns (uint256 mintFee) {
+        mintFee = _getMintFeeFromPool();
+        // Convert tinycent US to HBAR using oracle
+        if (beefyOracle != address(0)) {
+            try IBeefyOracle(beefyOracle).getPriceInUSD(native) returns (uint256 hbarPrice) {
+                if (hbarPrice > 0) {
+                    //get the price of usdc in hbar
+                    //hbar price is in usd
+                    //1e26: 1e18 * 1e8 (1e18 is the decimals of usdc, 1e8 is the decimals of hbar)
+                    //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
+                    mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                } else {
+                    revert("HBAR price fail");
+                }
+            } catch {
+                revert("HBAR price fail");
+            }
+        } else {
+            revert("!BeefyOracle");
+        }
+    }
+
+    function _getMintFeeFromPool() private view returns (uint256 mintFee) {
+        address poolFactory = ISaucerSwapPool(pool).factory();
+        uint256 tinycentUSFee = IUniswapV3Factory(poolFactory).mintFee();
+        //add 10% to the mint fee
+        mintFee = (tinycentUSFee * 110) / 100;
+        return mintFee;
+    }
+
+    function updateMintFeeWithFreshPrice() public returns (uint256 mintFee) {
+        mintFee = _getMintFeeFromPool();
+        
+        if (beefyOracle != address(0)) {
+            try IBeefyOracle(beefyOracle).getFreshPriceInUSD(native) returns (uint256 hbarPrice, bool success) {
+                if (success && hbarPrice > 0) {
+                    mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                } else {
+                    revert("HBAR price fail");
+                }
+            } catch {
+                revert("HBAR price fail");
+            }
+        } else {
+            revert("No oracle");
+        }
+        return mintFee;
+    }
+
     function range() external view returns (uint256 lowerPrice, uint256 upperPrice) {
         return SaucerSwapCLMLib.calculateRangePrices(positionMain.tickLower, positionMain.tickUpper);
     }
@@ -545,13 +590,10 @@ contract SaucerSwapLariRewardsCLMStrategy is
         address /* from */,
         address to,
         uint256 amount,
-        bool isFromContract
+        bool /* isFromContract */
     ) internal {
-        if (isFromContract) {
-            SaucerSwapLariLib.transferTokens(token, to, amount, native);
-        } else {
-            require(msg.value >= amount, "Insufficient native token sent");
-        }
+        if(amount == 0) return;
+        SaucerSwapLariLib.transferTokens(token, to, amount);
     }
 
     function _associateToken(address token) internal {
@@ -589,6 +631,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
         }
         if (bal1 > 0) {
             _transferTokens(lpToken1, address(this), vault, bal1, true);
+        }
+        if(address(this).balance > 0) {
+            AddressUpgradeable.sendValue(payable(vault), address(this).balance);
         }
         _transferOwnership(address(0));
     }

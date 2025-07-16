@@ -15,8 +15,9 @@ if(process.env.CHAIN_TYPE === "mainnet") {
   const sauceAddress = "0x00000000000000000000000000000000000b2ad5";
   const whbarAddress = "0x0000000000000000000000000000000000163b5a";
   const usdcAddress = "0x000000000000000000000000000000000006f89a";
-  const grelfAddress = "0x000000000000000000000000000000000011afa2"
-  tokenAddresses = [sauceAddress, whbarAddress, usdcAddress, grelfAddress];
+  const grelfAddress = "0x000000000000000000000000000000000011afa2";
+  const packAddress = "0x0000000000000000000000000000000000492a28";
+  tokenAddresses = [sauceAddress, whbarAddress, usdcAddress, grelfAddress, packAddress];
 } else {
   addresses = require("../deployed-addresses.json");
   supraOracleAddress = "0xA55d9ac9aca329f5687e1cC286d0847e3f02062e"; // Supra Oracle address
@@ -63,6 +64,22 @@ async function main() {
     await beefyOracleSupra.deployed();
     console.log("BeefyOracleSupra deployed to:", beefyOracleSupra.address);
     beefyOracleSupraAddress = beefyOracleSupra.address;
+    // Save the new BeefyOracleSupra address to the addresses file
+    const fs = require('fs');
+    const path = process.env.CHAIN_TYPE === "testnet"
+      ? require('path').resolve(__dirname, "../deployed-addresses.json")
+      : require('path').resolve(__dirname, "../deployed-addresses-mainnet.json");
+
+    // Read current addresses
+    let addressesJson = {};
+    try {
+      addressesJson = JSON.parse(fs.readFileSync(path, "utf8"));
+    } catch (e) {
+      console.warn("Could not read addresses file, will create new one.");
+    }
+    addressesJson.supraOracleLib = beefyOracleSupraAddress;
+    fs.writeFileSync(path, JSON.stringify(addressesJson, null, 2));
+    console.log("Saved BeefyOracleSupra address to", path);
   }
 
   // 2. Get the Beefy Oracle contract

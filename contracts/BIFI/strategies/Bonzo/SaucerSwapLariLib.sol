@@ -94,19 +94,9 @@ library SaucerSwapLariLib {
         }
     }
 
-    function transferTokens(address token, address to, uint256 amount, address native) internal {
+    function transferTokens(address token, address to, uint256 amount) internal {
         if (amount == 0) return;
         SaucerSwapCLMLib.transferHTS(token, to, amount);
-       
-        // bool isNative = (token == native);
-        // if (isNative) {
-        //     // Use safe native transfer for HBAR (only used for mint fees in strategies)
-        //     AddressUpgradeable.sendValue(payable(to), amount);
-        // } else {
-        //     // All other tokens (including WHBAR) are treated as standard ERC20/HTS tokens
-        //     // WHBAR conversion is handled exclusively by the vault
-        //     SaucerSwapCLMLib.transferHTS(token, to, amount);
-        // }
     }
 
     function swapRewardToNative(
@@ -123,7 +113,7 @@ library SaucerSwapLariLib {
         return UniswapV3Utils.swap(unirouter, path, rewardAmount);
     }
 
-    function swapReward(uint256 amount, address[] memory route, address unirouter) internal {
+    function swapReward(uint256 amount, address[] memory route, address unirouter, address pool) internal {
         if (amount == 0 || route.length < 2) return;
         address tokenIn = route[0];
         address tokenOut = route[route.length - 1];
@@ -133,7 +123,7 @@ library SaucerSwapLariLib {
         // Create fee array (3000 = 0.3% tier for all hops)
         uint24[] memory fees = new uint24[](route.length - 1);
         for (uint i = 0; i < fees.length; i++) {
-            fees[i] = 3000;
+            fees[i] = IUniswapV3Pool(pool).fee();
         }
         
         bytes memory path = UniswapV3Utils.routeToPath(route, fees);
@@ -183,16 +173,16 @@ library SaucerSwapLariLib {
         uint256 divisor,
         address lpToken0,
         address lpToken1,
-        address native
+        address /* native */
     ) external {
         if (feeAmount0 > 0) {
             uint256 callFee0 = (feeAmount0 * feeCall) / divisor;
             uint256 strategistFee0 = (feeAmount0 * feeStrategist) / divisor;
             uint256 beefyFee0 = feeAmount0 - callFee0 - strategistFee0;
             
-            if (callFee0 > 0) transferTokens(lpToken0, callFeeRecipient, callFee0, native);
-            if (strategistFee0 > 0) transferTokens(lpToken0, strategist, strategistFee0, native);
-            if (beefyFee0 > 0) transferTokens(lpToken0, beefyFeeRecipient, beefyFee0, native);
+            if (callFee0 > 0) transferTokens(lpToken0, callFeeRecipient, callFee0);
+            if (strategistFee0 > 0) transferTokens(lpToken0, strategist, strategistFee0);
+            if (beefyFee0 > 0) transferTokens(lpToken0, beefyFeeRecipient, beefyFee0);
         }
         
         if (feeAmount1 > 0) {
@@ -200,9 +190,9 @@ library SaucerSwapLariLib {
             uint256 strategistFee1 = (feeAmount1 * feeStrategist) / divisor;
             uint256 beefyFee1 = feeAmount1 - callFee1 - strategistFee1;
             
-            if (callFee1 > 0) transferTokens(lpToken1, callFeeRecipient, callFee1, native);
-            if (strategistFee1 > 0) transferTokens(lpToken1, strategist, strategistFee1, native);
-            if (beefyFee1 > 0) transferTokens(lpToken1, beefyFeeRecipient, beefyFee1, native);
+            if (callFee1 > 0) transferTokens(lpToken1, callFeeRecipient, callFee1);
+            if (strategistFee1 > 0) transferTokens(lpToken1, strategist, strategistFee1);
+            if (beefyFee1 > 0) transferTokens(lpToken1, beefyFeeRecipient, beefyFee1);
         }
     }
 
@@ -215,7 +205,8 @@ library SaucerSwapLariLib {
         address lpToken0,
         address lpToken1,
         address native,
-        IWHBAR whbarContract
+        IWHBAR whbarContract,
+        address pool
     ) external returns (uint256 fees0, uint256 fees1) {
         // Check if any reward tokens have routes set
         bool hasRoutes = false;
@@ -237,8 +228,10 @@ library SaucerSwapLariLib {
             if(rewardToken.token == native){
                 balance = address(this).balance - msg.value;
                 //wrap
-                IERC20Metadata(native).approve(unirouter, balance);
-                IWHBAR(whbarContract).deposit{value: balance}(address(this), address(this));
+                if(balance > 0){
+                    IERC20Metadata(native).approve(unirouter, balance);
+                    IWHBAR(whbarContract).deposit{value: balance}(address(this), address(this));
+                }
             }else{
                 balance = IERC20Metadata(rewardToken.token).balanceOf(address(this));
             }
@@ -250,14 +243,14 @@ library SaucerSwapLariLib {
             if (rewardToken.token != lpToken0 && rewardToken.toLp0Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken0).balanceOf(address(this));
                 // IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                swapReward(balance / 2, rewardToken.toLp0Route, unirouter);
+                swapReward(balance / 2, rewardToken.toLp0Route, unirouter, pool);
                 uint256 balanceAfter = IERC20Metadata(lpToken0).balanceOf(address(this));
                 fees0 += balanceAfter - balanceBefore;
             }
             if (rewardToken.token != lpToken1 && rewardToken.toLp1Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken1).balanceOf(address(this));
                 // IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                swapReward(balance / 2, rewardToken.toLp1Route, unirouter);
+                swapReward(balance / 2, rewardToken.toLp1Route, unirouter, pool);
                 uint256 balanceAfter = IERC20Metadata(lpToken1).balanceOf(address(this));
                 fees1 += balanceAfter - balanceBefore;
             }

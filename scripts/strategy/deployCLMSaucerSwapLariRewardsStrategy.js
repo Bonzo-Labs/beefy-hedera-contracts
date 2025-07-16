@@ -65,13 +65,18 @@ if (CHAIN_TYPE === "testnet") {
 } else if (CHAIN_TYPE === "mainnet") {
   config = {
     // SaucerSwap V3 addresses (mainnet)
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x", // Update with actual mainnet pool
-    quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x", // Update with actual mainnet quoter
-    factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x", // Update with actual mainnet factory
-    unirouter: process.env.UNIROUTER_ADDRESS || "0x", // Update with actual mainnet unirouter
+    // USDC-HBAR pool: 0xc5b707348da504e9be1bd4e21525459830e7b11d
+    // USDC-SAUCE pool: 0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31", // Update with actual mainnet pool
+    quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000003c4370", // Update with actual mainnet quoter
+    factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000003c3951", // Update with actual mainnet factory
+    unirouter: process.env.UNIROUTER_ADDRESS || "0x00000000000000000000000000000000003c437a", // Update with actual mainnet unirouter
     // Token addresses (mainnet)
-    token0: process.env.TOKEN0_ADDRESS || "0x", // Update with actual mainnet token0
-    token1: process.env.TOKEN1_ADDRESS || "0x", // Update with actual mainnet token1
+    // USDC: 0x000000000000000000000000000000000006f89a
+    // HBAR: 0x0000000000000000000000000000000000163b5a
+    // SAUCE: 0x00000000000000000000000000000000000b2ad5
+    token0: process.env.TOKEN0_ADDRESS || "0x000000000000000000000000000000000006f89a", // Update with actual mainnet token0
+    token1: process.env.TOKEN1_ADDRESS || "0x00000000000000000000000000000000000b2ad5", // Update with actual mainnet token1
 
     // Native token (WHBAR)
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet
@@ -80,7 +85,9 @@ if (CHAIN_TYPE === "testnet") {
     rewardTokens: process.env.REWARD_TOKENS
       ? process.env.REWARD_TOKENS.split(",")
       : [
-          // Add mainnet reward tokens here
+          "0x0000000000000000000000000000000000163b5a", // WHBAR
+          "0x00000000000000000000000000000000000b2ad5", // SAUCE
+          "0x0000000000000000000000000000000000492a28" // PACK
         ],
 
     // Position configuration
@@ -351,15 +358,21 @@ async function deployNewStrategy() {
   }
 
   // Set recommended parameters
+  
   console.log("\n=== Setting Recommended Parameters ===");
 
   try {
     // Set max tick deviation (example: 200 ticks)
-    const maxTickDeviation = 200;
+    //get tickspacing from pool
+    // let strategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", "");
+    const uniswapV3Pool = await ethers.getContractAt("contracts/BIFI/interfaces/saucerswap/IUniswapV3Pool.sol:IUniswapV3Pool", config.pool);
+    const tickSpacing = await uniswapV3Pool.tickSpacing();
+    console.log(`Tick spacing: ${tickSpacing}`);
+    const maxTickDeviation = (tickSpacing * 4) - 10;
     console.log(`Setting max tick deviation to: ${maxTickDeviation}`);
     const deviationTx = await strategy.setDeviation(maxTickDeviation, { gasLimit: 1000000 });
     const deviationReceipt = await deviationTx.wait();
-
+    console.log("Deviation transaction hash:", deviationReceipt.transactionHash);
     if (deviationReceipt.status !== 1) {
       throw new Error(`Set deviation transaction failed with status: ${deviationReceipt.status}`);
     }
@@ -370,7 +383,7 @@ async function deployNewStrategy() {
     console.log(`Setting TWAP interval to: ${twapInterval} seconds`);
     const twapTx = await strategy.setTwapInterval(twapInterval, { gasLimit: 1000000 });
     const twapReceipt = await twapTx.wait();
-
+    console.log("TWAP transaction hash:", twapReceipt.transactionHash);
     if (twapReceipt.status !== 1) {
       throw new Error(`Set TWAP interval transaction failed with status: ${twapReceipt.status}`);
     }
@@ -502,6 +515,7 @@ async function deployNewStrategy() {
     lariLibrary: lariLibrary.address,
     rewardTokensLength: config.rewardTokens.length,
   };
+
 }
 
 main()

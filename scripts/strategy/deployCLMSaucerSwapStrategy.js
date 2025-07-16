@@ -59,7 +59,7 @@ if (CHAIN_TYPE === "testnet") {
     pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xc5b707348da504e9be1bd4e21525459830e7b11d", // Update with actual mainnet pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000003c4370", // Update with actual mainnet quoter
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000003c3951", // Update with actual mainnet factory
-
+    unirouter: process.env.UNIROUTER_ADDRESS || "0x00000000000000000000000000000000003c437a", // Update with actual mainnet unirouter
     // Token addresses (mainnet)
     // USDC: 0x000000000000000000000000000000000006f89a
     // HBAR: 0x0000000000000000000000000000000000163b5a
@@ -188,7 +188,7 @@ async function deployNewStrategy() {
   // CommonAddresses struct: vault, unirouter, keeper, strategist, beefyFeeRecipient, beefyFeeConfig
   const commonAddresses = [
     vaultInstance.address, // vault - use actual vault address
-    addresses.beefySwapper || ethers.constants.AddressZero, // unirouter
+    config.unirouter, // unirouter
     deployer.address, // keeper
     deployer.address, // strategist
     deployer.address, // beefyFeeRecipient
