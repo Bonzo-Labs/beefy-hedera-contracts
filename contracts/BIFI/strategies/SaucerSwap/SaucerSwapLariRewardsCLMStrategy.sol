@@ -321,7 +321,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         // Claim fees from the pool and collect them.
         _claimEarnings();
         _removeLiquidity();
-        // _processLariRewards();
         // Charge fees for Beefy and send them to the appropriate addresses, charge fees to accrued state fee amounts.
         (uint256 fee0, uint256 fee1) = _chargeFees(_callFeeRecipient, fees0, fees1);
         _addLiquidity();
