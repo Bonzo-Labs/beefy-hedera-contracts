@@ -63,7 +63,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = false;
+  let deployNewContract = true;
   let staking: MockStaking | any;
 
   before(async () => {
@@ -139,7 +139,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         LENDING_POOL_ADDRESS,
         REWARDS_CONTROLLER_ADDRESS,
         STAKING_CONTRACT_ADDRESS,
-        1000, // maxBorrowable (10%)
+        4000, // maxBorrowable (10%)
         50, // slippageTolerance (0.5%)
         false, // isRewardsAvailable
         true, // isBonzoDeployer
@@ -162,8 +162,8 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0x08c308D4F7578f6FE0527d3197dfa133fd18B036";
-      const STRATEGY_ADDRESS = "0xeF834C22b3D0eB3BbCf7fD86757bc7d5CA7B11DF";
+      const VAULT_ADDRESS = "0x7974CAb644B9D9A4C7A5bB175b53C8219C77Faa4";
+      const STRATEGY_ADDRESS = "0x867F34aC29DaBf4c424BE40c8c403301836BeD4e";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -277,7 +277,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it.skip("should handle deposit", async function () {
+    it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have HBARX tokens to test with
@@ -289,7 +289,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         return;
       }
 
-      const depositAmount = "10000000"; // 0.1 HBARX (8 decimals)
+      const depositAmount = "120000000"; // 0.1 HBARX (8 decimals)
       
       // Approve the vault to spend tokens
       const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
@@ -580,32 +580,32 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   //     });
   //   });
 
-  //   describe.skip("Harvest Functionality", () => {
-  //     it("should allow harvest", async function () {
-  //       console.log("Testing harvest functionality...");
+    describe.skip("Harvest Functionality", () => {
+      it("should allow harvest", async function () {
+        console.log("Testing harvest functionality...");
 
-  //       const initialBalance = await strategy.balanceOf();
-  //       const initialLastHarvest = await strategy.lastHarvest();
+        const initialBalance = await strategy.balanceOf();
+        const initialLastHarvest = await strategy.lastHarvest();
 
-  //       console.log("Initial strategy balance:", initialBalance.toString());
-  //       console.log("Initial last harvest:", initialLastHarvest.toString());
+        console.log("Initial strategy balance:", initialBalance.toString());
+        console.log("Initial last harvest:", initialLastHarvest.toString());
 
-  //       // Call harvest
-  //       const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
-  //       const harvestReceipt = await harvestTx.wait();
-  //       console.log("Harvest transaction:", harvestReceipt.transactionHash);
+        // Call harvest
+        const harvestTx = await strategy["harvest()"]({ gasLimit: 5000000 });
+        const harvestReceipt = await harvestTx.wait();
+        console.log("Harvest transaction:", harvestReceipt.transactionHash);
 
-  //       const finalBalance = await strategy.balanceOf();
-  //       const finalLastHarvest = await strategy.lastHarvest();
+        const finalBalance = await strategy.balanceOf();
+        const finalLastHarvest = await strategy.lastHarvest();
 
-  //       console.log("Final strategy balance:", finalBalance.toString());
-  //       console.log("Final last harvest:", finalLastHarvest.toString());
+        console.log("Final strategy balance:", finalBalance.toString());
+        console.log("Final last harvest:", finalLastHarvest.toString());
 
-  //       // Harvest should complete without reverting
-  //       expect(harvestReceipt.status).to.be.eq(1);
-  //       expect(finalLastHarvest).to.be.gte(initialLastHarvest);
-  //     });
-  //   });
+        // Harvest should complete without reverting
+        expect(harvestReceipt.status).to.be.eq(1);
+        expect(finalLastHarvest).to.be.gte(initialLastHarvest);
+      });
+    });
 
   //   describe.skip("Emergency Functions", () => {
   //     it("should allow manager to pause strategy", async function () {

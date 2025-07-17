@@ -10,7 +10,6 @@ import "../Common/StratFeeManagerInitializable.sol";
 import "../../interfaces/common/IFeeConfig.sol";
 import "./SaucerSwap/ISaucerSwapMothership.sol";
 import "../../Hedera/IHederaTokenService.sol";
-import "../../interfaces/oracle/IBeefyOracle.sol";
 
 contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     using SafeERC20 for IERC20;
@@ -19,12 +18,6 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     address constant HTS_PRECOMPILE = address(0x167);
     int64 constant HTS_SUCCESS = 22;
     int64 constant PRECOMPILE_BIND_ERROR = -1;
-
-    // BeefyOracle constants
-    //testnet
-    // address public BEEFY_ORACLE = 0xCB972d659c4Cb70BbfF388Ed7710F27D39Ad35bA;
-    //mainnet
-    address public BEEFY_ORACLE = 0x0118768Ed8C48A4a88ed68a38D4703fE08449ab2;
 
     // Tokens used
     address public want; // xSAUCE token
@@ -83,6 +76,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     );
 
     error InsufficientSauceForDebtRepayment(uint256 layerDebt, uint256 expectedSauce, uint256 minSauce);
+    error NotEnoughSAUCE(uint256 availableSAUCE, uint256 requiredSAUCE);
 
     function initialize(
         address _want,
@@ -182,30 +176,15 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 currentCollateral = amount;
         uint256 totalBorrowed = 0;
 
-        // Pre-fetch constants
-        uint256 xSaucePerSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(1e6);
-        (uint256 saucePrice, bool ok) = IBeefyOracle(BEEFY_ORACLE).getFreshPrice(borrowToken);
-        require(ok, "oracle fail");
-        uint256 decimalDiff = 10 ** (18 - borrowTokenDecimals);
-
+        uint256 xSaucePerSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(1e6);
+       
         for (uint256 i = 0; i < maxLoops; i++) {
-            // [1] get user data (all in 18-dec base units)
-            (uint256 baseCollateral, uint256 baseDebt, , , uint256 currentLtv, ) = ILendingPool(lendingPool)
-                .getUserAccountData(address(this));
-
-            // [2] compute max borrow in token-decimals, in one line
-            uint256 maxBorrowToken = ((((baseCollateral * 1e18) / saucePrice) * currentLtv) / // → collateral expressed in SAUCE‐wei // apply LTV (bps)
-                10_000 - // divide out the basis‐points
-                baseDebt) / decimalDiff; // subtract existing debt (in SAUCE‐wei)
-            if (maxBorrowToken == 0)
-                revert MaxBorrowTokenIsZero(baseCollateral, baseDebt, currentLtv, decimalDiff, saucePrice);
-            // [3] limit by your own desired factor
-            uint256 desired = (currentCollateral * maxBorrowable) / 10_000;
-            emit DebugValues(baseCollateral, baseDebt, currentLtv, saucePrice, maxBorrowToken, desired);
-
-            uint256 borrowAmt = desired < maxBorrowToken ? desired : maxBorrowToken;
+            uint256 inputCollateralValueInSauce = (currentCollateral * xSaucePerSauce) / 1e6;
+            uint256 borrowAmt = (inputCollateralValueInSauce * maxBorrowable) / 10_000;
             if (borrowAmt == 0) break;
-
+            if(totalBorrowed > 0 && borrowAmt > totalBorrowed) {
+                borrowAmt = borrowAmt - totalBorrowed;
+            }
             // [4] borrow & stake → xSAUCE
             ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
             uint256 xAmt = _enter(borrowAmt);
@@ -256,50 +235,68 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         return received;
     }
 
-    function _unwindYieldLoops(uint256 amount) internal {
-        require(amount > 0, "Amount must be greater than 0");
-        uint256 totalPosition = balanceOf();
-        require(amount <= totalPosition, "Amount exceeds total position");
+    function _unwindYieldLoops(uint256 _targetAmount) internal {
+        require(_targetAmount > 0, "Amount must be greater than 0");
+        uint256 totalAssets = balanceOf();
+        require(_targetAmount <= totalAssets, "Amount exceeds total position");
+
+        if (totalAssets == 0) return;
+
+        // Calculate withdrawal percentage in basis points (10000 = 100%)
+        uint256 withdrawBps = (_targetAmount * 10000) / totalAssets;
+        if (withdrawBps > 10000) withdrawBps = 10000; // Cap at 100%
+
+        // Convert to ratio for calculations (1e18 = 100%)
+        uint256 withdrawRatio = (_targetAmount * 1e18) / totalAssets;
+
+        // Calculate total supply and debt from lending pool
+        uint256 totalSupply = IERC20(aToken).balanceOf(address(this));
+        uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
 
         // Calculate proportional amounts for each layer
-        uint256 layerAmount = amount / maxLoops;
-        uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
-        IERC20(borrowToken).approve(lendingPool, totalDebt);
-        IERC20(want).approve(stakingPool, amount);
-
-        // Calculate debt amount proportional to withdrawal amount
-        uint256 layerDebt = (totalDebt * amount) / totalPosition / maxLoops;
+        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
+        uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
+        
+        // Distribute across layers
+        uint256 layerSupply = supplyToWithdraw / maxLoops;
+        uint256 layerDebt = debtToRepay / maxLoops;
         uint256 debtPaid = 0;
 
+        IERC20(borrowToken).approve(lendingPool, debtToRepay);
+        IERC20(want).approve(stakingPool, _targetAmount);
+
         for (uint256 i = 0; i < maxLoops; i++) {
-            // Withdraw from lending pool
-            ILendingPool(lendingPool).withdraw(want, layerAmount, address(this));
-            uint256 debtBalance = IERC20(debtToken).balanceOf(address(this));
-            if(debtBalance == 0) {
-                break;
+            // Withdraw from lending pool for this layer
+            if (layerSupply > 0) {
+                ILendingPool(lendingPool).withdraw(want, layerSupply, address(this));
             }
-            // For all layers except the last one, repay proportional debt
-            uint256 requiredXSauce = 0;
-            if (i < maxLoops - 1) {
-                // Convert SAUCE debt to xSAUCE amount needed
-                requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(layerDebt);
-                debtPaid += layerDebt;
-            } else {
-                // For the last layer, repay remaining debt
-                uint256 remainingDebt = totalDebt - debtPaid;
-                if (remainingDebt > 0) {
-                    requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(remainingDebt);
+
+            // Handle debt repayment for this layer
+            if (layerDebt > 0) {
+                uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
+                if (currentDebt == 0) break;
+
+                uint256 debtForThisLayer = (i == maxLoops - 1) ? 
+                    (debtToRepay - debtPaid) : // Last layer gets remaining debt
+                    layerDebt; // Other layers get equal share
+
+                if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
+                    // Convert SAUCE debt to xSAUCE amount needed
+                    uint256 requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtForThisLayer);
+                    
+                    // Leave xSAUCE to get SAUCE for debt repayment
+                    uint256 sauceAmount = _leave(requiredXSauce);
+                    
+                    if (sauceAmount > 0) {
+                        ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
+                        debtPaid += debtForThisLayer;
+                    }
                 }
             }
-            uint256 sauceAmount = _leave(requiredXSauce); //leave xSauce and get sauce
-            if (sauceAmount > 0) {
-                ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
-            }   
         }
     }
 
     function harvest() external whenNotPaused nonReentrant {
-        require(msg.sender == vault || msg.sender == owner() || msg.sender == keeper, "!authorized");
 
         if (isRewardsAvailable) {
             // Claim rewards from lending pool
@@ -463,13 +460,6 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         require(_slippageTolerance <= 500, "Slippage too high"); // Max 5%
         emit SlippageToleranceUpdated(slippageTolerance, _slippageTolerance);
         slippageTolerance = _slippageTolerance;
-    }
-
-    //setter for oracle address
-    function setOracle(address _oracle) external onlyManager {
-        require(_oracle != address(0), "!oracle");
-        BEEFY_ORACLE = _oracle;
-        emit OracleUpdated(BEEFY_ORACLE, _oracle);
     }
 
     function withdraw(uint256 _amount) external nonReentrant whenNotPaused {

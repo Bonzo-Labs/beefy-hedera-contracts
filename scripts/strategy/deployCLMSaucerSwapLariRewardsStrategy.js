@@ -33,16 +33,17 @@ if (CHAIN_TYPE === "testnet") {
   config = {
     // SaucerSwap V3 addresses (testnet)
     // HBAR-SAUCE pool 0x37814edc1ae88cf27c0c346648721fb04e7e0ae7
-    // SAUCE-CLXY pool 0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7", // HBAR-SAUCE pool
+    // CLXY-SAUCE pool 0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x1a6ca726e07a11849176b3c3b8e2ceda7553b9aa", // HBAR-SAUCE pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000001535b2",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000001243ee",
     unirouter: process.env.UNIROUTER_ADDRESS || "0x0000000000000000000000000000000000159398",
     // Token addresses (testnet)
     // CLXY 0x00000000000000000000000000000000000014f5
     // WHBAR 0x0000000000000000000000000000000000003ad2
-    token0: process.env.TOKEN0_ADDRESS || "0x0000000000000000000000000000000000003aD2", // HBAR
-    token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000120f46", // SAUCE
+    // SAUCE 0x0000000000000000000000000000000000120f46
+    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000014f5", 
+    token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000120f46",
 
     // Native token (WHBAR)
     native: "0x0000000000000000000000000000000000003ad2", // WHBAR testnet
@@ -407,52 +408,74 @@ async function deployNewStrategy() {
 
   // Configure reward token routes if specified
   console.log("\n=== Configuring Reward Token Routes ===");
+
+  // let strategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", "0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286");
+  //for USDC-SAUCE Pool
+  //NOTE: check mainnet-reward-routes.jsonc for the routes based on LP tokens
+  const rewardRoutes = require("./mainnet-reward-routes.js");
   for (let i = 0; i < config.rewardTokens.length; i++) {
     const rewardToken = config.rewardTokens[i];
-    console.log(`Setting routes for reward token ${i}: ${rewardToken}`);
+    const targetToken = config.token0;
+    const route = rewardRoutes[rewardToken][targetToken].route;
+    const fees = rewardRoutes[rewardToken][targetToken].fees;
+    console.log(`Setting routes for ${rewardToken} to ${targetToken}: ${route.join(" -> ")} with fees: ${fees}`);
+    const targetToken2 = config.token1;
+    const route2 = rewardRoutes[rewardToken][targetToken2].route;
+    const fees2 = rewardRoutes[rewardToken][targetToken2].fees;
+    console.log(`Setting routes for ${rewardToken} to ${targetToken2}: ${route2.join(" -> ")} with fees: ${fees2}`);
+    await strategy.setRewardRoute(rewardToken, route,route2, fees, fees2, { gasLimit: 1000000 });
 
-    // Example routes - update these based on your specific token routing needs
-    let toLp0Route = [];
-    let toLp1Route = [];
-
-    // If reward token is different from LP tokens, set up swap routes
-    // if (rewardToken !== config.token0 && rewardToken !== config.token1) {
-      // Example: SAUCE -> CLXY route (via WHBAR if needed)
-      if (rewardToken === "0x0000000000000000000000000000000000120f46") {
-        // SAUCE
-        toLp0Route =  config.token0.toLowerCase() == config.native.toLowerCase() ? 
-        [rewardToken, config.token0] 
-        : 
-        [rewardToken, config.native, config.token0]; // SAUCE -> WHBAR -> CLXY
-        
-        toLp1Route = [rewardToken, config.token1]; // SAUCE -> SAUCE (direct)
-      } else if(rewardToken.toLowerCase() == config.native.toLowerCase()){
-        toLp0Route = [rewardToken, config.token0];
-        toLp1Route = [rewardToken, config.token1];
-      }
-      else {
-        // Generic route via native token
-        toLp0Route = config.token0.toLowerCase() == config.native.toLowerCase() ? 
-        [rewardToken, config.token0] 
-        : 
-        [rewardToken, config.native, config.token0];
-        
-        toLp1Route = config.token1.toLowerCase() == config.native.toLowerCase() ? 
-        [rewardToken, config.token1] 
-        : 
-        [rewardToken, config.native, config.token1];
-      }
-
-      try {
-        await strategy.setRewardRoute(rewardToken, toLp0Route, toLp1Route, { gasLimit: 1000000 });
-        console.log(`  Routes set for ${rewardToken}`);
-        console.log(`    To LP0: ${toLp0Route.join(" -> ")}`);
-        console.log(`    To LP1: ${toLp1Route.join(" -> ")}`);
-      } catch (error) {
-        console.log(`  Failed to set routes for ${rewardToken}:`, error.message);
-      }
-    // }
   }
+
+  // for (let i = 0; i < config.rewardTokens.length; i++) {
+  //   const rewardToken = config.rewardTokens[i];
+  //   console.log(`Setting routes for reward token ${i}: ${rewardToken}`);
+
+  //   // Example routes - update these based on your specific token routing needs
+  //   let toLp0Route = [];
+  //   let toLp1Route = [];
+
+  //   // If reward token is different from LP tokens, set up swap routes
+  //   // if (rewardToken !== config.token0 && rewardToken !== config.token1) {
+  //     // Example: SAUCE -> CLXY route (via WHBAR if needed)
+  //     if (rewardToken === "0x0000000000000000000000000000000000120f46") {
+  //       // SAUCE
+  //       toLp0Route =  config.token0.toLowerCase() == config.native.toLowerCase() ? 
+  //       [rewardToken, config.token0] 
+  //       : 
+  //       [rewardToken, config.native, config.token0]; // SAUCE -> WHBAR -> CLXY
+        
+  //       toLp1Route = [rewardToken, config.token1]; // SAUCE -> SAUCE (direct)
+  //     } else if(rewardToken.toLowerCase() == config.native.toLowerCase()){
+  //       toLp0Route = [rewardToken, config.token0];
+  //       toLp1Route = [rewardToken, config.token1];
+  //     }
+  //     else {
+  //       // Generic route via native token
+  //       toLp0Route = config.token0.toLowerCase() == config.native.toLowerCase() ? 
+  //       [rewardToken, config.token0] 
+  //       : 
+  //       [rewardToken, config.native, config.token0];
+        
+  //       toLp1Route = config.token1.toLowerCase() == config.native.toLowerCase() ? 
+  //       [rewardToken, config.token1] 
+  //       : 
+  //       [rewardToken, config.native, config.token1];
+  //     }
+
+  //     const lp0RoutePoolFees = [3000];
+  //     const lp1RoutePoolFees = [3000];
+
+  //     try {
+  //       await strategy.setRewardRoute(rewardToken, toLp0Route, toLp1Route, lp0RoutePoolFees, lp1RoutePoolFees, { gasLimit: 1000000 });
+  //       console.log(`  Routes set for ${rewardToken}`);
+  //       console.log(`    To LP0: ${toLp0Route.join(" -> ")}`);
+  //       console.log(`    To LP1: ${toLp1Route.join(" -> ")}`);
+  //     } catch (error) {
+  //       console.log(`  Failed to set routes for ${rewardToken}:`, error.message);
+  //     }
+  //   // }
+  // }
 
   console.log("\n=== Deployment Summary ===");
   console.log(`Strategy: ${strategy.address}`);

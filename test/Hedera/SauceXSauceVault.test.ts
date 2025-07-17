@@ -59,7 +59,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = false; // Set to false to use existing deployed contracts
+  let deployNewContract = true; // Set to false to use existing deployed contracts
 
   before(async () => {
     [deployer] = await ethers.getSigners();
@@ -244,7 +244,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it.skip("should handle deposit", async function () {
+    it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have xSAUCE tokens to test with

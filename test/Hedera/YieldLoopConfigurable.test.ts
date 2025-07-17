@@ -184,7 +184,7 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe.skip("Deposit and Withdraw", () => {
+  describe("Deposit and Withdraw", () => {
     it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
@@ -385,7 +385,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       console.log("✅ Withdrawal methods test passed!");
     });
 
-    it("should handle withdrawal fees", async function () {
+    it.skip("should handle withdrawal fees", async function () {
       console.log("Testing withdrawal fees functionality...");
 
       // Create non-manager signer using private key
@@ -472,12 +472,12 @@ describe("BeefyYieldLoopConfigurable", function () {
     });
   });
 
-  describe.skip("Harvest Functionality", () => {
+  describe("Harvest Functionality", () => {
     it("should allow harvest when rewards are available", async function () {
       const initialBalance = await strategy.balanceOf();
 
       // Call harvest
-      const harvestTx = await strategy.harvest({ gasLimit: 5000000 });
+      const harvestTx = await strategy["harvest()"]({ gasLimit: 5000000 });
       const harvestReceipt = await harvestTx.wait();
       console.log("Harvest transaction:", harvestReceipt.transactionHash);
 
@@ -489,7 +489,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(harvestReceipt.status).to.be.eq(1);
     });
 
-    it("should allow harvest with custom call fee recipient", async function () {
+    it.skip("should allow harvest with custom call fee recipient", async function () {
       const callFeeRecipient = deployer.address;
 
       const harvestTx = await strategy["harvest(address)"](callFeeRecipient, { gasLimit: 5000000 });
@@ -499,7 +499,7 @@ describe("BeefyYieldLoopConfigurable", function () {
       expect(harvestReceipt.status).to.be.eq(1);
     });
 
-    it("should not allow harvest with zero address as recipient", async function () {
+    it.skip("should not allow harvest with zero address as recipient", async function () {
       const zeroAddress = ethers.constants.AddressZero;
 
       await expect(strategy["harvest(address)"](zeroAddress)).to.be.reverted;

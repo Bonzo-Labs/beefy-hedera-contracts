@@ -21,12 +21,12 @@ let sauceToken: any;
 
 if (CHAIN_TYPE === "testnet") {
   addresses = require("../../scripts/deployed-addresses.json");
-  // POOL_ADDRESS = "0x1a6Ca726e07a11849176b3C3b8e2cEda7553b9Aa"; // SAUCE-CLXY pool
-  POOL_ADDRESS = "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7"; // HBAR-SAUCE pool
+  POOL_ADDRESS = "0x1a6Ca726e07a11849176b3C3b8e2cEda7553b9Aa"; // SAUCE-CLXY pool
+  // POOL_ADDRESS = "0x37814edc1ae88cf27c0c346648721fb04e7e0ae7"; // HBAR-SAUCE pool
   QUOTER_ADDRESS = "0x00000000000000000000000000000000001535b2"; // SaucerSwap quoter testnet
   FACTORY_ADDRESS = "0x00000000000000000000000000000000001243ee"; // SaucerSwap factory testnet
-  // TOKEN0_ADDRESS = "0x00000000000000000000000000000000000014f5"; // CLXY testnet
-  TOKEN0_ADDRESS = "0x0000000000000000000000000000000000003aD2"; // HBAR testnet
+  TOKEN0_ADDRESS = "0x00000000000000000000000000000000000014f5"; // CLXY testnet
+  // TOKEN0_ADDRESS = "0x0000000000000000000000000000000000003aD2"; // HBAR testnet
   TOKEN1_ADDRESS = "0x0000000000000000000000000000000000120f46"; // SAUCE testnet
   NATIVE_ADDRESS = "0x0000000000000000000000000000000000003aD2"; // HBAR (native) testnet
   WHBAR_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000003aD1";
@@ -38,8 +38,8 @@ if (CHAIN_TYPE === "testnet") {
   nonManagerPK = process.env.NON_MANAGER_PK;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
-  // POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
-  POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
+  POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
+  // POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
   QUOTER_ADDRESS = "0x00000000000000000000000000000000003c4370"; // TODO: Update with actual mainnet quoter
   FACTORY_ADDRESS = "0x00000000000000000000000000000000003c3951"; // TODO: Update with actual mainnet factory
   TOKEN0_ADDRESS = "0x000000000000000000000000000000000006f89a"; // USDC mainnet
@@ -107,8 +107,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     // const EXISTING_STRATEGY_ADDRESS = "0x314fd6520B560228fCFB750a60B18e030920c73B";
     // const EXISTING_VAULT_ADDRESS = "0x9C4116ac95dFe8D81df4969C4315a8e83D9ebF13";
     
-    const EXISTING_STRATEGY_ADDRESS = "0xe702D3d2BcE597eC38Aa2339F0e5B9A270b8b8e2";
-    const EXISTING_VAULT_ADDRESS = "0x1376775A9B760C238ebC94317A95c5ee11A1f66f";
+    const EXISTING_STRATEGY_ADDRESS = "0x71Ae2d60Db3c1023e94159fff0FE2d4855FA4dbb"; //"0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286";
+    const EXISTING_VAULT_ADDRESS = "0x2e08a2F192074562BD1D39B8488ee450D2F3C35a"; //"0xe712c66d849f71273D3DC4dd893c6F55d1c67Bf2";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -496,7 +496,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
           const toLp0Route = [rewardToken, NATIVE_ADDRESS, TOKEN0_ADDRESS];
           const toLp1Route = [rewardToken, TOKEN1_ADDRESS];
           
-          await strategy.setRewardRoute(rewardToken, toLp0Route, toLp1Route, { gasLimit: 1000000 });
+          await strategy.setRewardRoute(rewardToken, toLp0Route, toLp1Route, [3000], [3000], { gasLimit: 1000000 });
           
           const tokenInfo = await strategy.getRewardToken(0);
           expect(tokenInfo.toLp0Route.length).to.equal(toLp0Route.length);
@@ -939,14 +939,6 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
             let hbarRequired = await vault.estimateDepositHBARRequired();
             console.log(`HBAR required from vault estimate: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
 
-            // If the estimate is too low (less than 1 tinybar), use the known mint fee
-            const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
-            if (hbarRequired.lt(minTinybar)) {
-              // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
-              hbarRequired = ethers.utils.parseEther("10.0");
-              console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
-            }
-
             console.log(`Executing ${size.name} deposit...`);
             const depositTx = await vault.deposit(depositClxyAmount, depositSauceAmount, 0, {
               value: hbarRequired, // Add HBAR for mint fees
@@ -1056,11 +1048,11 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
         const receiptSauce = await sauceTransferTx.wait();
         console.log("Sauce transfer receipt:", receiptSauce.transactionHash);
         // Send native HBAR to the strategy address
-        // await deployer.sendTransaction({
-        //   to: strategy.address,
-        //   value: ethers.utils.parseEther("10.0")
-        // });
-        // console.log("HBAR SAUCE as LARI rewards sent to strategy");
+        await deployer.sendTransaction({
+          to: strategy.address,
+          value: ethers.utils.parseEther("1.0")
+        });
+        console.log("HBAR SAUCE as LARI rewards sent to strategy");
          // Get required HBAR for mint fees
 
         //get the reward tokens data
@@ -1070,20 +1062,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
         const rewardToken1 = await strategy.getRewardToken(1);
         console.log("Reward token 0:", rewardToken0);
         console.log("Reward token 1:", rewardToken1);
-
-        let hbarRequired = await vault.estimateDepositHBARRequired();
-        console.log(`HBAR required from vault estimate: ${(hbarRequired)}`);
-
-        // If the estimate is too low (less than 1 tinybar), use the known mint fee
-        const minTinybar = ethers.utils.parseUnits("0.00000001", 18); // 1 tinybar in wei
-        if (hbarRequired.lt(minTinybar)) {
-          // Use 10 HBAR to cover mint fees for both positions (5 HBAR each)
-          hbarRequired = ethers.utils.parseEther("10.0");
-          console.log(`Using fallback HBAR amount: ${ethers.utils.formatEther(hbarRequired)} HBAR`);
-        }
         const harvestTx = await (strategy as any)["harvest()"](
           { 
-            value: hbarRequired,
             gasLimit: 5000000,
           }
         );
@@ -1097,7 +1077,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
 
     //Mainnet: USDC-SAUCE POOL ========================================================
     //handle deposits of USDC and SAUCE
-    it.skip("mainnet:Should handle real USDC + SAUCE deposits", async function () {
+    it("mainnet:Should handle real USDC + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
       const [keyMain, keyAlt] = await strategy.getKeys();
@@ -1229,7 +1209,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
             console.log(`Executing ${size.name} deposit...`);
             const depositTx = await vault.deposit(depositUSDCAmount, depositSauceAmount, 0, {
               value: (hbarRequired.add(10000000)).mul(10**10), // Add HBAR for mint fees
-              gasLimit: 2000000,
+              gasLimit: 1500000,
             });
             const receipt = await depositTx.wait();
 
@@ -1319,36 +1299,48 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       console.log("Final USDC:", ethers.utils.formatUnits(finalUSDC, 6));
     });
 
-    it("Should allow harvest calls", async function () {
-      try {
-        
-        //to mimic lari rewards, send SAUCE and HBAR to the strategy
+    it("Should allow processLariRewards calls", async function () {
+      console.log("Processing Lari Rewards");
+      // to mimic lari rewards, send SAUCE and HBAR to the strategy
         const sauceTransferTx = await sauceToken.transfer(
           strategy.address, 
           ethers.utils.parseUnits("0.1", 6),
-          { gasLimit: 2000000 }
+          { gasLimit: 1000000 }
         );
         const receiptSauce = await sauceTransferTx.wait();
         console.log("Sauce transfer receipt:", receiptSauce.transactionHash);
         // Send native HBAR to the strategy address
-        // await deployer.sendTransaction({
-        //   to: strategy.address,
-        //   value: ethers.utils.parseEther("10.0")
-        // });
-        // console.log("HBAR SAUCE as LARI rewards sent to strategy");
-         // Get required HBAR for mint fees
+        await deployer.sendTransaction({
+          to: strategy.address,
+          value: ethers.utils.parseEther("0.5")
+        });
+        console.log("HBAR SAUCE as LARI rewards sent to strategy");
+      const processLariRewardsTx = await (strategy as any)["processLariRewards()"](
+        { 
+          gasLimit: 4000000,
+        }
+      );
+      const receipt = await processLariRewardsTx.wait();
+      console.log("Process Lari Rewards receipt:", receipt.transactionHash);
+      console.log("Process Lari Rewards executed successfully");
+    });
 
+    it("Should allow harvest calls", async function () {
+      try {
         //get the reward tokens data
-        const rewardTokensLength = await strategy.getRewardTokensLength();
-        console.log("Number of reward tokens configured:", rewardTokensLength.toString());
-        const rewardToken0 = await strategy.getRewardToken(0);
-        const rewardToken1 = await strategy.getRewardToken(1);
-        console.log("Reward token 0:", rewardToken0);
-        console.log("Reward token 1:", rewardToken1);
-
+        // const rewardTokensLength = await strategy.getRewardTokensLength();
+        // console.log("Number of reward tokens configured:", rewardTokensLength.toString());
+        // const rewardToken0 = await strategy.getRewardToken(0);
+        // const rewardToken1 = await strategy.getRewardToken(1);
+        // console.log("Reward token 0:", rewardToken0);
+        // console.log("Reward token 1:", rewardToken1);
+        const hbarequired = await vault.estimateDepositHBARRequired();
+        console.log("HBAR required from vault estimate:", hbarequired.toString());
+        console.log("Harvesting...");
         const harvestTx = await (strategy as any)["harvest()"](
           { 
-            gasLimit: 5000000,
+            value: hbarequired.mul(10**10),
+            gasLimit: 2000000,
           }
         );
         const receipt = await harvestTx.wait();
@@ -1358,6 +1350,64 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
         console.log("Harvest failed (expected without real liquidity):", error.message);
       }
     });
+
+    it.skip("should test swaprouter", async function () {
+      const _swaprouter = await ethers.getContractAt(
+        "contracts/BIFI/interfaces/common/IUniswapRouterV3WithDeadline.sol:IUniswapRouterV3WithDeadline",
+        "0x00000000000000000000000000000000003c437a"
+      );
+      const path = [
+        "0x0000000000000000000000000000000000163B5a",
+        "0x000000000000000000000000000000000006f89a"
+      ];
+      // Convert the path array to a bytes-encoded path for Uniswap V3 (js version)
+      let encodedPath = ethers.utils.hexlify(
+        ethers.utils.concat([
+          ethers.utils.arrayify(path[0]),
+          ethers.utils.hexZeroPad("0x05dc", 3), // 1500 fee, 3 bytes
+          ethers.utils.arrayify(path[1])
+        ])
+      );
+      const amountIn = ethers.utils.parseUnits("0.1", 8);
+      const amountOutMin = 0;
+      const inputparams = {
+        path: encodedPath,
+        recipient: deployer.address,
+        deadline: Math.floor(Date.now() / 1000) + 3600,
+        amountIn: amountIn,
+        amountOutMinimum: amountOutMin
+      }
+      //approve the swaprouter to spend the whbar
+      // await whbarContract["deposit()"]({
+      //   value: amountIn.mul(10**10),
+      //   gasLimit: 1000000,
+      // });
+      const whbartoken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        "0x0000000000000000000000000000000000163B5a"
+      );
+      const approveTx = await whbartoken.approve(_swaprouter.address, amountIn, {
+        gasLimit: 1000000,
+      });
+      const approveReceipt = await approveTx.wait();
+      console.log("Approve receipt:", approveReceipt.transactionHash);
+      const swaptrx = await _swaprouter.exactInput(inputparams, {
+        gasLimit: 2000000,
+      });
+      const receipt = await swaptrx.wait();
+      console.log("Swap receipt:", receipt.transactionHash);
+    });
+
+    it.skip("get pool fee", async function () {
+      const pool = await ethers.getContractAt(
+        "contracts/BIFI/interfaces/uniswap/IUniswapV3Pool.sol:IUniswapV3Pool",
+        POOL_ADDRESS
+      );
+      const fee = await pool.fee();
+      console.log("Pool fee:", fee);
+    });
+
+
 
     it.skip("Should allow moveTicks calls", async function () {
       const positionMain = await strategy.positionMain();
@@ -1683,6 +1733,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
               "0x0000000000000000000000000000000000163b5a",
               "0x00000000000000000000000000000000000b2ad5"
             ], 
+            [3000],
+            [3000],
             { gasLimit: 1000000 }
           );
           const swapRouteReceipt = await swapRoute.wait();

@@ -170,40 +170,24 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         ILendingPool(lendingPool).deposit(want, _amount, address(this), 0);
 
         uint256 currentCollateral = _amount;
-
+        uint256 totalBorrowed = 0;
         // Loop for additional leverage
         for (uint256 i = 0; i < leverageLoops - 1; i++) {
-            // Get current position data to check LTV limits
-            (uint256 currentCollateralBase, uint256 currentDebtBase, , , uint256 currentLtv, ) = ILendingPool(
-                lendingPool
-            ).getUserAccountData(address(this));
 
-            // Convert currentCollateralBase to want token units for accurate calculations
-            // currentCollateralBase is in HBAR units (18 decimals), but we need to convert to want token units
-            uint256 currentCollateralInWantUnits = _convertFromBaseToWant(currentCollateralBase);
-
-            // Calculate borrow amount using conservative borrowFactor based on actual collateral
-            uint256 borrowableAmount = (currentCollateralInWantUnits * borrowFactor) / 10000;
-
-            // Calculate maximum borrow amount that keeps us under LTV
-            uint256 maxBorrowBase = ((currentCollateralBase * currentLtv) / 10000) - currentDebtBase;
-            uint256 maxBorrowInWantUnits = _convertFromBaseToWant(maxBorrowBase);
-
-            // Use the smaller of borrowFactor calculation and LTV limit
-            if (borrowableAmount > maxBorrowInWantUnits) {
-                borrowableAmount = maxBorrowInWantUnits;
+            uint256 borrowableAmount = (currentCollateral * borrowFactor) / 10000;
+            if(totalBorrowed > 0 && borrowableAmount > totalBorrowed) {
+                borrowableAmount = borrowableAmount - totalBorrowed;
             }
-
             // If we can't borrow more, stop
             if (borrowableAmount == 0) break;
 
             // Borrow tokens
             ILendingPool(lendingPool).borrow(want, borrowableAmount, 2, 0, address(this));
-
+            totalBorrowed += borrowableAmount;
             ILendingPool(lendingPool).deposit(want, borrowableAmount, address(this), 0);
 
             // Update collateral for next iteration
-            currentCollateral = borrowableAmount;
+            currentCollateral += borrowableAmount;
         }
     }
 
