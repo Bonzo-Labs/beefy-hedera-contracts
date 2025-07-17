@@ -36,10 +36,10 @@ contract SaucerSwapLariRewardsCLMStrategy is
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
-    uint256 public constant MINT_SLIPPAGE_TOLERANCE = 1000;
-    uint256 public constant PRICE_DEVIATION_TOLERANCE = 200;
+    uint256 private constant MINT_SLIPPAGE_TOLERANCE = 1000;
+    uint256 private constant PRICE_DEVIATION_TOLERANCE = 200;
 
-    IWHBAR public whbarContract;
+    IWHBAR private whbarContract;
     address public pool;
     address public quoter;
     address public lpToken0;
@@ -83,7 +83,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     uint256 public totalLocked1;
     uint256 public lastHarvest;
     uint256 public lastPositionAdjustment;
-    address public beefyOracle;
+    address private beefyOracle;
     uint256 public leftover0;
     uint256 public leftover1;
     SaucerSwapLariLib.RewardToken[] public rewardTokens;
@@ -95,23 +95,15 @@ contract SaucerSwapLariRewardsCLMStrategy is
     error InvalidEntry();
     error NotVault();
     error InvalidInput();
-    error InvalidOutput();
     error NotCalm();
     error TooMuchSlippage();
     error InvalidTicks();
-    error HTSTransferFailed();
-    error HTSAssociationFailed();
-    error InvalidTokenAddress();
-    error NoRoutes();
     error TokenExists();
-    error TokenNotFound();
 
     // Events
     event Harvest(uint256 fee0, uint256 fee1);
-    event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
     event Deposit(address indexed user, uint256 amount0, uint256 amount1);
     event Withdraw(address indexed user, uint256 amount0, uint256 amount1);
-    event LariHarvested(address indexed rewardToken, uint256 amount);
     event RewardTokenAdded(address indexed token, bool isHTS);
     event RewardTokenRemoved(address indexed token);
     event RewardTokenUpdated(address indexed token, bool isActive);
@@ -227,7 +219,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         bool amountsOk = SaucerSwapCLMLib.checkAmounts(amount0, amount1);
         if (liquidity > 0 && amountsOk) {
             _validatePreMintConditions(adjustedSqrtPrice, bal0, bal1);
-            require(address(this).balance >= mintFee, "Insufficient HBAR for mint fee");
+            require(address(this).balance >= mintFee, "Insuf HBAR Mint Fee");
             (expectedAmount0, expectedAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                 adjustedSqrtPrice,
                 TickMath.getSqrtRatioAtTick(positionMain.tickLower),
@@ -257,7 +249,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             // Additional pre-mint validation for alternative position
             _validatePreMintConditions(sqrtprice, bal0, bal1);
             // Check we have sufficient HBAR for mint fee
-            require(address(this).balance >= mintFee, "Insufficient HBAR for alt mint fee");
+            require(address(this).balance >= mintFee, "Insuf HBAR Mint Fee");
             // Calculate expected amounts for slippage protection
             (expectedAmount0, expectedAmount1) = LiquidityAmounts.getAmountsForLiquidity(
                 sqrtprice,
@@ -310,11 +302,16 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
         }
     }
-    function harvest(address _callFeeRecipient) external {
+
+    function processLariRewards() external {
+        _processLariRewards();
+    }
+    
+    function harvest(address _callFeeRecipient) external payable {
         _harvest(_callFeeRecipient);
     }
 
-    function harvest() external {
+    function harvest() external payable {
         _harvest(tx.origin);
     }
 
@@ -323,11 +320,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
         // Claim fees from the pool and collect them.
         _claimEarnings();
-        // _removeLiquidity();
-        _processLariRewards();
+        _removeLiquidity();
+        // _processLariRewards();
         // Charge fees for Beefy and send them to the appropriate addresses, charge fees to accrued state fee amounts.
         (uint256 fee0, uint256 fee1) = _chargeFees(_callFeeRecipient, fees0, fees1);
-        //_addLiquidity();
+        _addLiquidity();
         // Reset state fees to 0.
         fees0 = 0;
         fees1 = 0;
@@ -349,8 +346,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             lpToken0,
             lpToken1,
             native,
-            whbarContract,
-            pool
+            whbarContract
         );
         fees0 += newFees0;
         fees1 += newFees1;
@@ -649,10 +645,10 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function unpause() external onlyManager {
         if (owner() == address(0)) revert NotAuthorized();
-        _giveAllowances();
+        // _giveAllowances();
         _unpause();
-        _setTicks();
-        _addLiquidity();
+        // _setTicks();
+        // _addLiquidity();
     }
 
     function _giveAllowances() private {
@@ -684,15 +680,15 @@ contract SaucerSwapLariRewardsCLMStrategy is
         beefyOracle = _beefyOracle;
     }
 
-    function lpToken0ToNativePrice() external returns (uint256) {
-        return
-            SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
-    }
+    // function lpToken0ToNativePrice() external returns (uint256) {
+    //     return
+    //         SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
+    // }
 
-    function lpToken1ToNativePrice() external returns (uint256) {
-        return
-            SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
-    }
+    // function lpToken1ToNativePrice() external returns (uint256) {
+    //     return
+    //         SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
+    // }
 
     function addRewardToken(address _token, bool _isHTS) external onlyManager {
         if (isRewardToken[_token]) revert TokenExists();
@@ -720,7 +716,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function setRewardRoute(
         address _token,
         address[] calldata _toLp0Route,
-        address[] calldata _toLp1Route
+        address[] calldata _toLp1Route,
+        uint24[] calldata _lp0RoutePoolFees,
+        uint24[] calldata _lp1RoutePoolFees
     ) external onlyManager {
         SaucerSwapLariLib.setRewardRoute(
             rewardTokens,
@@ -728,7 +726,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
             isRewardToken,
             _token,
             _toLp0Route,
-            _toLp1Route
+            _toLp1Route,
+            _lp0RoutePoolFees,
+            _lp1RoutePoolFees
         );
     }
 
@@ -800,5 +800,5 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     receive() external payable {}
-    fallback() external payable {}
+    // fallback() external payable {}
 }

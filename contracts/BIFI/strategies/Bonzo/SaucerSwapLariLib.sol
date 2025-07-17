@@ -24,8 +24,10 @@ library SaucerSwapLariLib {
         address token;
         bool isHTS;
         bool isActive;
-        address[] toLp0Route;
+        address[] toLp0Route;   
         address[] toLp1Route;
+        uint24 [] lp0RoutePoolFees; 
+        uint24 [] lp1RoutePoolFees; 
     }
 
     struct FeeParams {
@@ -113,17 +115,15 @@ library SaucerSwapLariLib {
         return UniswapV3Utils.swap(unirouter, path, rewardAmount);
     }
 
-    function swapReward(uint256 amount, address[] memory route, address unirouter, address pool) internal {
+    function swapReward(uint256 amount, address[] memory route, address unirouter, uint24[] memory poolFees) internal {
         if (amount == 0 || route.length < 2) return;
         address tokenIn = route[0];
         address tokenOut = route[route.length - 1];
         
         if (tokenIn == tokenOut) return;
-        
-        // Create fee array (3000 = 0.3% tier for all hops)
         uint24[] memory fees = new uint24[](route.length - 1);
         for (uint i = 0; i < fees.length; i++) {
-            fees[i] = IUniswapV3Pool(pool).fee();
+            fees[i] = poolFees[i];
         }
         
         bytes memory path = UniswapV3Utils.routeToPath(route, fees);
@@ -205,8 +205,7 @@ library SaucerSwapLariLib {
         address lpToken0,
         address lpToken1,
         address native,
-        IWHBAR whbarContract,
-        address pool
+        IWHBAR whbarContract
     ) external returns (uint256 fees0, uint256 fees1) {
         // Check if any reward tokens have routes set
         bool hasRoutes = false;
@@ -243,14 +242,14 @@ library SaucerSwapLariLib {
             if (rewardToken.token != lpToken0 && rewardToken.toLp0Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken0).balanceOf(address(this));
                 // IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                swapReward(balance / 2, rewardToken.toLp0Route, unirouter, pool);
+                swapReward(balance / 2, rewardToken.toLp0Route, unirouter, rewardToken.lp0RoutePoolFees);
                 uint256 balanceAfter = IERC20Metadata(lpToken0).balanceOf(address(this));
                 fees0 += balanceAfter - balanceBefore;
             }
             if (rewardToken.token != lpToken1 && rewardToken.toLp1Route.length > 1) {
                 uint256 balanceBefore = IERC20Metadata(lpToken1).balanceOf(address(this));
                 // IERC20Metadata(rewardToken.token).approve(unirouter, balance / 2);
-                swapReward(balance / 2, rewardToken.toLp1Route, unirouter, pool);
+                swapReward(balance / 2, rewardToken.toLp1Route, unirouter, rewardToken.lp1RoutePoolFees);
                 uint256 balanceAfter = IERC20Metadata(lpToken1).balanceOf(address(this));
                 fees1 += balanceAfter - balanceBefore;
             }
@@ -273,7 +272,9 @@ library SaucerSwapLariLib {
                 isHTS: _isHTS,
                 isActive: true,
                 toLp0Route: new address[](0),
-                toLp1Route: new address[](0)
+                toLp1Route: new address[](0),
+                lp0RoutePoolFees: new uint24[](0),
+                lp1RoutePoolFees: new uint24[](0)
             })
         );
         rewardTokenIndex[_token] = rewardTokens.length - 1;
@@ -303,12 +304,16 @@ library SaucerSwapLariLib {
         mapping(address => bool) storage isRewardToken,
         address _token,
         address[] calldata _toLp0Route,
-        address[] calldata _toLp1Route
+        address[] calldata _toLp1Route,
+        uint24[] calldata _lp0RoutePoolFees,
+        uint24[] calldata _lp1RoutePoolFees
     ) external {
         require(isRewardToken[_token], "Token not found");
         uint256 index = rewardTokenIndex[_token];
         rewardTokens[index].toLp0Route = _toLp0Route;
         rewardTokens[index].toLp1Route = _toLp1Route;
+        rewardTokens[index].lp0RoutePoolFees = _lp0RoutePoolFees;
+        rewardTokens[index].lp1RoutePoolFees = _lp1RoutePoolFees;
     }
 
     function removeRewardToken(
