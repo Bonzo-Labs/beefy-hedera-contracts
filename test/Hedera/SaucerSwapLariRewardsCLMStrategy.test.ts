@@ -38,13 +38,13 @@ if (CHAIN_TYPE === "testnet") {
   nonManagerPK = process.env.NON_MANAGER_PK;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
-  POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
-  // POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
+  // POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
+  POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
   QUOTER_ADDRESS = "0x00000000000000000000000000000000003c4370"; // TODO: Update with actual mainnet quoter
   FACTORY_ADDRESS = "0x00000000000000000000000000000000003c3951"; // TODO: Update with actual mainnet factory
   TOKEN0_ADDRESS = "0x000000000000000000000000000000000006f89a"; // USDC mainnet
-  TOKEN1_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE mainnet
-  // TOKEN1_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR mainnet
+  // TOKEN1_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE mainnet
+  TOKEN1_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR mainnet
   NATIVE_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR (native) mainnet
   WHBAR_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000163B59";
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET;
@@ -107,8 +107,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     // const EXISTING_STRATEGY_ADDRESS = "0x314fd6520B560228fCFB750a60B18e030920c73B";
     // const EXISTING_VAULT_ADDRESS = "0x9C4116ac95dFe8D81df4969C4315a8e83D9ebF13";
     
-    const EXISTING_STRATEGY_ADDRESS = "0x71Ae2d60Db3c1023e94159fff0FE2d4855FA4dbb"; //"0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286";
-    const EXISTING_VAULT_ADDRESS = "0x2e08a2F192074562BD1D39B8488ee450D2F3C35a"; //"0xe712c66d849f71273D3DC4dd893c6F55d1c67Bf2";
+    const EXISTING_STRATEGY_ADDRESS = "0x5f4F7ABbb3a86F4301c1dE82757dcB62e70509D9"; //"0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286";
+    const EXISTING_VAULT_ADDRESS = "0x04D67092516768e3ca62fD2c2f562e55d3240f04"; //"0xe712c66d849f71273D3DC4dd893c6F55d1c67Bf2";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -1077,7 +1077,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
 
     //Mainnet: USDC-SAUCE POOL ========================================================
     //handle deposits of USDC and SAUCE
-    it("mainnet:Should handle real USDC + SAUCE deposits", async function () {
+    it.skip("mainnet:Should handle real USDC + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
       const [keyMain, keyAlt] = await strategy.getKeys();
@@ -1299,7 +1299,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       console.log("Final USDC:", ethers.utils.formatUnits(finalUSDC, 6));
     });
 
-    it("Should allow processLariRewards calls", async function () {
+    it.skip("Should allow processLariRewards calls", async function () {
       console.log("Processing Lari Rewards");
       // to mimic lari rewards, send SAUCE and HBAR to the strategy
         const sauceTransferTx = await sauceToken.transfer(
@@ -1325,7 +1325,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       console.log("Process Lari Rewards executed successfully");
     });
 
-    it("Should allow harvest calls", async function () {
+    it.skip("Should allow harvest calls", async function () {
       try {
         //get the reward tokens data
         // const rewardTokensLength = await strategy.getRewardTokensLength();
@@ -1634,7 +1634,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
 
       //Mainnet: USDC-HBAR POOL ========================================================
       //handle deposits of USDC and HBAR
-      it.skip("mainnet:Should handle real USDC + HBAR deposits", async function () {
+      it("mainnet:Should handle real USDC + HBAR deposits", async function () {
         const price = await strategy.price();
         const balances = await strategy.balances();
         const [keyMain, keyAlt] = await strategy.getKeys();

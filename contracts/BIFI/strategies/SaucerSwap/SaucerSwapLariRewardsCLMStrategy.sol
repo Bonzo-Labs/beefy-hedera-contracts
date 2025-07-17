@@ -198,7 +198,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function _addLiquidity() private onlyCalmPeriods {
         _whenStrategyNotPaused();
-        uint256 hbarBalanceBefore = address(this).balance > 0 ? address(this).balance - msg.value : 0;
+        uint256 hbarBalanceBefore = address(this).balance > 0 && address(this).balance > msg.value ? address(this).balance - msg.value : 0;
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = updateMintFeeWithFreshPrice();
