@@ -57,7 +57,7 @@ async function main() {
   const rewardsController = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller address
   const stakingPool = "0x00000000000000000000000000000000001647e7"; // SaucerSwap staking pool address
   const maxBorrowable = 4000; // 50% in basis points
-  const slippageTolerance = 50; // 0.5% in basis points
+  const slippageTolerance = 200; // 2% in basis points
   const isRewardsAvailable = false;
   const isBonzoDeployer = true;
 

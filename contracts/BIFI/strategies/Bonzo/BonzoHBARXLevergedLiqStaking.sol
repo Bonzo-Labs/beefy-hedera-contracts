@@ -341,11 +341,11 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         return amountOut;
     }
 
-    function harvest() external whenNotPaused nonReentrant {
+    function harvest() external whenNotPaused  {
         _harvest(msg.sender);
     }
 
-    function harvest(address callFeeRecipient) external whenNotPaused nonReentrant {
+    function harvest(address callFeeRecipient) external whenNotPaused  {
         _harvest(callFeeRecipient);
     }
 
