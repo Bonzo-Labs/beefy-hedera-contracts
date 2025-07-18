@@ -59,14 +59,19 @@ async function main() {
     unirouter = "0x00000000000000000000000000000000000026e7"; // SaucerSwap router
   } else if (CHAIN_TYPE === "mainnet") {
     //SAUCE
-    want = "0x00000000000000000000000000000000000b2ad5"; // Sauce token mainnet
-    aToken = "0x2bcC0a304c0bc816D501c7C647D958b9A5bc716d"; // aSauce token mainnet
-    debtToken = "0x736c5dbB8ADC643f04c1e13a9C25f28d3D4f0503"; // debtSauce token mainnet
+    // want = "0x00000000000000000000000000000000000b2ad5"; // Sauce token mainnet
+    // aToken = "0x2bcC0a304c0bc816D501c7C647D958b9A5bc716d"; // aSauce token mainnet
+    // debtToken = "0x736c5dbB8ADC643f04c1e13a9C25f28d3D4f0503"; // debtSauce token mainnet
 
     //GRELF
     // want = "0x000000000000000000000000000000000011afa2"; // HBAR token mainnet
     // aToken = "0xb8c34c9a46AEdf1decb846F942861EeE7dE78075"; // aSauce token mainnet
     // debtToken = "0x0E509Fc72f4b5d97494c0d45fcd1cF04d531Be44"; // debtSauce token mainnet
+
+    //KBL
+    want = "0x00000000000000000000000000000000005b665a"; // KRAKEN token mainnet
+    aToken = "0xC45A34b9D9e29fBfCAACC9193FD0CE950e63Ba81"; // aKRAKEN token mainnet
+    debtToken = "0x6a74429E0D761085C4D5520A14ab59874dfe1C06"; // debtKRAKEN token mainnet
 
     lendingPool = "0x236897c518996163E7b313aD21D1C9fCC7BA1afc"; // Bonzo lending pool mainnet
     rewardsController = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet

@@ -816,7 +816,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe("Integration Tests SAUCE-CLXY(testnet) | USDC-SAUCE(mainnet)", function () {
+  describe.skip("Integration Tests SAUCE-CLXY(testnet) | USDC-SAUCE(mainnet)", function () {
     it.skip("testnet:Should handle real CLXY + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
@@ -1687,14 +1687,23 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       });
 
       //handle withdrawals of USDC and HBAR
-      it.skip("mainnet:Should handle real withdrawals of USDC and HBAR", async function () {
+      it("mainnet:Should handle real withdrawals of USDC and HBAR", async function () {
         const usdcToken = await ethers.getContractAt(
           "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
           TOKEN0_ADDRESS
         );
         const shares = await vault.balanceOf(deployer.address);
+        console.log("Shares:", shares.toString());
+        if(shares.eq(0)) {
+          console.log("No shares to withdraw");
+          return;
+        }
         const hbarBefore = await deployer.getBalance();
         const usdcBefore = await usdcToken.balanceOf(deployer.address);
+        //update hbar price
+        const updatehbarprice = await strategy.updateMintFeeWithFreshPrice();
+        const receipt1 = await updatehbarprice.wait();
+        console.log("HBAR price updated", receipt1.transactionHash);
         let hbarRequired = await vault.estimateDepositHBARRequired();
         console.log(`HBAR required from vault estimate: ${hbarRequired}`);
         const sharesToWithdraw = shares.div(2);

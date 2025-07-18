@@ -333,6 +333,28 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       console.log("Withdrawal completed:", withdrawReceipt.transactionHash);
 
 
+      // const totalUserSharesAfter = await vault.balanceOf(deployer.address);
+      // console.log("Total user shares for withdrawal:", totalUserSharesAfter.toString());
+
+      // const withdrawAmountAfter = totalUserSharesAfter.div(2); // Withdraw half
+      // console.log("Withdrawing shares:", withdrawAmountAfter.toString());
+
+      // const withdrawTxAfter = await vault.withdraw(withdrawAmountAfter, { gasLimit: 5000000 });
+      // const withdrawReceiptAfter = await withdrawTxAfter.wait();
+      // console.log("Withdrawal completed:", withdrawReceiptAfter.transactionHash);
+
+      const totalUserSharesAfter2 = await vault.balanceOf(deployer.address);
+      console.log("Total user shares for withdrawal:", totalUserSharesAfter2.toString());
+
+      //complete withdrawal
+      const withdrawTxAfter2 = await vault.withdraw(totalUserSharesAfter2, { gasLimit: 5000000 });
+      const withdrawReceiptAfter2 = await withdrawTxAfter2.wait();
+      console.log("Withdrawal completed:", withdrawReceiptAfter2.transactionHash);
+
+      const totalUserSharesAfter3 = await vault.balanceOf(deployer.address);
+      console.log("Total user shares for withdrawal:", totalUserSharesAfter3.toString());
+
+
       // // FIX: Add bulk allowances for withdrawal operations to prevent "Safe token transfer failed!"
       // console.log("Setting up bulk allowances for withdrawal...");
 

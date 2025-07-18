@@ -41,10 +41,10 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     address public lendingPool;
     address public rewardsController;
     address public saucerSwapRouter; // SaucerSwap router for HBARX to HBAR swaps
-    uint24 public poolFee = 3000; // Default pool fee (0.3% mainnet) (0.30% testnet)
+    uint24 public poolFee; // Default pool fee (0.3% mainnet) (0.30% testnet)
 
     // Yield loop parameters
-    uint256 public maxLoops = 2; // Maximum number of yield loops (e.g., 3 for 3x)
+    uint256 public maxLoops = 1; // Maximum number of yield loops (e.g., 3 for 3x)
     uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
     uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
 
@@ -129,7 +129,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         whbarContract = block.chainid == 295
             ? 0x0000000000000000000000000000000000163B59
             : 0x0000000000000000000000000000000000003aD1;
-
+        poolFee = block.chainid == 295 ? 1500 : 3000;
         // Associate HTS tokens
         _associateToken(_want);
         _associateToken(_borrowToken);
@@ -172,6 +172,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     function deposit() public whenNotPaused nonReentrant {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "No funds to deposit");
+        //stakin needs at least 1 HBARX
+        // require(wantBal >= 3*10**8, "min 3 HBARX");
         _createYieldLoops(wantBal);
     }
 
@@ -253,16 +255,28 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         // Calculate proportional amounts for each layer
         uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
         uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
+        uint256 hbarxForDebt = _convertHbarToHbarX(debtToRepay);
+        supplyToWithdraw = supplyToWithdraw + hbarxForDebt;
         
         // Distribute across layers
-        uint256 layerSupply = supplyToWithdraw / maxLoops;
-        uint256 layerDebt = debtToRepay / maxLoops;
+        uint256 layerSupply = supplyToWithdraw / (maxLoops + 1);
+        uint256 layerDebt = debtToRepay / (maxLoops + 1);
         uint256 debtPaid = 0;
 
-        for (uint256 i = 0; i < maxLoops; i++) {
+        for (uint256 i = 0; i < maxLoops + 1; i++) {
             // Withdraw from lending pool for this layer
             if (layerSupply > 0) {
-                ILendingPool(lendingPool).withdraw(want, layerSupply, address(this));
+                uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
+                if(currentSupply > 0 && currentSupply <= layerSupply) {
+                    layerSupply = currentSupply;
+                }
+                try ILendingPool(lendingPool).withdraw(want, layerSupply, address(this)) {
+                } catch  {
+                   try ILendingPool(lendingPool).withdraw(want, layerSupply*90/100, address(this)) {
+                   } catch  {
+                      revert("LendingPool withdraw failed");
+                   }
+                }
             }
 
             // Handle debt repayment for this layer
@@ -358,7 +372,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         }
 
         uint256 wantHarvested = balanceOfWant();
-        if (wantHarvested > 0) {
+        if (wantHarvested > 0 && wantHarvested >= 3*10**8) {
             chargeFees(callFeeRecipient);
             deposit();
         }

@@ -139,7 +139,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         LENDING_POOL_ADDRESS,
         REWARDS_CONTROLLER_ADDRESS,
         STAKING_CONTRACT_ADDRESS,
-        4000, // maxBorrowable (10%)
+        3000, // maxBorrowable (10%)
         50, // slippageTolerance (0.5%)
         false, // isRewardsAvailable
         true, // isBonzoDeployer
@@ -289,7 +289,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         return;
       }
 
-      const depositAmount = "120000000"; // 0.1 HBARX (8 decimals)
+      const depositAmount = "300000000"; // 0.1 HBARX (8 decimals)
       
       // Approve the vault to spend tokens
       const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
@@ -379,7 +379,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       const preWithdrawBalance = await want.balanceOf(deployer.address);
       const preWithdrawStrategyBalance = await strategy.balanceOf();
 
-      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 5000000 });
+      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 6000000 });
       const withdrawReceipt = await withdrawTx.wait();
       console.log("Withdrawal completed, hash: ", withdrawReceipt.transactionHash);
 
@@ -411,6 +411,19 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       expect(postWithdrawBalance).to.be.gt(preWithdrawBalance);
       expect(postWithdrawShares).to.be.lt(totalUserShares);
       expect(postWithdrawStrategyBalance).to.be.lt(preWithdrawStrategyBalance);
+
+      //complete withdrawal
+      const withdrawTxAfter = await vault.withdraw(postWithdrawShares/2, { gasLimit: 6000000 });
+      const withdrawReceiptAfter = await withdrawTxAfter.wait();
+      console.log("Withdrawal completed:", withdrawReceiptAfter.transactionHash);
+
+      //complete withdrawal
+      console.log("Completing withdrawal...");
+      const remainingShares = await vault.balanceOf(deployer.address);
+      const withdrawTxAfter2 = await vault.withdraw(remainingShares, { gasLimit: 6000000 });
+      const withdrawReceiptAfter2 = await withdrawTxAfter2.wait();
+      console.log("Withdrawal completed:", withdrawReceiptAfter2.transactionHash);
+
 
       console.log("✅ Withdrawal test passed!");
     });

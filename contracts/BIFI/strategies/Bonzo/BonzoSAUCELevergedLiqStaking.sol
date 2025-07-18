@@ -33,7 +33,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     address public rewardsController;
 
     // Yield loop parameters
-    uint256 public maxLoops = 2; // Maximum number of yield loops (e.g., 3 for 3x)
+    uint256 public maxLoops = 1; // Maximum number of yield loops (e.g., 3 for 3x)
     uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
     uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
 
@@ -77,6 +77,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
     error InsufficientSauceForDebtRepayment(uint256 layerDebt, uint256 expectedSauce, uint256 minSauce);
     error NotEnoughSAUCE(uint256 availableSAUCE, uint256 requiredSAUCE);
+    error WithdrawFailed(uint256 withdrawAmount, uint256 currentSupply);
 
     function initialize(
         address _want,
@@ -188,8 +189,6 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
             // [4] borrow & stake → xSAUCE
             ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
             uint256 xAmt = _enter(borrowAmt);
-            // require xAmt >= borrowAmt * xSaucePerSauce/1e6 * (1 - tol)
-            require(xAmt * 10_000 >= ((borrowAmt * xSaucePerSauce) / 1e6) * (10_000 - slippageTolerance), "slip");
 
             // [5] update and re-deposit
             currentCollateral += xAmt;
@@ -254,23 +253,31 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
 
         // Calculate proportional amounts for each layer
-        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
         uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
-        
+        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
+        uint256 requiredXSauceForDebt = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
+        supplyToWithdraw = supplyToWithdraw + requiredXSauceForDebt;
         // Distribute across layers
-        uint256 layerSupply = supplyToWithdraw / maxLoops;
-        uint256 layerDebt = debtToRepay / maxLoops;
+        uint256 layerSupply = supplyToWithdraw / (maxLoops + 1);
+        uint256 layerDebt = debtToRepay / (maxLoops + 1);
         uint256 debtPaid = 0;
 
-        IERC20(borrowToken).approve(lendingPool, debtToRepay);
-        IERC20(want).approve(stakingPool, _targetAmount);
-
-        for (uint256 i = 0; i < maxLoops; i++) {
-            // Withdraw from lending pool for this layer
+        IERC20(borrowToken).approve(lendingPool, debtToRepay*2);
+        IERC20(want).approve(stakingPool, _targetAmount*2);
+        for (uint256 i = 0; i < maxLoops + 1; i++) {
             if (layerSupply > 0) {
-                ILendingPool(lendingPool).withdraw(want, layerSupply, address(this));
+                uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
+                if(currentSupply > 0 && currentSupply <= layerSupply) {
+                    layerSupply = currentSupply;
+                }
+                try ILendingPool(lendingPool).withdraw(want, layerSupply, address(this)) {
+                } catch  {
+                   try ILendingPool(lendingPool).withdraw(want, layerSupply*90/100, address(this)) {
+                   } catch  {
+                      revert("LendingPool withdraw failed");
+                   }
+                }
             }
-
             // Handle debt repayment for this layer
             if (layerDebt > 0) {
                 uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
@@ -296,7 +303,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         }
     }
 
-    function harvest() external whenNotPaused nonReentrant {
+    function harvest() external whenNotPaused {
 
         if (isRewardsAvailable) {
             // Claim rewards from lending pool

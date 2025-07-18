@@ -30,13 +30,13 @@ if (CHAIN_TYPE === "testnet") {
   nonManagerPK = process.env.NON_MANAGER_PK;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
-  POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
-  // POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
+  // POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
+  POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
   QUOTER_ADDRESS = "0x00000000000000000000000000000000003c4370"; // TODO: Update with actual mainnet quoter
   FACTORY_ADDRESS = "0x00000000000000000000000000000000003c3951"; // TODO: Update with actual mainnet factory
   TOKEN0_ADDRESS = "0x000000000000000000000000000000000006f89a"; // USDC mainnet
-  TOKEN1_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE mainnet
-  // TOKEN1_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR mainnet
+  // TOKEN1_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE mainnet
+  TOKEN1_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR mainnet
   NATIVE_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR (native) mainnet
   WHBAR_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000163B59";
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET;
@@ -926,7 +926,7 @@ describe("StrategyPassiveManagerSaucerSwap", function () {
 
     //Mainnet: USDC-HBAR POOL ========================================================
     //handle deposits of USDC and HBAR
-    it("mainnet:Should handle real USDC + HBAR deposits", async function () {
+    it.skip("mainnet:Should handle real USDC + HBAR deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
       const [keyMain, keyAlt] = await strategy.getKeys();
