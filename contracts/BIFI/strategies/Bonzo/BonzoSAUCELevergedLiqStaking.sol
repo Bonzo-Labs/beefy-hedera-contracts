@@ -75,10 +75,6 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 saucePrice
     );
 
-    error InsufficientSauceForDebtRepayment(uint256 layerDebt, uint256 expectedSauce, uint256 minSauce);
-    error NotEnoughSAUCE(uint256 availableSAUCE, uint256 requiredSAUCE);
-    error WithdrawFailed(uint256 withdrawAmount, uint256 currentSupply);
-
     function initialize(
         address _want,
         address _borrowToken,
@@ -136,7 +132,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         require(token != address(0), "Invalid token address");
         require(from != address(0), "Invalid from address");
         require(to != address(0), "Invalid to address");
-        require(amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "sf:Amount must be greater than 0");
         require(amount <= uint256(uint64(type(int64).max)), "Amount too large for int64");
         _transferHTS(token, from, to, int64(uint64(amount)));
     }
@@ -145,7 +141,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         require(token != address(0), "Invalid token address");
         require(from != address(0), "Invalid from address");
         require(to != address(0), "Invalid to address");
-        require(amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "th:Amount must be greater than 0");
 
         (bool success, bytes memory result) = HTS_PRECOMPILE.call(
             abi.encodeWithSelector(IHederaTokenService.transferToken.selector, token, from, to, amount)
@@ -201,7 +197,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
 
     function _enter(uint256 amount) internal returns (uint256) {
-        require(amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "en:Amount must be greater than 0");
         uint256 balanceBefore = IERC20(want).balanceOf(address(this));
         ISaucerSwapMothership(stakingPool).enter(amount);
         uint256 balanceAfter = IERC20(want).balanceOf(address(this));
@@ -235,7 +231,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function _unwindYieldLoops(uint256 _targetAmount) internal {
-        require(_targetAmount > 0, "Amount must be greater than 0");
+        require(_targetAmount > 0, "uy:Amount must be greater than 0");
         uint256 totalAssets = balanceOf();
         require(_targetAmount <= totalAssets, "Amount exceeds total position");
 
@@ -244,7 +240,6 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         // Calculate withdrawal percentage in basis points (10000 = 100%)
         uint256 withdrawBps = (_targetAmount * 10000) / totalAssets;
         if (withdrawBps > 10000) withdrawBps = 10000; // Cap at 100%
-
         // Convert to ratio for calculations (1e18 = 100%)
         uint256 withdrawRatio = (_targetAmount * 1e18) / totalAssets;
 
@@ -255,48 +250,57 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         // Calculate proportional amounts for each layer
         uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
         uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
-        uint256 requiredXSauceForDebt = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
-        supplyToWithdraw = supplyToWithdraw + requiredXSauceForDebt;
+        // uint256 requiredXSauceForDebt = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
+        supplyToWithdraw = supplyToWithdraw + ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
         // Distribute across layers
-        uint256 layerSupply = supplyToWithdraw / (maxLoops + 1);
-        uint256 layerDebt = debtToRepay / (maxLoops + 1);
+        uint256 layerSupply = supplyToWithdraw / (maxLoops+1);
+        uint256 layerDebt = debtToRepay / (maxLoops+1);
+        if(layerSupply == 0) return;
         uint256 debtPaid = 0;
 
-        IERC20(borrowToken).approve(lendingPool, debtToRepay*2);
-        IERC20(want).approve(stakingPool, _targetAmount*2);
-        for (uint256 i = 0; i < maxLoops + 1; i++) {
-            if (layerSupply > 0) {
-                uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
-                if(currentSupply > 0 && currentSupply <= layerSupply) {
-                    layerSupply = currentSupply;
-                }
-                try ILendingPool(lendingPool).withdraw(want, layerSupply, address(this)) {
-                } catch  {
-                   try ILendingPool(lendingPool).withdraw(want, layerSupply*90/100, address(this)) {
-                   } catch  {
-                      revert("LendingPool withdraw failed");
-                   }
-                }
+        IERC20(borrowToken).approve(lendingPool, debtToRepay*3);
+        IERC20(want).approve(stakingPool, _targetAmount*3);
+        for (uint256 i = 0; i < maxLoops+1; i++) {
+            uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
+            if(currentSupply > 0 && currentSupply <= layerSupply) {
+                layerSupply = currentSupply;
             }
+            ILendingPool(lendingPool).withdraw(want, layerSupply, address(this));
             // Handle debt repayment for this layer
-            if (layerDebt > 0) {
-                uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
-                if (currentDebt == 0) break;
+            uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
+            if (currentDebt == 0){
+                uint256 currWantBal = IERC20(want).balanceOf(address(this));
+                uint256 amtToWithdraw = currWantBal > supplyToWithdraw ? supplyToWithdraw : supplyToWithdraw - currWantBal;
+                uint256 currSupply = IERC20(aToken).balanceOf(address(this));
+                amtToWithdraw = amtToWithdraw > currSupply ? currSupply : amtToWithdraw;
+                if(amtToWithdraw > 0) {
+                    ILendingPool(lendingPool).withdraw(want, amtToWithdraw, address(this));
+                }
+                break;
+            }
 
-                uint256 debtForThisLayer = (i == maxLoops - 1) ? 
-                    (debtToRepay - debtPaid) : // Last layer gets remaining debt
-                    layerDebt; // Other layers get equal share
+            uint256 debtForThisLayer = (i == maxLoops) ? 
+                (debtToRepay - debtPaid) : // Last layer gets remaining debt
+                layerDebt; // Other layers get equal share
 
-                if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
-                    // Convert SAUCE debt to xSAUCE amount needed
-                    uint256 requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtForThisLayer);
-                    
-                    // Leave xSAUCE to get SAUCE for debt repayment
-                    uint256 sauceAmount = _leave(requiredXSauce);
-                    
-                    if (sauceAmount > 0) {
+            if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
+                // Convert SAUCE debt to xSAUCE amount needed
+                uint256 requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtForThisLayer);
+                requiredXSauce = IERC20(want).balanceOf(address(this)) > requiredXSauce ? IERC20(want).balanceOf(address(this)) : requiredXSauce;
+                // Leave xSAUCE to get SAUCE for debt repayment
+                uint256 sauceAmount = _leave(requiredXSauce);
+                
+                if (sauceAmount > 0) {
+                    uint256 currDebtBal = IERC20(debtToken).balanceOf(address(this));
+                    if(sauceAmount > currDebtBal) {
+                        // uint256 debtToPay = sauceAmount > currDebtBal ? currDebtBal : sauceAmount;
+                        ILendingPool(lendingPool).repay(borrowToken, currDebtBal, 2, address(this));
+                        debtPaid += currDebtBal;
+                        ISaucerSwapMothership(stakingPool).enter(sauceAmount - currDebtBal);
+                    }
+                    else{
                         ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
-                        debtPaid += debtForThisLayer;
+                        debtPaid += sauceAmount;
                     }
                 }
             }
@@ -344,7 +348,10 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function balanceOf() public view returns (uint256) {
-        return balanceOfWant() + balanceOfPool();
+        uint256 borrowBal = IERC20(debtToken).balanceOf(address(this));
+        //get amount of debt in xSauce
+        uint256 debtInXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(borrowBal);
+        return balanceOfWant() + balanceOfPool() - debtInXSauce;
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -471,7 +478,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
     function withdraw(uint256 _amount) external nonReentrant whenNotPaused {
         require(msg.sender == vault, "!vault");
-        require(_amount > 0, "Amount must be greater than 0");
+        require(_amount > 0, "wd:Amount must be greater than 0");
 
         uint256 totalPosition = balanceOf();
         require(_amount <= totalPosition, "Withdraw amount too large");

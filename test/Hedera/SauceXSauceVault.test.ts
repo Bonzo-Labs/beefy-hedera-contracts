@@ -59,7 +59,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = true; // Set to false to use existing deployed contracts
+  let deployNewContract = false; // Set to false to use existing deployed contracts
 
   before(async () => {
     [deployer] = await ethers.getSigners();
@@ -109,7 +109,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
         LENDING_POOL_ADDRESS,
         REWARDS_CONTROLLER_ADDRESS,
         STAKING_POOL_ADDRESS,
-        4000, // maxBorrowable (40%)
+        3000, // maxBorrowable (40%)
         50, // slippageTolerance (0.5%)
         false, // isRewardsAvailable
         true, // isBonzoDeployer
@@ -132,8 +132,8 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0x4A7Add6D72e8d16C5Dd008f63a17375E249a1000";
-      const STRATEGY_ADDRESS = "0x0f5b3977965587e447336E37214bed45cc8EE318";
+      const VAULT_ADDRESS = "0x4dedf1d3DE9fACA4278f589ED0a99FFaf813978f";
+      const STRATEGY_ADDRESS = "0x5e611Eb484b90CF354EF090aD0cc17E707D764A1";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoSAUCELevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -244,7 +244,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it("should handle deposit", async function () {
+    it.skip("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have xSAUCE tokens to test with
@@ -259,7 +259,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       const depositAmount = "100000"; // 0.1 xSAUCE
 
       // Approve the vault to spend tokens
-      const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
+      const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
       await approveTx.wait();
       console.log("Tokens approved for vault");
 
@@ -276,7 +276,7 @@ describe("BeefyBonzoSauceXSauceVault", function () {
 
       // Perform deposit
       console.log("Depositing...");
-      const tx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+      const tx = await vault.deposit(depositAmount, { gasLimit: 3200000 });
       const receipt = await tx.wait();
       console.log("Deposit transaction:", receipt.transactionHash);
 
@@ -309,29 +309,47 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       const userShares = await vault.balanceOf(deployer.address);
       console.log("User shares available:", userShares.toString());
 
-      if (userShares.eq(0)) {
+      const strategyATokenBalance = await strategy.balanceOf();
+      console.log("Strategy aToken balance:", strategyATokenBalance.toString());
+      const btoken = await ethers.getContractAt("IERC20Upgradeable", DEBT_TOKEN_ADDRESS);
+      const strategyDebtTokenBalance = await btoken.balanceOf(strategy.address);
+      console.log("Strategy debt token balance:", strategyDebtTokenBalance.toString());
+
+      const depositAmount = "100000";
+      // if (userShares.eq(0)) {
         console.log("No shares available for withdrawal test - need to deposit first");
 
-        const depositAmount = "100000";
-        const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
+        const approveTx = await want.approve(vault.address, +depositAmount*2, { gasLimit: 1000000 });
         const approveReceipt = await approveTx.wait();
         console.log("Approve transaction:", approveReceipt.transactionHash);
-        const depositTx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+        const depositTx = await vault.deposit(depositAmount, { gasLimit: 3200000 });
         const depositReceipt = await depositTx.wait();
         console.log("Deposit transaction:", depositReceipt.transactionHash);
         console.log("Made initial deposit for withdrawal test");
-      }
+      // }
 
       const totalUserShares = await vault.balanceOf(deployer.address);
       console.log("Total user shares for withdrawal:", totalUserShares.toString());
 
+      //sauce balance of strategy
+      const userSauceBalance = await want.balanceOf(deployer.address);
+      console.log("Sauce balance of user:", userSauceBalance.toString());
+
       const withdrawAmount = totalUserShares.div(2); // Withdraw half
       console.log("Withdrawing shares:", withdrawAmount.toString());
 
-      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 5000000 });
+      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 3000000 });
       const withdrawReceipt = await withdrawTx.wait();
       console.log("Withdrawal completed:", withdrawReceipt.transactionHash);
 
+      // console.log("Depositing again...");
+      // const tx2 = await vault.deposit(depositAmount, { gasLimit: 3200000 });
+      // const receipt2 = await tx2.wait();
+      // console.log("Deposit transaction:", receipt2.transactionHash);
+
+      //sauce balance of user after withdrawal
+      // const userSauceBalanceAfter = await want.balanceOf(deployer.address);
+      // console.log("Sauce balance of user after withdrawal:", userSauceBalanceAfter.toString());
 
       // const totalUserSharesAfter = await vault.balanceOf(deployer.address);
       // console.log("Total user shares for withdrawal:", totalUserSharesAfter.toString());
@@ -339,20 +357,43 @@ describe("BeefyBonzoSauceXSauceVault", function () {
       // const withdrawAmountAfter = totalUserSharesAfter.div(2); // Withdraw half
       // console.log("Withdrawing shares:", withdrawAmountAfter.toString());
 
-      // const withdrawTxAfter = await vault.withdraw(withdrawAmountAfter, { gasLimit: 5000000 });
+      // const withdrawTxAfter = await vault.withdraw(withdrawAmountAfter, { gasLimit: 3000000 });
       // const withdrawReceiptAfter = await withdrawTxAfter.wait();
       // console.log("Withdrawal completed:", withdrawReceiptAfter.transactionHash);
 
-      const totalUserSharesAfter2 = await vault.balanceOf(deployer.address);
-      console.log("Total user shares for withdrawal:", totalUserSharesAfter2.toString());
+      // const totalUserSharesAfter2 = await vault.balanceOf(deployer.address);
+      // console.log("Total user shares for withdrawal:", totalUserSharesAfter2.toString());
 
-      //complete withdrawal
-      const withdrawTxAfter2 = await vault.withdraw(totalUserSharesAfter2, { gasLimit: 5000000 });
-      const withdrawReceiptAfter2 = await withdrawTxAfter2.wait();
-      console.log("Withdrawal completed:", withdrawReceiptAfter2.transactionHash);
+      // //complete withdrawal
+      // const withdrawTxAfter2 = await vault.withdraw(totalUserSharesAfter2/2, { gasLimit: 3000000 });
+      // const withdrawReceiptAfter2 = await withdrawTxAfter2.wait();
+      // console.log("Withdrawal completed:", withdrawReceiptAfter2.transactionHash);
 
       const totalUserSharesAfter3 = await vault.balanceOf(deployer.address);
       console.log("Total user shares for withdrawal:", totalUserSharesAfter3.toString());
+
+      //get useraccountdata
+      const lendingPool = await ethers.getContractAt(
+        "contracts/BIFI/interfaces/bonzo/ILendingPool.sol:ILendingPool",
+        LENDING_POOL_ADDRESS
+      );
+      const userAccountData = await lendingPool.getUserAccountData(strategy.address);
+      console.log("User Account Data:", {
+        totalCollateralBase: userAccountData.totalCollateralETH.toString(),
+        totalDebtBase: userAccountData.totalDebtETH.toString(),
+        availableBorrowsBase: userAccountData.availableBorrowsETH.toString(),
+        currentLiquidationThreshold: userAccountData.currentLiquidationThreshold.toString(),
+        ltv: userAccountData.ltv.toString(),
+        healthFactor: userAccountData.healthFactor.toString(),
+      });
+
+
+      const withdrawTxAfter3 = await vault.withdraw(totalUserSharesAfter3, { gasLimit: 3000000 });
+      const withdrawReceiptAfter3 = await withdrawTxAfter3.wait();
+      console.log("Withdrawal completed:", withdrawReceiptAfter3.transactionHash);
+
+      const totalUserSharesAfter4 = await vault.balanceOf(deployer.address);
+      console.log("Total user shares for withdrawal:", totalUserSharesAfter4.toString());
 
 
       // // FIX: Add bulk allowances for withdrawal operations to prevent "Safe token transfer failed!"

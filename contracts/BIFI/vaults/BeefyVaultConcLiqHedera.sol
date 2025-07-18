@@ -427,8 +427,8 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         {
             // scope to avoid stack too deep errors
             (uint256 _after0, uint256 _after1) = balances();
-            vars.amount0 = _after0 - vars.bal0;
-            vars.amount1 = _after1 - vars.bal1;
+            vars.sentAmount0 = _after0 - vars.bal0;  // Update sentAmount0 instead of amount0
+            vars.sentAmount1 = _after1 - vars.bal1;  // Update sentAmount1 instead of amount1
         }
 
         strategy.deposit();

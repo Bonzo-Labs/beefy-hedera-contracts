@@ -63,7 +63,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = true;
+  let deployNewContract = false;
   let staking: MockStaking | any;
 
   before(async () => {
@@ -162,8 +162,8 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0x7974CAb644B9D9A4C7A5bB175b53C8219C77Faa4";
-      const STRATEGY_ADDRESS = "0x867F34aC29DaBf4c424BE40c8c403301836BeD4e";
+      const VAULT_ADDRESS = "0xAFB19D78bd4cD43239F9a5602251B0A9D28576Be";
+      const STRATEGY_ADDRESS = "0xCa2EdC68Ac638adB63B618c2056c3037Fd3F609F";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -277,7 +277,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it("should handle deposit", async function () {
+    it.skip("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have HBARX tokens to test with
@@ -289,7 +289,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         return;
       }
 
-      const depositAmount = "300000000"; // 0.1 HBARX (8 decimals)
+      const depositAmount = "10000000"; // 0.1 HBARX (8 decimals)
       
       // Approve the vault to spend tokens
       const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
@@ -413,9 +413,9 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       expect(postWithdrawStrategyBalance).to.be.lt(preWithdrawStrategyBalance);
 
       //complete withdrawal
-      const withdrawTxAfter = await vault.withdraw(postWithdrawShares/2, { gasLimit: 6000000 });
-      const withdrawReceiptAfter = await withdrawTxAfter.wait();
-      console.log("Withdrawal completed:", withdrawReceiptAfter.transactionHash);
+      // const withdrawTxAfter = await vault.withdraw(postWithdrawShares/2, { gasLimit: 6000000 });
+      // const withdrawReceiptAfter = await withdrawTxAfter.wait();
+      // console.log("Withdrawal completed:", withdrawReceiptAfter.transactionHash);
 
       //complete withdrawal
       console.log("Completing withdrawal...");

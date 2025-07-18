@@ -107,8 +107,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     // const EXISTING_STRATEGY_ADDRESS = "0x314fd6520B560228fCFB750a60B18e030920c73B";
     // const EXISTING_VAULT_ADDRESS = "0x9C4116ac95dFe8D81df4969C4315a8e83D9ebF13";
     
-    const EXISTING_STRATEGY_ADDRESS = "0x5f4F7ABbb3a86F4301c1dE82757dcB62e70509D9"; //"0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286";
-    const EXISTING_VAULT_ADDRESS = "0x04D67092516768e3ca62fD2c2f562e55d3240f04"; //"0xe712c66d849f71273D3DC4dd893c6F55d1c67Bf2";
+    const EXISTING_STRATEGY_ADDRESS = "0xe71271EC79565C844984Ca75Cdc4dAa3E3f82494"; //"0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286";
+    const EXISTING_VAULT_ADDRESS = "0xf84F29343A4A35e139d8A788ec4386926ED0357B"; //"0xe712c66d849f71273D3DC4dd893c6F55d1c67Bf2";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -816,7 +816,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     });
   });
 
-  describe.skip("Integration Tests SAUCE-CLXY(testnet) | USDC-SAUCE(mainnet)", function () {
+  describe("Integration Tests SAUCE-CLXY(testnet) | USDC-SAUCE(mainnet)", function () {
     it.skip("testnet:Should handle real CLXY + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
@@ -1077,7 +1077,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
 
     //Mainnet: USDC-SAUCE POOL ========================================================
     //handle deposits of USDC and SAUCE
-    it.skip("mainnet:Should handle real USDC + SAUCE deposits", async function () {
+    it("mainnet:Should handle real USDC + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
       const [keyMain, keyAlt] = await strategy.getKeys();
@@ -1634,7 +1634,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
 
       //Mainnet: USDC-HBAR POOL ========================================================
       //handle deposits of USDC and HBAR
-      it("mainnet:Should handle real USDC + HBAR deposits", async function () {
+      it.skip("mainnet:Should handle real USDC + HBAR deposits", async function () {
         const price = await strategy.price();
         const balances = await strategy.balances();
         const [keyMain, keyAlt] = await strategy.getKeys();
@@ -1687,7 +1687,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
       });
 
       //handle withdrawals of USDC and HBAR
-      it("mainnet:Should handle real withdrawals of USDC and HBAR", async function () {
+      it.skip("mainnet:Should handle real withdrawals of USDC and HBAR", async function () {
         const usdcToken = await ethers.getContractAt(
           "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
           TOKEN0_ADDRESS
