@@ -35,3 +35,5 @@ bin/flatten.sh
 typechain-types
 dist
 scripts/deployed-addresses.json
+
+.claude

@@ -198,7 +198,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function _addLiquidity() private onlyCalmPeriods {
         _whenStrategyNotPaused();
-        uint256 hbarBalanceBefore = address(this).balance > 0 && address(this).balance > msg.value ? address(this).balance - msg.value : 0;
+        uint256 hbarBalanceBefore = address(this).balance > 0 && address(this).balance > msg.value
+            ? address(this).balance - msg.value
+            : 0;
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = updateMintFeeWithFreshPrice();
@@ -306,7 +308,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function processLariRewards() external {
         _processLariRewards();
     }
-    
+
     function harvest(address _callFeeRecipient) external payable {
         _harvest(_callFeeRecipient);
     }
@@ -315,8 +317,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         _harvest(tx.origin);
     }
 
-    // In the harvest function, we WILL NOT remove and add liquidity because this creates >50 child transactions and fails on-chain.
-    // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
         // Claim fees from the pool and collect them.
         _claimEarnings();
@@ -351,8 +351,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         fees1 += newFees1;
     }
 
-    // This function will be called by Bonzo every 30 min or so in order to re-balance the positions.
-    // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function moveTicks() external payable onlyCalmPeriods onlyRebalancers {
         _claimEarnings();
         _removeLiquidity();
@@ -461,7 +459,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
     }
 
-        function getMintFee() public view returns (uint256 mintFee) {
+    function getMintFee() public view returns (uint256 mintFee) {
         mintFee = _getMintFeeFromPool();
         // Convert tinycent US to HBAR using oracle
         if (beefyOracle != address(0)) {
@@ -493,7 +491,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function updateMintFeeWithFreshPrice() public returns (uint256 mintFee) {
         mintFee = _getMintFeeFromPool();
-        
+
         if (beefyOracle != address(0)) {
             try IBeefyOracle(beefyOracle).getFreshPriceInUSD(native) returns (uint256 hbarPrice, bool success) {
                 if (success && hbarPrice > 0) {
@@ -539,7 +537,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
         return ISaucerSwapPool(pool).tickSpacing();
     }
 
-    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external payable nonReentrant {
+    function uniswapV3MintCallback(
+        uint256 amount0,
+        uint256 amount1,
+        bytes memory /*data*/
+    ) external payable nonReentrant {
         if (msg.sender != pool) revert NotPool();
         if (!minting) revert InvalidEntry();
         minting = false;
@@ -587,7 +589,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         uint256 amount,
         bool /* isFromContract */
     ) internal {
-        if(amount == 0) return;
+        if (amount == 0) return;
         SaucerSwapLariLib.transferTokens(token, to, amount);
     }
 
@@ -627,7 +629,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         if (bal1 > 0) {
             _transferTokens(lpToken1, address(this), vault, bal1, true);
         }
-        if(address(this).balance > 0) {
+        if (address(this).balance > 0) {
             AddressUpgradeable.sendValue(payable(vault), address(this).balance);
         }
         _transferOwnership(address(0));

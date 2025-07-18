@@ -22,15 +22,19 @@ async function main() {
   const vaultFactory = await ethers.getContractAt("BeefyVaultV7FactoryHedera", vaultFactoryAddress);
   console.log("Connected to vault factory at:", vaultFactoryAddress);
 
-  // Step 3: Create a new vault using the factory
-  console.log("Creating new vault...");
-  const tx = await vaultFactory.cloneVault({gasLimit: 3000000});
-  const receipt = await tx.wait();
-
-  // Get the new vault address from the ProxyCreated event
-  const proxyCreatedEvent = receipt.events?.find(e => e.event === "ProxyCreated");
-  const vaultAddress = proxyCreatedEvent?.args?.proxy;
+  // Step 3: Deploy a new vault directly (bypassing factory due to factory issues)
+  console.log("Deploying new vault directly...");
+  const BeefyVaultV7Hedera = await ethers.getContractFactory("BeefyVaultV7Hedera");
+  const vaultContract = await BeefyVaultV7Hedera.deploy({gasLimit: 3000000});
+  await vaultContract.deployed();
+  const vaultAddress = vaultContract.address;
   console.log("New vault deployed to:", vaultAddress);
+  
+  // Error handling
+  if (!vaultAddress) {
+    console.error("Failed to deploy vault directly");
+    process.exit(1);
+  }
 
   // Step 4: Connect to the newly created vault
   // note: used in case deployment fails inbetween
