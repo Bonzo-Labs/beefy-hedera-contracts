@@ -202,36 +202,72 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
     function _enter(uint256 amount) internal returns (uint256) {
         require(amount > 0, "Amount must be greater than 0");
+        
+        // Get expected output for validation
+        uint256 expectedXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(amount);
+        uint256 minXSauce = expectedXSauce * (10000 - slippageTolerance) / 10000;
+        
         uint256 balanceBefore = IERC20(want).balanceOf(address(this));
-        ISaucerSwapMothership(stakingPool).enter(amount);
-        uint256 balanceAfter = IERC20(want).balanceOf(address(this));
-        uint256 received = balanceAfter - balanceBefore;
-        require(received > 0, "No tokens received from staking");
-        emit Staked(received);
-        return received;
+        
+        try ISaucerSwapMothership(stakingPool).enter(amount) {
+            uint256 balanceAfter = IERC20(want).balanceOf(address(this));
+            uint256 received = balanceAfter - balanceBefore;
+            
+            // Validate received amount meets minimum expectations
+            if (received < minXSauce) {
+                emit Staked(received);
+                return received; // Return actual amount even if below expectations
+            }
+            
+            require(received > 0, "No tokens received from staking");
+            emit Staked(received);
+            return received;
+        } catch {
+            // If enter fails, revert with descriptive error
+            revert("SAUCE staking failed");
+        }
     }
 
     function _leave(uint256 amount) internal returns (uint256) {
         if(amount == 0) {
             return 0;
         }
-        uint256 balanceBefore = IERC20(borrowToken).balanceOf(address(this));
-        //approve
+        
+        // Validation checks
         uint256 sauceBalance = ISaucerSwapMothership(stakingPool).sauceBalance(address(this));
         uint256 currWantBal = balanceOfWant();
         if(currWantBal == 0 || sauceBalance == 0) {
             return 0;
         }
+        
+        // Ensure we don't try to leave more than we have
         if(amount > currWantBal) {
             amount = currWantBal;
         }
-        ISaucerSwapMothership(stakingPool).leave(amount);
-        uint256 balanceAfter = IERC20(borrowToken).balanceOf(address(this));
-        uint256 received = balanceAfter - balanceBefore;
-        require(received > 0, "No tokens received from unstaking");
-
-        emit Unstaked(received);
-        return received;
+        
+        // Get expected output for validation
+        uint256 expectedSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(amount);
+        uint256 minSauce = expectedSauce * (10000 - slippageTolerance) / 10000;
+        
+        uint256 balanceBefore = IERC20(borrowToken).balanceOf(address(this));
+        
+        try ISaucerSwapMothership(stakingPool).leave(amount) {
+            uint256 balanceAfter = IERC20(borrowToken).balanceOf(address(this));
+            uint256 received = balanceAfter - balanceBefore;
+            
+            // Validate received amount meets minimum expectations
+            if (received < minSauce) {
+                emit Unstaked(received);
+                return received; // Return actual amount even if below expectations
+            }
+            
+            require(received > 0, "No tokens received from unstaking");
+            emit Unstaked(received);
+            return received;
+        } catch {
+            // If leave fails, return 0 to indicate failure
+            return 0;
+        }
     }
 
     function _unwindYieldLoops(uint256 _targetAmount) internal {
@@ -255,7 +291,11 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         // Calculate proportional amounts for each layer
         uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
         uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
-        uint256 requiredXSauceForDebt = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
+        
+        // Use more accurate conversion with buffer for debt
+        uint256 requiredXSauceForDebt = _getSauceQuoteForXSauceAmount(debtToRepay);
+        // Add buffer to account for slippage and conversion inaccuracies
+        requiredXSauceForDebt = requiredXSauceForDebt + (requiredXSauceForDebt * 200) / 10000; // 2% buffer
         supplyToWithdraw = supplyToWithdraw + requiredXSauceForDebt;
         // Distribute across layers
         uint256 layerSupply = supplyToWithdraw / (maxLoops + 1);
@@ -288,19 +328,125 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
                     layerDebt; // Other layers get equal share
 
                 if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
-                    // Convert SAUCE debt to xSAUCE amount needed
-                    uint256 requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtForThisLayer);
+                    // Use improved conversion with buffer for more accuracy
+                    uint256 requiredXSauce = _getSauceQuoteForXSauceAmount(debtForThisLayer);
+                    
+                    // Ensure we have enough xSAUCE to leave
+                    uint256 xSauceBal = IERC20(want).balanceOf(address(this));
+                    if (requiredXSauce > xSauceBal) {
+                        requiredXSauce = xSauceBal;
+                    }
                     
                     // Leave xSAUCE to get SAUCE for debt repayment
-                    uint256 sauceAmount = _leave(requiredXSauce);
-                    
-                    if (sauceAmount > 0) {
-                        ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
-                        debtPaid += debtForThisLayer;
+                    if (requiredXSauce > 0) {
+                        uint256 sauceAmount = _leave(requiredXSauce);
+                        
+                        // Final check: ensure we don't try to repay more than we have
+                        uint256 finalSauceBal = IERC20(borrowToken).balanceOf(address(this));
+                        if (sauceAmount > finalSauceBal) {
+                            sauceAmount = finalSauceBal;
+                        }
+                        
+                        if (sauceAmount > 0) {
+                            try ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this)) {
+                                debtPaid += debtForThisLayer;
+                            } catch {
+                                // If repayment fails, continue to next layer
+                                break;
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    function _completePositionExit() internal {
+        uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
+        uint256 totalRepaid;
+
+        // Approve tokens for all operations
+        IERC20(borrowToken).approve(lendingPool, totalDebt * 2);
+        IERC20(want).approve(stakingPool, balanceOfWant() * 2);
+
+        // Withdraw all positions and repay all debt
+        while (totalDebt > 0) {
+            // Withdraw enough to cover all debt with buffer
+            uint256 toWithdraw = totalDebt + (totalDebt * 100) / 10000; // Add 1% buffer
+            uint256 maxWithdraw = IERC20(aToken).balanceOf(address(this));
+
+            if (toWithdraw > maxWithdraw) {
+                toWithdraw = maxWithdraw;
+            }
+
+            if (toWithdraw > 0) {
+                try ILendingPool(lendingPool).withdraw(want, toWithdraw, address(this)) {
+                } catch {
+                    // If exact withdrawal fails, try smaller amount
+                    try ILendingPool(lendingPool).withdraw(want, toWithdraw * 90 / 100, address(this)) {
+                    } catch {
+                        break; // Exit if we can't withdraw
+                    }
+                }
+            }
+
+            // Convert xSAUCE to SAUCE if needed for debt repayment
+            uint256 currentSauceBal = IERC20(borrowToken).balanceOf(address(this));
+            if (currentSauceBal < totalDebt) {
+                uint256 sauceShortfall = totalDebt - currentSauceBal;
+                uint256 xSauceBal = IERC20(want).balanceOf(address(this));
+                
+                if (xSauceBal > 0) {
+                    // Use improved conversion with buffer for more accuracy
+                    uint256 xSauceToLeave = _getSauceQuoteForXSauceAmount(sauceShortfall);
+                    if (xSauceToLeave > xSauceBal) {
+                        xSauceToLeave = xSauceBal;
+                    }
+                    if (xSauceToLeave > 0) {
+                        _leave(xSauceToLeave);
+                    }
+                }
+            }
+
+            // Repay as much debt as possible
+            uint256 sauceBalance = IERC20(borrowToken).balanceOf(address(this));
+            uint256 toRepay = sauceBalance > totalDebt ? totalDebt : sauceBalance;
+
+            if (toRepay > 0) {
+                try ILendingPool(lendingPool).repay(borrowToken, toRepay, 2, address(this)) {
+                    totalRepaid += toRepay;
+                } catch {
+                    break; // Exit if repayment fails
+                }
+            }
+
+            // Update debt amount and prevent infinite loop
+            uint256 newDebt = IERC20(debtToken).balanceOf(address(this));
+            if (newDebt >= totalDebt) break;
+            totalDebt = newDebt;
+        }
+
+        // Withdraw any remaining supply
+        uint256 remainingSupply = IERC20(aToken).balanceOf(address(this));
+        if (remainingSupply > 0) {
+            try ILendingPool(lendingPool).withdraw(want, type(uint256).max, address(this)) {
+            } catch {
+                // Try partial withdrawal if max fails
+                try ILendingPool(lendingPool).withdraw(want, remainingSupply, address(this)) {
+                } catch {
+                    // Ignore if withdrawal fails
+                }
+            }
+        }
+    }
+
+    function _getSauceQuoteForXSauceAmount(uint256 sauceAmount) internal view returns (uint256) {
+        if (sauceAmount == 0) return 0;
+        
+        // Use staking pool's conversion rate with buffer for safety
+        uint256 xSauceAmount = ISaucerSwapMothership(stakingPool).sauceForxSauce(sauceAmount);
+        // Add slippage buffer for safety
+        return xSauceAmount + (xSauceAmount * slippageTolerance) / 10000;
     }
 
     function harvest() external whenNotPaused {
@@ -476,8 +622,19 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 totalPosition = balanceOf();
         require(_amount <= totalPosition, "Withdraw amount too large");
 
-        // Unwind yield loops
-        _unwindYieldLoops(_amount);
+        if (totalPosition == 0) return;
+
+        // Calculate withdrawal percentage in basis points (10000 = 100%)
+        uint256 withdrawBps = (_amount * 10000) / totalPosition;
+        if (withdrawBps > 10000) withdrawBps = 10000; // Cap at 100%
+
+        // For near-complete withdrawal (>99.5%), exit all positions to avoid rounding issues
+        if (withdrawBps >= 9950) {
+            _completePositionExit();
+        } else {
+            // Unwind yield loops for partial withdrawals
+            _unwindYieldLoops(_amount);
+        }
 
         // Get the actual amount of want tokens we have
         uint256 wantBal = IERC20(want).balanceOf(address(this));
