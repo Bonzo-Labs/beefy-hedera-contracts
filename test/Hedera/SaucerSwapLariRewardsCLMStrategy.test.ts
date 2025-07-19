@@ -1,7 +1,7 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
-import { SaucerSwapLariRewardsCLMStrategy, BeefyVaultConcLiqHedera, IWHBAR } from "../../typechain-types";
+import { SaucerSwapLariRewardsCLMStrategy, BonzoVaultConcLiq, IWHBAR } from "../../typechain-types";
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
@@ -62,7 +62,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
   this.timeout(120000);
 
   let strategy: SaucerSwapLariRewardsCLMStrategy;
-  let vault: BeefyVaultConcLiqHedera;
+  let vault: BonzoVaultConcLiq;
   let deployer: SignerWithAddress;
   let keeper: SignerWithAddress;
   let user1: SignerWithAddress;
@@ -115,9 +115,9 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
 
     try {
       vault = (await ethers.getContractAt(
-        "BeefyVaultConcLiqHedera",
+        "BonzoVaultConcLiq",
         EXISTING_VAULT_ADDRESS
-      )) as BeefyVaultConcLiqHedera;
+      )) as BonzoVaultConcLiq;
 
       // First try to determine what contract is actually deployed
       console.log("Attempting to identify contract type at strategy address...");

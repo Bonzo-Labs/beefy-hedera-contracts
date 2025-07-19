@@ -173,7 +173,7 @@ async function deployNewStrategy() {
     throw new Error("Vault factory address not found. Please deploy factory first.");
   }
 
-  const vaultFactory = await ethers.getContractAt("BeefyVaultV7FactoryHedera", vaultFactoryAddress);
+  const vaultFactory = await ethers.getContractAt("BonzoVaultV7Factory", vaultFactoryAddress);
   console.log("Connected to vault factory at:", vaultFactoryAddress);
 
   // Create new CLM vault using the factory
@@ -191,7 +191,7 @@ async function deployNewStrategy() {
   console.log("New CLM vault created at:", vaultAddress);
 
   // Connect to the newly created vault
-  const vaultInstance = await ethers.getContractAt("BeefyVaultConcLiqHedera", vaultAddress);
+  const vaultInstance = await ethers.getContractAt("BonzoVaultConcLiq", vaultAddress);
 
   // Deploy strategy with library linking
   console.log("\n=== Deploying SaucerSwapLariRewardsCLMStrategy ===");

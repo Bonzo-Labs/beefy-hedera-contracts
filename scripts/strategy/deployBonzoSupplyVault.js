@@ -22,7 +22,7 @@ async function main() {
 
   // Step 2: Connect to the vault factory
   const vaultFactoryAddress = addresses.vaultFactory;
-  const vaultFactory = await ethers.getContractAt("BeefyVaultV7FactoryHedera", vaultFactoryAddress);
+  const vaultFactory = await ethers.getContractAt("BonzoVaultV7Factory", vaultFactoryAddress);
   console.log("Connected to vault factory at:", vaultFactoryAddress);
 
   // Step 3: Create a new vault using the factory
@@ -42,7 +42,7 @@ async function main() {
   // let strategyAddress="0x3cb6623Ef399334484ea905eABcE72465169E121";
   // const strategy = await ethers.getContractAt("BonzoSupplyStrategy", strategyAddress);
    
-  const vault = await ethers.getContractAt("BeefyVaultV7Hedera", vaultAddress);
+  const vault = await ethers.getContractAt("BonzoVaultV7", vaultAddress);
 
   // Step 5: Initialize the strategy
   console.log("Initializing strategy...");

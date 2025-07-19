@@ -212,7 +212,7 @@ async function main() {
   // Deploy vault V7 if not already deployed
   if (!isContractDeployed(addresses.vaultV7)) {
     console.log("Deploying Vault V7");
-    const VaultV7 = await ethers.getContractFactory("BeefyVaultV7Hedera");
+    const VaultV7 = await ethers.getContractFactory("BonzoVaultV7");
     const vault7 = await VaultV7.deploy({ gasLimit: 5000000 });
     await vault7.deployed();
     console.log(`Vault V7 deployed to ${vault7.address}`);
@@ -237,8 +237,8 @@ async function main() {
 
   // Deploy CLM Vault if not already deployed
   if (!isContractDeployed(addresses.clmVault)) {
-    console.log("Deploying CLM Vault (BeefyVaultConcLiqHedera)");
-    const CLMVault = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
+    console.log("Deploying CLM Vault (BonzoVaultConcLiq)");
+    const CLMVault = await ethers.getContractFactory("BonzoVaultConcLiq");
     const clmVault = await CLMVault.deploy({ gasLimit: 5000000 });
     await clmVault.deployed();
     console.log(`CLM Vault deployed to ${clmVault.address}`);
@@ -251,7 +251,7 @@ async function main() {
   // Deploy vault factory if not already deployed
   if (!isContractDeployed(addresses.vaultFactory)) {
     console.log("Deploying Vault Factory");
-    const VaultFactory = await ethers.getContractFactory("BeefyVaultV7FactoryHedera");
+    const VaultFactory = await ethers.getContractFactory("BonzoVaultV7Factory");
     const vaultFactory = await VaultFactory.deploy(addresses.vaultV7, addresses.clmVault, { gasLimit: 5000000 });
     await vaultFactory.deployed();
     console.log(`Vault Factory deployed to ${vaultFactory.address}`);

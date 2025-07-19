@@ -2,7 +2,7 @@ import { ethers } from "hardhat";
 import { expect } from "chai";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import {
-  BeefyVaultV7Hedera,
+  BonzoVaultV7,
   BonzoHBARXLevergedLiqStaking,
   IERC20Upgradeable,
   MockStaking,
@@ -58,7 +58,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   // Set timeout to 60 seconds for all tests in this suite
   this.timeout(1000000);
 
-  let vault: BeefyVaultV7Hedera | any;
+  let vault: BonzoVaultV7 | any;
   let strategy: BonzoHBARXLevergedLiqStaking | any;
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
@@ -116,7 +116,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("New vault deployed to:", vaultAddress);
 
       // Step 4: Connect to the newly created vault
-      vault = await ethers.getContractAt("BeefyVaultV7Hedera", vaultAddress);
+      vault = await ethers.getContractAt("BonzoVaultV7", vaultAddress);
 
       // Step 5: Initialize the strategy
       console.log("Initializing strategy...");

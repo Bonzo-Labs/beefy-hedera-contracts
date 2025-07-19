@@ -2,18 +2,18 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { 
-  BeefyVaultConcLiqHedera,
+  BonzoVaultConcLiq,
   StrategyPassiveManagerSaucerSwap,
   IERC20Upgradeable,
   MockStrategy
 } from "../../typechain-types";
 import addresses from "../../scripts/deployed-addresses.json";
 
-describe("BeefyVaultConcLiqHedera", function () {
+describe("BonzoVaultConcLiq", function () {
   // Set timeout to 120 seconds for all tests in this suite
   this.timeout(120000);
 
-  let vault: BeefyVaultConcLiqHedera;
+  let vault: BonzoVaultConcLiq;
   let strategy: StrategyPassiveManagerSaucerSwap | MockStrategy;
   let lpToken0: IERC20Upgradeable;
   let lpToken1: IERC20Upgradeable;
@@ -51,11 +51,11 @@ describe("BeefyVaultConcLiqHedera", function () {
     console.log("MockStrategy deployed to:", strategy.address);
 
     // Deploy the vault
-    console.log("Deploying BeefyVaultConcLiqHedera...");
-    const VaultFactory = await ethers.getContractFactory("BeefyVaultConcLiqHedera");
+    console.log("Deploying BonzoVaultConcLiq...");
+    const VaultFactory = await ethers.getContractFactory("BonzoVaultConcLiq");
     vault = await VaultFactory.deploy();
     await vault.deployed();
-    console.log("BeefyVaultConcLiqHedera deployed to:", vault.address);
+    console.log("BonzoVaultConcLiq deployed to:", vault.address);
 
     // Initialize the vault
     console.log("Initializing vault...");

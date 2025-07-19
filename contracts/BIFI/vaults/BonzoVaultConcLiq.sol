@@ -14,7 +14,7 @@ import {IBeefyOracle} from "../interfaces/oracle/IBeefyOracle.sol";
 import {IWHBAR} from "../Hedera/IWHBAR.sol";
 import "../utils/FullMath.sol";
 
-contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
+contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using AddressUpgradeable for address payable;
 
