@@ -47,7 +47,16 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     error InsufficientHBARBalance(uint256 hbarBalance, uint256 hbarRequired);
 
     // Events
-    event Deposit(address indexed user, uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1, uint256 leftover0, uint256 leftover1);
+    event Deposit(
+        address indexed user,
+        uint256 shares,
+        uint256 amount0,
+        uint256 amount1,
+        uint256 fee0,
+        uint256 fee1,
+        uint256 leftover0,
+        uint256 leftover1
+    );
     event Withdraw(address indexed user, uint256 shares, uint256 amount0, uint256 amount1);
     event HTSTokenAssociated(address token, int64 responseCode);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
@@ -128,7 +137,8 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
     function estimateDepositHBARRequired() public view returns (uint256 totalHBARRequired) {
         uint256 mintFee = getMintFee();
         // We potentially need fees for both main and alt positions, so multiply by 2
-        return mintFee * 2;
+        // TODO - revert this to 2 if needed
+        return mintFee * 3;
     }
 
     /**
@@ -168,8 +178,11 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
      * @notice Returns total underlying token balances.
      */
     function balances() public view returns (uint amount0, uint amount1) {
-        if(OwnableUpgradeable(address(strategy)).owner() == address(0)) {
-            return (IERC20Upgradeable(strategy.lpToken0()).balanceOf(address(this)), IERC20Upgradeable(strategy.lpToken1()).balanceOf(address(this)));
+        if (OwnableUpgradeable(address(strategy)).owner() == address(0)) {
+            return (
+                IERC20Upgradeable(strategy.lpToken0()).balanceOf(address(this)),
+                IERC20Upgradeable(strategy.lpToken1()).balanceOf(address(this))
+            );
         }
         (amount0, amount1) = IStrategyConcLiq(strategy).balances();
     }
@@ -392,18 +405,18 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
 
         // Return leftover tokens to user if any
         if (vars.leftover0 > 0) {
-            if(isWHBAR(vars.token0)) {
+            if (isWHBAR(vars.token0)) {
                 _unwrapWHBAR(vars.leftover0);
                 AddressUpgradeable.sendValue(payable(recipient), vars.leftover0);
-            }else{
+            } else {
                 _transferTokens(vars.token0, address(this), recipient, vars.leftover0, true);
             }
         }
         if (vars.leftover1 > 0) {
-            if(isWHBAR(vars.token1)) {
+            if (isWHBAR(vars.token1)) {
                 _unwrapWHBAR(vars.leftover1);
                 AddressUpgradeable.sendValue(payable(recipient), vars.leftover1);
-            }else{
+            } else {
                 _transferTokens(vars.token1, address(this), recipient, vars.leftover1, true);
             }
         }
@@ -411,13 +424,22 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         // Return excess HBAR to user if any
         uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
         if (msg.value > actualHBARUsed) {
-            if(address(this).balance >= msg.value - actualHBARUsed) {
+            if (address(this).balance >= msg.value - actualHBARUsed) {
                 AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
             }
         }
 
         _mint(recipient, shares);
-        emit Deposit(recipient, shares, vars.sentAmount0, vars.sentAmount1, vars.fee0, vars.fee1, vars.leftover0, vars.leftover1);
+        emit Deposit(
+            recipient,
+            shares,
+            vars.sentAmount0,
+            vars.sentAmount1,
+            vars.fee0,
+            vars.fee1,
+            vars.leftover0,
+            vars.leftover1
+        );
     }
 
     /**
@@ -427,25 +449,25 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         {
             // scope to avoid stack too deep errors
             (uint256 _after0, uint256 _after1) = balances();
-            vars.sentAmount0 = _after0 - vars.bal0;  // Update sentAmount0 instead of amount0
-            vars.sentAmount1 = _after1 - vars.bal1;  // Update sentAmount1 instead of amount1
+            vars.sentAmount0 = _after0 - vars.bal0; // Update sentAmount0 instead of amount0
+            vars.sentAmount1 = _after1 - vars.bal1; // Update sentAmount1 instead of amount1
         }
 
         strategy.deposit();
-        
+
         // Get leftover amounts from strategy
         (vars.leftover0, vars.leftover1) = strategy.getLeftoverAmounts();
-        
+
         // Return leftovers to vault if any exist
         if (vars.leftover0 > 0 || vars.leftover1 > 0) {
             strategy.returnLeftovers(address(this));
         }
-        
+
         return 0; // Placeholder, real calculation happens in _completeDeposit
     }
 
     function _prepareWithdraw() internal {
-        if(OwnableUpgradeable(address(strategy)).owner() == address(0)) return;
+        if (OwnableUpgradeable(address(strategy)).owner() == address(0)) return;
         uint256 totalMintFeeRequired = estimateDepositHBARRequired();
 
         // Forward HBAR for mint fees to strategy if required
@@ -479,7 +501,7 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         if (_shares == 0) revert NoShares();
 
         // Withdraw All Liquidity to Strat for Accounting if strategy is not retired.
-        if(OwnableUpgradeable(address(strategy)).owner() != address(0)) {
+        if (OwnableUpgradeable(address(strategy)).owner() != address(0)) {
             strategy.beforeAction();
         }
 
@@ -492,32 +514,31 @@ contract BeefyVaultConcLiqHedera is ERC20Upgradeable, OwnableUpgradeable, Reentr
         uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
         (address token0, address token1) = wants();
 
-        if(
-            IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 
-            || 
+        if (
+            IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 ||
             IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
         ) {
-           strategy.withdraw(_amount0, _amount1);
-        } 
+            strategy.withdraw(_amount0, _amount1);
+        }
 
         if (_amount0 < _minAmount0 || _amount1 < _minAmount1 || (_amount0 == 0 && _amount1 == 0))
             revert TooMuchSlippage();
 
         if (_amount0 > 0) {
-            if(token0 == strategy.native()) {
+            if (token0 == strategy.native()) {
                 //unwrap WHBAR to HBAR
                 uint256 unwrappedAmount = _unwrapWHBAR(_amount0);
                 AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            }else{
+            } else {
                 _transferTokens(token0, address(this), msg.sender, _amount0, true);
             }
         }
         if (_amount1 > 0) {
-            if(token1 == strategy.native()) {
+            if (token1 == strategy.native()) {
                 //unwrap WHBAR to HBAR
                 uint256 unwrappedAmount = _unwrapWHBAR(_amount1);
                 AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            }else{
+            } else {
                 _transferTokens(token1, address(this), msg.sender, _amount1, true);
             }
         }
