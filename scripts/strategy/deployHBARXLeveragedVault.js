@@ -52,7 +52,7 @@ async function main() {
   const rewardsController = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller address
 
   // Strategy parameters
-  const maxBorrowable = 4000; // 80% max borrowable
+  const maxBorrowable = 3000; // 80% max borrowable
   const slippageTolerance = 50; // 0.5% slippage tolerance
   const isRewardsAvailable = false; // Whether rewards are available
   const isBonzoDeployer = false; // Whether this is deployed by Bonzo team

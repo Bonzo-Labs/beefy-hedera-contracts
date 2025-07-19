@@ -235,7 +235,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function _unwindYieldLoops(uint256 _targetAmount) internal {
-        require(_targetAmount > 0, "Amount must be greater than 0");
+        require(_targetAmount > 0, "uy:Amount must be greater than 0");
         uint256 totalAssets = balanceOf();
         require(_targetAmount <= totalAssets, "Amount exceeds total position");
 
@@ -244,7 +244,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         // Calculate withdrawal percentage in basis points (10000 = 100%)
         uint256 withdrawBps = (_targetAmount * 10000) / totalAssets;
         if (withdrawBps > 10000) withdrawBps = 10000; // Cap at 100%
-
         // Convert to ratio for calculations (1e18 = 100%)
         uint256 withdrawRatio = (_targetAmount * 1e18) / totalAssets;
 
@@ -253,58 +252,61 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
 
         // Calculate proportional amounts for each layer
-        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
         uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
+        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
+        // Convert HBAR debt to HBARX amount needed for withdrawal
         uint256 hbarxForDebt = _convertHbarToHbarX(debtToRepay);
         supplyToWithdraw = supplyToWithdraw + hbarxForDebt;
-        
         // Distribute across layers
-        uint256 layerSupply = supplyToWithdraw / (maxLoops + 1);
-        uint256 layerDebt = debtToRepay / (maxLoops + 1);
+        uint256 layerSupply = supplyToWithdraw / (maxLoops+1);
+        uint256 layerDebt = debtToRepay / (maxLoops+1);
+        if(layerSupply == 0) return;
         uint256 debtPaid = 0;
 
-        for (uint256 i = 0; i < maxLoops + 1; i++) {
-            // Withdraw from lending pool for this layer
-            if (layerSupply > 0) {
-                uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
-                if(currentSupply > 0 && currentSupply <= layerSupply) {
-                    layerSupply = currentSupply;
+        IERC20(borrowToken).approve(lendingPool, debtToRepay*3);
+        IERC20(want).approve(saucerSwapRouter, _targetAmount*3);
+        for (uint256 i = 0; i < maxLoops+1; i++) {
+            uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
+            if(currentSupply > 0 && currentSupply <= layerSupply) {
+                layerSupply = currentSupply;
+            }
+            ILendingPool(lendingPool).withdraw(want, layerSupply, address(this));
+            // Handle debt repayment for this layer
+            uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
+            if (currentDebt == 0){
+                uint256 currWantBal = IERC20(want).balanceOf(address(this));
+                uint256 amtToWithdraw = currWantBal > supplyToWithdraw ? supplyToWithdraw : supplyToWithdraw - currWantBal;
+                uint256 currSupply = IERC20(aToken).balanceOf(address(this));
+                amtToWithdraw = amtToWithdraw > currSupply ? currSupply : amtToWithdraw;
+                if(amtToWithdraw > 0) {
+                    ILendingPool(lendingPool).withdraw(want, amtToWithdraw, address(this));
                 }
-                try ILendingPool(lendingPool).withdraw(want, layerSupply, address(this)) {
-                } catch  {
-                   try ILendingPool(lendingPool).withdraw(want, layerSupply*90/100, address(this)) {
-                   } catch  {
-                      revert("LendingPool withdraw failed");
-                   }
-                }
+                break;
             }
 
-            // Handle debt repayment for this layer
-            if (layerDebt > 0) {
-                uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
-                if (currentDebt == 0) break;
+            uint256 debtForThisLayer = (i == maxLoops) ? 
+                (debtToRepay - debtPaid) : // Last layer gets remaining debt
+                layerDebt; // Other layers get equal share
 
-                uint256 debtForThisLayer = (i == maxLoops - 1) ? 
-                    (debtToRepay - debtPaid) : // Last layer gets remaining debt
-                    layerDebt; // Other layers get equal share
-
-                if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
-                    // Check if we have enough HBAR to repay debt
-                    uint256 currentHbarBal = address(this).balance;
-                    
-                    if (currentHbarBal < debtForThisLayer) {
-                        // Need to swap HBARX to HBAR to cover the shortfall
-                        uint256 hbarShortfall = debtForThisLayer - currentHbarBal;
-                        uint256 hbarXToSwap = _convertHbarToHbarX(hbarShortfall);
-                        hbarXToSwap = hbarXToSwap * 110 / 100; // 10% slippage
-                        _swapHBARXToHBAR(hbarXToSwap);
+            if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
+                // Convert HBAR debt to HBARX amount needed
+                uint256 requiredHbarx = _convertHbarToHbarX(debtForThisLayer);
+                requiredHbarx = IERC20(want).balanceOf(address(this)) > requiredHbarx ? IERC20(want).balanceOf(address(this)) : requiredHbarx;
+                // Swap HBARX to HBAR for debt repayment
+                uint256 hbarAmount = _swapHBARXToHBAR(requiredHbarx);
+                
+                if (hbarAmount > 0) {
+                    uint256 currDebtBal = IERC20(debtToken).balanceOf(address(this));
+                    if(hbarAmount > currDebtBal) {
+                        // Repay full debt and restake remaining HBAR
+                        ILendingPool(lendingPool).repay{value: currDebtBal}(borrowToken, currDebtBal, 2, address(this));
+                        debtPaid += currDebtBal;
+                        _swapHBARToHBARX(hbarAmount - currDebtBal);
                     }
-                    if(address(this).balance < debtForThisLayer) {
-                        debtForThisLayer = address(this).balance;
+                    else{
+                        ILendingPool(lendingPool).repay{value: hbarAmount}(borrowToken, hbarAmount, 2, address(this));
+                        debtPaid += hbarAmount;
                     }
-                    // Repay debt with HBAR
-                    ILendingPool(lendingPool).repay{value: debtForThisLayer}(borrowToken, debtForThisLayer, 2, address(this));
-                    debtPaid += debtForThisLayer;
                 }
             }
         }
@@ -351,6 +353,31 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         
         emit SwappedHBARXToHBAR(amount, received);
         require(received > 0, "No HBAR received from swap");
+        
+        return received;
+    }
+
+    function _swapHBARToHBARX(uint256 amount) internal returns (uint256) {
+        require(amount > 0, "Amount must be greater than 0");
+        // Create swap path for HBARX to HBAR (via WHBAR if needed)
+        address[] memory route = new address[](2);
+        route[0] = borrowToken; // HBARX
+        route[1] = want; // HBAR (WHBAR)
+        
+        uint24[] memory fees = new uint24[](1);
+        fees[0] = poolFee;
+        
+        bytes memory path = UniswapV3Utils.routeToPath(route, fees);
+        
+        IUniswapRouterV3WithDeadline.ExactInputParams memory params = IUniswapRouterV3WithDeadline.ExactInputParams({
+            path: path,
+            recipient: address(this),
+            deadline: block.timestamp + 300, // 5 minute deadline
+            amountIn: amount,
+            amountOutMinimum: 0
+        });
+        
+        uint256 amountOut = IUniswapRouterV3WithDeadline(saucerSwapRouter).exactInput{value: amount}(params);
         
         return amountOut;
     }
@@ -406,7 +433,9 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function balanceOf() public view returns (uint256) {
-        return balanceOfWant() + balanceOfPool();
+        uint256 borrowBal = IERC20(debtToken).balanceOf(address(this));
+        uint256 debtInHbarX = _convertHbarToHbarX(borrowBal);
+        return balanceOfWant() + balanceOfPool() - debtInHbarX;
     }
 
     function balanceOfWant() public view returns (uint256) {

@@ -162,8 +162,8 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0xAFB19D78bd4cD43239F9a5602251B0A9D28576Be";
-      const STRATEGY_ADDRESS = "0xCa2EdC68Ac638adB63B618c2056c3037Fd3F609F";
+      const VAULT_ADDRESS = "0xF67aA15271e5ebB0df29427d354c5D3Fd8dE8D12";
+      const STRATEGY_ADDRESS = "0xda4867D931d976f8ae2765Ec89C76c82129653ff";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -277,7 +277,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it.skip("should handle deposit", async function () {
+    it("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have HBARX tokens to test with
@@ -311,7 +311,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       
       // Perform deposit
       console.log("Depositing...");
-      const tx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+      const tx = await vault.deposit(depositAmount, { gasLimit: 3500000 });
       const receipt = await tx.wait();
       console.log("Deposit transaction:", receipt.transactionHash);
 
@@ -361,11 +361,11 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         }
 
         const depositAmount = "10000000"; // 0.1 HBARX
-        const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 3000000 });
+        const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
         const approveReceipt = await approveTx.wait();
         console.log("Approve transaction hash:", approveReceipt.transactionHash);
 
-        const trx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+        const trx = await vault.deposit(depositAmount, { gasLimit: 3500000 });
         const receipt = await trx.wait();
         console.log("Deposit transaction hash:", receipt.transactionHash);
       }
@@ -379,7 +379,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       const preWithdrawBalance = await want.balanceOf(deployer.address);
       const preWithdrawStrategyBalance = await strategy.balanceOf();
 
-      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 6000000 });
+      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 5000000 });
       const withdrawReceipt = await withdrawTx.wait();
       console.log("Withdrawal completed, hash: ", withdrawReceipt.transactionHash);
 
@@ -420,7 +420,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       //complete withdrawal
       console.log("Completing withdrawal...");
       const remainingShares = await vault.balanceOf(deployer.address);
-      const withdrawTxAfter2 = await vault.withdraw(remainingShares, { gasLimit: 6000000 });
+      const withdrawTxAfter2 = await vault.withdraw(remainingShares, { gasLimit: 4000000 });
       const withdrawReceiptAfter2 = await withdrawTxAfter2.wait();
       console.log("Withdrawal completed:", withdrawReceiptAfter2.transactionHash);
 
