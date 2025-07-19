@@ -36,7 +36,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
-    uint256 private constant MINT_SLIPPAGE_TOLERANCE = 1000;
+    uint256 private constant MINT_SLIPPAGE_TOLERANCE = 2000;
     uint256 private constant PRICE_DEVIATION_TOLERANCE = 200;
 
     IWHBAR private whbarContract;

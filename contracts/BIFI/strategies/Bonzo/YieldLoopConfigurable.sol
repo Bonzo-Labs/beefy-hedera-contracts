@@ -281,11 +281,11 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
 
     // ===== Harvest Functions =====
 
-    function harvest() external virtual nonReentrant {
+    function harvest() external virtual {
         _harvest(msg.sender);
     }
 
-    function harvest(address callFeeRecipient) external virtual nonReentrant {
+    function harvest(address callFeeRecipient) external virtual {
         if (callFeeRecipient == address(0)) revert InvalidAmount();
         _harvest(callFeeRecipient);
     }
