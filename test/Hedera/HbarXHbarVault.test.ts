@@ -162,8 +162,8 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0xF67aA15271e5ebB0df29427d354c5D3Fd8dE8D12";
-      const STRATEGY_ADDRESS = "0xda4867D931d976f8ae2765Ec89C76c82129653ff";
+      const VAULT_ADDRESS = "0xA96469c3b09a07fC1929578C902ffaECDE50054B";
+      const STRATEGY_ADDRESS = "0x0E30B2F24147841CADa06856AdaBb33741E0be43";
       vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -289,7 +289,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         return;
       }
 
-      const depositAmount = "10000000"; // 0.1 HBARX (8 decimals)
+      const depositAmount = "300000000"; // 0.1 HBARX (8 decimals)
       
       // Approve the vault to spend tokens
       const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
@@ -311,7 +311,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       
       // Perform deposit
       console.log("Depositing...");
-      const tx = await vault.deposit(depositAmount, { gasLimit: 3500000 });
+      const tx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
       const receipt = await tx.wait();
       console.log("Deposit transaction:", receipt.transactionHash);
 

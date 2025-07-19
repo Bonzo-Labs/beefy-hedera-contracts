@@ -43,7 +43,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     address public saucerSwapRouter; // SaucerSwap router for HBARX to HBAR swaps
     uint24 public poolFee; // Default pool fee (0.3% mainnet) (0.30% testnet)
 
-    // Yield loop parameters
+    //  loop parameters
+    uint8 minDeposit = 3;
     uint256 public maxLoops = 1; // Maximum number of yield loops (e.g., 3 for 3x)
     uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
     uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
@@ -171,14 +172,13 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
     function deposit() public whenNotPaused nonReentrant {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
-        require(wantBal > 0, "No funds to deposit");
-        //stakin needs at least 1 HBARX
-        // require(wantBal >= 3*10**8, "min 3 HBARX");
+        require(wantBal > 0, "!funds");
+        require(wantBal >= minDeposit*10**8, "!min HBARX");
         _createYieldLoops(wantBal);
     }
 
     function _createYieldLoops(uint256 amount) internal {
-        require(amount > 0, "Amount must be > 0");
+        require(amount > 0, "!amount");
 
         // Approve once for everything we'll need
         uint256 approvalAmount = amount * (maxLoops * 2);
@@ -399,7 +399,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         }
 
         uint256 wantHarvested = balanceOfWant();
-        if (wantHarvested > 0 && wantHarvested >= 3*10**8) {
+        if (wantHarvested > 0 && wantHarvested >= 3*10**8)  {
             chargeFees(callFeeRecipient);
             deposit();
         }
