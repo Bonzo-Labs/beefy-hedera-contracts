@@ -415,8 +415,17 @@ contract SaucerSwapLariRewardsCLMStrategy is
         BalanceInfo memory poolInfo = balancesOfPool();
         uint256 locked0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
         uint256 locked1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
-        uint256 total0 = thisBal0 + poolInfo.token0Bal - locked0;
-        uint256 total1 = thisBal1 + poolInfo.token1Bal - locked1;
+
+        uint256 available0 = thisBal0 + poolInfo.token0Bal;
+        uint256 available1 = thisBal1 + poolInfo.token1Bal;
+
+        // Prevent underflow: locked0/locked1 cannot exceed available balances
+        if (locked0 > available0) locked0 = available0;
+        if (locked1 > available1) locked1 = available1;
+
+        uint256 total0 = available0 - locked0;
+        uint256 total1 = available1 - locked1;
+
         uint256 unharvestedFees0 = fees0;
         uint256 unharvestedFees1 = fees1;
         // If pair is so imbalanced that we no longer have any enough tokens to pay fees, we set them to 0.
