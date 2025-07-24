@@ -413,8 +413,16 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function balances() public view returns (uint256 token0Bal, uint256 token1Bal) {
         (uint256 thisBal0, uint256 thisBal1) = balancesOfThis();
         BalanceInfo memory poolInfo = balancesOfPool();
-        uint256 locked0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
-        uint256 locked1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
+        uint256 timeElapsed = block.timestamp - lastHarvest;
+        uint256 locked0;
+        uint256 locked1;
+        if (timeElapsed >= DURATION) {
+            locked0 = 0;
+            locked1 = 0;
+        } else {
+            locked0 = totalLocked0 * (DURATION - timeElapsed) / DURATION;
+            locked1 = totalLocked1 * (DURATION - timeElapsed) / DURATION;
+        }
 
         uint256 available0 = thisBal0 + poolInfo.token0Bal;
         uint256 available1 = thisBal1 + poolInfo.token1Bal;

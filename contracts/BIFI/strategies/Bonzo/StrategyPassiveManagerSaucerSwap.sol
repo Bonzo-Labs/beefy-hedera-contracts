@@ -395,14 +395,33 @@ contract StrategyPassiveManagerSaucerSwap is
     function balances() public view returns (uint256 token0Bal, uint256 token1Bal) {
         (uint256 thisBal0, uint256 thisBal1) = balancesOfThis();
         BalanceInfo memory poolInfo = balancesOfPool();
-        uint256 locked0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
-        uint256 locked1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
-        uint256 total0 = thisBal0 + poolInfo.token0Bal - locked0;
-        uint256 total1 = thisBal1 + poolInfo.token1Bal - locked1;
+        uint256 timeElapsed = block.timestamp - lastHarvest;
+        uint256 locked0;
+        uint256 locked1;
+        if (timeElapsed >= DURATION) {
+            locked0 = 0;
+            locked1 = 0;
+        } else {
+            locked0 = totalLocked0 * (DURATION - timeElapsed) / DURATION;
+            locked1 = totalLocked1 * (DURATION - timeElapsed) / DURATION;
+        }
+
+        uint256 available0 = thisBal0 + poolInfo.token0Bal;
+        uint256 available1 = thisBal1 + poolInfo.token1Bal;
+
+        // Prevent underflow: locked0/locked1 cannot exceed available balances
+        if (locked0 > available0) locked0 = available0;
+        if (locked1 > available1) locked1 = available1;
+
+        uint256 total0 = available0 - locked0;
+        uint256 total1 = available1 - locked1;
+
         uint256 unharvestedFees0 = fees0;
         uint256 unharvestedFees1 = fees1;
+        // If pair is so imbalanced that we no longer have any enough tokens to pay fees, we set them to 0.
         if (unharvestedFees0 > total0) unharvestedFees0 = total0;
         if (unharvestedFees1 > total1) unharvestedFees1 = total1;
+        // For token0 and token1 we return balance of this contract + balance of positions - locked profit - feesUnharvested.
         return (total0 - unharvestedFees0, total1 - unharvestedFees1);
     }
 
