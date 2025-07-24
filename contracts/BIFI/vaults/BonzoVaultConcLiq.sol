@@ -45,7 +45,8 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     error InvalidNativeAmount();
     error OnlyHBARWHBARPools();
     error InsufficientHBARBalance(uint256 hbarBalance, uint256 hbarRequired);
-
+    error SentAmt1LTFee1(uint256 sentAmount1, uint256 fee1);
+    error SentAmt0LTFee0(uint256 sentAmount0, uint256 fee0);
     // Events
     event Deposit(
         address indexed user,
@@ -273,9 +274,9 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             uint256 userRatio = FullMath.mulDiv(_amount1, PRECISION, _amount0);
 
             if (userRatio > poolRatio * 2) {
-                feeAmount1 = FullMath.mulDiv(_amount1, _swapFee, 1e20);
+                feeAmount1 = FullMath.mulDiv(_amount1, _swapFee, 1e18);
             } else if (poolRatio > userRatio * 2) {
-                feeAmount0 = FullMath.mulDiv(_amount0, _swapFee, 1e20);
+                feeAmount0 = FullMath.mulDiv(_amount0, _swapFee, 1e18);
             }
         }
     }
@@ -383,6 +384,8 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      */
     function _completeDeposit(DepositVars memory vars, uint256 /* shares */, address recipient) internal {
         // Calculate shares based on sent amounts (no leftover handling)
+        if (vars.sentAmount1 < vars.fee1) revert SentAmt1LTFee1(vars.sentAmount1, vars.fee1);
+        if (vars.sentAmount0 < vars.fee0) revert SentAmt0LTFee0(vars.sentAmount0, vars.fee0);
         uint256 shares = (vars.sentAmount1 - vars.fee1) +
             FullMath.mulDiv(vars.sentAmount0 - vars.fee0, vars.price, PRECISION);
 
