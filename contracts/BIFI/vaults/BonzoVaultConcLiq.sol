@@ -20,7 +20,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
 
     IStrategyConcLiq public strategy;
     uint256 private constant MINIMUM_SHARES = 10 ** 3;
-    uint256 private constant PRECISION = 1e36;
+    uint256 private constant PRECISION = 1e18;
     address private constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;

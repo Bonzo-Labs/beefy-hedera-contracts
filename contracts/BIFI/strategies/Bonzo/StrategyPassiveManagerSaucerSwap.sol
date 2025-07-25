@@ -17,15 +17,13 @@ import "../../interfaces/beefy/IStrategyConcLiq.sol";
 import "../../interfaces/uniswap/IQuoter.sol";
 import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
 import "../../Hedera/IHederaTokenService.sol";
-import "../../utils/GasFeeThrottler.sol";
 import "../../interfaces/oracle/IBeefyOracle.sol";
 import "./SaucerSwapCLMLib.sol";
 
 contract StrategyPassiveManagerSaucerSwap is
     ReentrancyGuardUpgradeable,
     StratFeeManagerInitializable,
-    IStrategyConcLiq,
-    GasFeeThrottler
+    IStrategyConcLiq
 {
     using SafeERC20 for IERC20Metadata;
     using TickMath for int24;
@@ -470,7 +468,7 @@ contract StrategyPassiveManagerSaucerSwap is
     }
 
     function range() external view returns (uint256 lowerPrice, uint256 upperPrice) {
-        return SaucerSwapCLMLib.calculateRangePrices(positionMain.tickLower, positionMain.tickUpper);
+        return SaucerSwapCLMLib.calculateRangePrices(pool, positionMain.tickLower, positionMain.tickUpper);
     }
 
     function getKeys() public view returns (bytes32 keyMain, bytes32 keyAlt) {
@@ -618,11 +616,11 @@ contract StrategyPassiveManagerSaucerSwap is
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 amount0;
         if (bal0 > 0) {
-            amount0 = FullMath.mulDiv(bal0, price(), 1e36);
+            amount0 = FullMath.mulDiv(bal0, price(), 1e18);
         }
         if (amount0 < bal1) {
             (positionAlt.tickLower, ) = TickUtils.baseTicks(tick, width, distance);
-            (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, distance, distance);
+            (positionAlt.tickUpper, ) = TickUtils.baseTicks(tick, distance, distance);
         } else if (bal1 < amount0) {
             (, positionAlt.tickLower) = TickUtils.baseTicks(tick, distance, distance);
             (, positionAlt.tickUpper) = TickUtils.baseTicks(tick, width, distance);

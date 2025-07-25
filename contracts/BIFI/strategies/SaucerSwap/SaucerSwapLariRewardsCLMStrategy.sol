@@ -17,7 +17,6 @@ import "../../interfaces/beefy/IStrategyConcLiq.sol";
 import "../../interfaces/uniswap/IQuoter.sol";
 import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
 import "../../Hedera/IHederaTokenService.sol";
-import "../../utils/GasFeeThrottler.sol";
 import "../../interfaces/oracle/IBeefyOracle.sol";
 import "../Bonzo/SaucerSwapCLMLib.sol";
 import "../Bonzo/SaucerSwapLariLib.sol";
@@ -25,13 +24,12 @@ import "../Bonzo/SaucerSwapLariLib.sol";
 contract SaucerSwapLariRewardsCLMStrategy is
     ReentrancyGuardUpgradeable,
     StratFeeManagerInitializable,
-    IStrategyConcLiq,
-    GasFeeThrottler
+    IStrategyConcLiq
 {
     using SafeERC20 for IERC20Metadata;
     using TickMath for int24;
     using AddressUpgradeable for address payable;
-    uint256 private constant PRECISION = 1e36;
+    uint256 private constant PRECISION = 1e18;
     uint256 private constant DURATION = 21600;
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;
@@ -528,7 +526,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function range() external view returns (uint256 lowerPrice, uint256 upperPrice) {
-        return SaucerSwapCLMLib.calculateRangePrices(positionMain.tickLower, positionMain.tickUpper);
+        return SaucerSwapCLMLib.calculateRangePrices(pool, positionMain.tickLower, positionMain.tickUpper);
     }
 
     function getKeys() public view returns (bytes32 keyMain, bytes32 keyAlt) {

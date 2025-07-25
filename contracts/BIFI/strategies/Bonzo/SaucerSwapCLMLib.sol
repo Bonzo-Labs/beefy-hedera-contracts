@@ -13,7 +13,6 @@ import "../../interfaces/uniswap/IQuoter.sol";
 library SaucerSwapCLMLib {
     using TickMath for int24;
 
-    uint256 private constant PRECISION = 1e36;
     uint256 private constant SQRT_PRECISION = 1e18;
     int24 private constant MIN_TICK = -887272;
     int24 private constant MAX_TICK = 887272;
@@ -43,15 +42,43 @@ library SaucerSwapCLMLib {
         bool useAltPosition;
     }
 
-    function calculatePrice(uint160 sqrtPriceX96) external pure returns (uint256 _price) {
-        uint256 scaledPrice = FullMath.mulDiv(uint256(sqrtPriceX96), SQRT_PRECISION, (2 ** 96));
-        _price = FullMath.mulDiv(scaledPrice, scaledPrice, SQRT_PRECISION);
+    function getTokenDecimals(address pool) public view returns (uint8 decimals0, uint8 decimals1) {
+        decimals0 = IERC20Metadata(IUniswapV3Pool(pool).token0()).decimals();
+        decimals1 = IERC20Metadata(IUniswapV3Pool(pool).token1()).decimals();
+    }
+
+    function calculatePrice(address pool, uint160 sqrtPriceX96) external view returns (uint256 _price) {
+        (uint8 decimals0, uint8 decimals1) = getTokenDecimals(pool);
+        uint256 priceQ96 = FullMath.mulDiv(
+            uint256(sqrtPriceX96),
+            uint256(sqrtPriceX96),
+            2**96
+        );
+        uint256 price1e18 = FullMath.mulDiv(priceQ96, 1e18, 2**96); 
+        if (decimals0 < decimals1) {
+            price1e18 = price1e18 * (10**(decimals1 - decimals0));
+        } else if (decimals0 > decimals1) {
+            price1e18 = price1e18 / (10**(decimals0 - decimals1));
+        }
+        return price1e18;
     }
 
     function getPoolPrice(address pool) external view returns (uint256 _price) {
+        (uint8 decimals0, uint8 decimals1) = getTokenDecimals(pool);
         (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
-        uint256 scaledPrice = FullMath.mulDiv(uint256(sqrtPriceX96), SQRT_PRECISION, (2 ** 96));
-        _price = FullMath.mulDiv(scaledPrice, scaledPrice, SQRT_PRECISION);
+    
+        uint256 priceQ96 = FullMath.mulDiv(
+            uint256(sqrtPriceX96),
+            uint256(sqrtPriceX96),
+            2**96
+        );
+        uint256 price1e18 = FullMath.mulDiv(priceQ96, 1e18, 2**96); 
+        if (decimals0 > decimals1) {
+            price1e18 = price1e18 * 10**(decimals0 - decimals1);
+        } else if (decimals1 > decimals0) {
+            price1e18 = price1e18 / 10**(decimals1 - decimals0);
+        }
+        return price1e18;
     }
 
     function getPoolSqrtPrice(address pool) external view returns (uint160 sqrtPriceX96) {
@@ -149,16 +176,39 @@ library SaucerSwapCLMLib {
     }
 
     function calculateRangePrices(
+        address pool,
         int24 tickLower,
         int24 tickUpper
-    ) external pure returns (uint256 lowerPrice, uint256 upperPrice) {
+    ) external view returns (uint256 lowerPrice, uint256 upperPrice) {
+        (uint8 decimals0, uint8 decimals1) = getTokenDecimals(pool);
         uint160 sqrtPriceLower = TickMath.getSqrtRatioAtTick(tickLower);
         uint160 sqrtPriceUpper = TickMath.getSqrtRatioAtTick(tickUpper);
 
-        uint256 scaledLowerPrice = FullMath.mulDiv(uint256(sqrtPriceLower), SQRT_PRECISION, (2 ** 96));
-        uint256 scaledUpperPrice = FullMath.mulDiv(uint256(sqrtPriceUpper), SQRT_PRECISION, (2 ** 96));
-        lowerPrice = FullMath.mulDiv(scaledLowerPrice, scaledLowerPrice, SQRT_PRECISION);
-        upperPrice = FullMath.mulDiv(scaledUpperPrice, scaledUpperPrice, SQRT_PRECISION);
+        uint256 priceQ96 = FullMath.mulDiv(
+            uint256(sqrtPriceLower),
+            uint256(sqrtPriceLower),
+            2**96
+        );
+        uint256 price1e18 = FullMath.mulDiv(priceQ96, 1e18, 2**96); 
+        if (decimals0 > decimals1) {
+            price1e18 = price1e18 * 10**(decimals0 - decimals1);
+        } else if (decimals1 > decimals0) {
+            price1e18 = price1e18 / 10**(decimals1 - decimals0);
+        }
+        lowerPrice = price1e18;
+
+        priceQ96 = FullMath.mulDiv(
+            uint256(sqrtPriceUpper),
+            uint256(sqrtPriceUpper),
+            2**96
+        );
+        price1e18 = FullMath.mulDiv(priceQ96, 1e18, 2**96); 
+        if (decimals0 > decimals1) {
+            price1e18 = price1e18 * 10**(decimals0 - decimals1);
+        } else if (decimals1 > decimals0) {
+            price1e18 = price1e18 / 10**(decimals1 - decimals0);
+        }
+        upperPrice = price1e18;
     }
     function checkAmounts(uint256 amount0, uint256 amount1) external pure returns (bool) {
         return amount0 > 0 && amount1 > 0;
