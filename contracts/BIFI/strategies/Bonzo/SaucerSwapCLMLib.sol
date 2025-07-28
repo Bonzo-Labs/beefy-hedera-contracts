@@ -42,6 +42,8 @@ library SaucerSwapCLMLib {
         bool useAltPosition;
     }
 
+    error MintSlippageExceeded(uint256 amount0, uint256 amount1, uint256 expectedAmount0, uint256 expectedAmount1, uint256 maxAmount0, uint256 maxAmount1);
+
     function getTokenDecimals(address pool) public view returns (uint8 decimals0, uint8 decimals1) {
         decimals0 = IERC20Metadata(IUniswapV3Pool(pool).token0()).decimals();
         decimals1 = IERC20Metadata(IUniswapV3Pool(pool).token1()).decimals();
@@ -269,10 +271,11 @@ library SaucerSwapCLMLib {
         uint256 bal0,
         uint256 bal1
     ) external pure {
-        uint256 maxAmount0 = expectedAmount0 + ((expectedAmount0 * tolerance) / 10000);
-        uint256 maxAmount1 = expectedAmount1 + ((expectedAmount1 * tolerance) / 10000);
+        //added 1 to avoid rounding errors for small amounts
+        uint256 maxAmount0 = 1 + expectedAmount0 + ((expectedAmount0 * tolerance) / 10000);
+        uint256 maxAmount1 = 1 + expectedAmount1 + ((expectedAmount1 * tolerance) / 10000);
         
-        require(amount0 <= maxAmount0 && amount1 <= maxAmount1, "Mint slippage exceeded");
+        if(amount0 > maxAmount0 || amount1 > maxAmount1) revert MintSlippageExceeded(amount0, amount1, expectedAmount0, expectedAmount1, maxAmount0, maxAmount1);
         require(amount0 <= bal0 && amount1 <= bal1, "Insufficient balance");
     }
 
