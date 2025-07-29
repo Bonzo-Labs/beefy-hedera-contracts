@@ -10,7 +10,6 @@ import "../Common/StratFeeManagerInitializable.sol";
 import "../../utils/GasFeeThrottler.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../interfaces/beefy/IStrategyV7.sol";
-import "../../interfaces/oracle/IBeefyOracle.sol";
 
 /**
  * @title YieldLoopConfigurable
@@ -30,13 +29,10 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     // Third party contracts
     address public lendingPool;
     address public rewardsController;
-    address public beefyOracle; // Oracle for price feeds
 
     // Strategy settings
     uint256 public borrowFactor = 2000; // 40% in basis points (100% = 10000) - kept conservative
-    uint256 public constant BORROW_FACTOR_MAX = 6000; // Max 60% to prevent liquidation
     uint256 public leverageLoops = 2; // Number of leverage loops (1-5)
-    uint256 public constant MAX_LOOPS = 5; // Maximum allowed loops
 
     // Hedera specific
     address private constant HTS_PRECOMPILE = address(0x167);
@@ -47,9 +43,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     uint256 public lastHarvest;
     bool public isHederaToken; // Flag to determine if tokens are Hedera tokens
     uint8 public wantDecimals; // Decimals of the want token
-
-    // Note: We don't track individual leverage levels since this is a multi-user vault
-    // The lending pool's actual data is the source of truth
 
     // Events
     event StratHarvest(address indexed harvester, uint256 wantHarvested, uint256 tvl);
@@ -83,7 +76,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         address _output,
         bool _isHederaToken,
         uint256 _leverageLoops,
-        address _beefyOracle,
         CommonAddresses calldata _commonAddresses
     ) public initializer {
         __StratFeeManager_init(_commonAddresses);
@@ -95,15 +87,11 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         rewardsController = _rewardsController;
         output = _output;
         isHederaToken = _isHederaToken;
-        beefyOracle = _beefyOracle;
         
         // Get want token decimals
         wantDecimals = IERC20Metadata(_want).decimals();
 
-        if (_leverageLoops == 0 || _leverageLoops > MAX_LOOPS) revert InvalidLeverageLoops();
         leverageLoops = _leverageLoops;
-
-        // No need to initialize tracking arrays - we use lending pool data directly
 
         if (isHederaToken) {
             // Associate HTS tokens
@@ -119,11 +107,15 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     // ===== User Functions =====
 
     function deposit() public whenNotPaused nonReentrant {
+        if(msg.sender != vault) revert NotVault();
+        _deposit();
+        emit Deposit(balanceOf());
+    }
+
+    function _deposit() internal {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal == 0) revert InvalidAmount();
-
         _leverage(wantBal);
-        emit Deposit(balanceOf());
     }
 
     function withdraw(uint256 _amount) external nonReentrant {
@@ -191,51 +183,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         }
     }
 
-    /**
-     * @dev Convert from base units (ETH/HBAR in 18 decimals) to want token units using oracle price
-     * @param baseAmount Amount in base units (ETH/HBAR in 18 decimals)
-     * @return wantAmount Amount in want token units
-     */
-    function _convertFromBaseToWant(uint256 baseAmount) internal view returns (uint256 wantAmount) {
-        if (baseAmount == 0) return 0;
-        
-        // Get want token price from oracle
-        uint256 wantPrice;
-        try IBeefyOracle(beefyOracle).getPrice(want) returns (uint256 price) {
-            if(price == 0) revert OraclePriceZero();
-            wantPrice = price;
-        } catch {
-            revert OraclePriceFail();
-        }
-        
-        // Convert base amount to want token units
-        // baseAmount is in ETH/HBAR units (18 decimals), wantPrice is in ETH/HBAR with 18 decimals
-        // We need to convert to want token units with proper decimal handling
-        // Formula: (baseAmount * 10^wantDecimals) / wantPrice
-        wantAmount = (baseAmount * 10**wantDecimals) / wantPrice;
-    }
-
-    /**
-     * @dev Convert from want token units to base units (ETH/HBAR in 18 decimals) using oracle price
-     * @param wantAmount Amount in want token units
-     * @return baseAmount Amount in base units (ETH/HBAR in 18 decimals)
-     */
-    function _convertFromWantToBase(uint256 wantAmount) internal view returns (uint256 baseAmount) {
-        if (wantAmount == 0) return 0;
-        
-        // Get want token price from oracle
-        uint256 wantPrice;
-        try IBeefyOracle(beefyOracle).getPrice(want) returns (uint256 price) {
-            if(price == 0) revert OraclePriceZero();
-            wantPrice = price;
-        } catch {
-            revert OraclePriceFail();
-        }
-        
-        // Convert want token units to base amount with proper decimal handling
-        // Formula: (wantAmount * wantPrice) / (10^wantDecimals)
-        baseAmount = (wantAmount * wantPrice) / (10**wantDecimals);
-    }
 
     function _deleverage(uint256 _targetAmount) internal {
         uint256 totalAssets = balanceOf();
@@ -345,53 +292,36 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         }
     }
 
-    function setBorrowFactor(uint256 _borrowFactor) external onlyManager {
-        if (_borrowFactor > BORROW_FACTOR_MAX) revert InvalidBorrowFactor();
-        borrowFactor = _borrowFactor;
-        emit BorrowFactorUpdated(_borrowFactor);
-    }
-
-    function setLeverageLoops(uint256 _leverageLoops) external onlyManager {
-        if (_leverageLoops == 0 || _leverageLoops > MAX_LOOPS) revert InvalidLeverageLoops();
-
-        // If reducing loops, need to deleverage first
-        if (_leverageLoops < leverageLoops) {
-            _emergencyDeleverage();
-        }
-
-        leverageLoops = _leverageLoops;
-        emit LeverageLoopsUpdated(_leverageLoops);
-
-        // Re-leverage with new loop count
-        if (!paused()) {
-            deposit();
-        }
-    }
-
-    /**
-     * @dev Update the Beefy Oracle address
-     * @param _beefyOracle The new oracle address
-     */
-    function setBeefyOracle(address _beefyOracle) external onlyManager {
-        require(_beefyOracle != address(0), "Invalid oracle address");
-        beefyOracle = _beefyOracle;
-        emit OracleUpdated(_beefyOracle);
-    }
-
     // ===== Emergency Functions =====
 
-    function retireStrat() external nonReentrant {
-        if (msg.sender != vault) revert NotVault();
-
-        _emergencyDeleverage();
-
+    function retireStrat() external {
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        panic();
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         _safeTransfer(want, address(this), vault, wantBal);
+        _transferOwnership(address(0));
     }
 
-    function panic() public onlyManager nonReentrant {
-        pause();
-        _emergencyDeleverage();
+    function panic() public {
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        _completePositionExit();
+        address[] memory assets = new address[](2);
+        assets[0] = aToken;
+        assets[1] = debtToken;
+        uint256 amount = rewardsAvailable();
+        if (amount > 0) {
+            try IRewardsController(rewardsController).claimRewards(assets, amount, address(this), output){
+                uint256 wantHarvested = balanceOfWant();
+                emit StratHarvest(msg.sender, wantHarvested, balanceOf());
+            } catch {}
+        }
+        _completePositionExit();
+        _pause();
+    }
+
+    function reversePanic() public onlyManager {
+        _unpause();
+        _deposit();
     }
 
     function _completePositionExit() internal {
@@ -435,15 +365,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
             ILendingPool(lendingPool).withdraw(want, type(uint256).max, address(this));
         }
 
-        // No tracking arrays to reset - we use lending pool data directly
-    }
-
-    function _emergencyDeleverage() internal {
-        _completePositionExit();
-
-        uint256 totalRepaid = 0; // We could track this in _completePositionExit if needed
-        uint256 totalWithdrawn = 0; // We could track this in _completePositionExit if needed
-        emit EmergencyDeleveraged(totalRepaid, totalWithdrawn);
     }
 
     function pause() public onlyManager {
@@ -454,7 +375,6 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
     function unpause() external onlyManager nonReentrant {
         _unpause();
         _giveAllowances();
-        deposit();
     }
 
     // ===== Token Management Functions =====
@@ -531,22 +451,21 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
         return (((outputBal * fees.total) / DIVISOR) * fees.call) / DIVISOR;
     }
 
-    function getSupplyAtLevel(uint256 level) public view returns (uint256) {
-        // Since this is a multi-user vault, we don't track individual levels
-        // Return total supply for level 0, 0 for other levels
-        if (level == 0) {
-            return balanceOfSupply();
+    function inCaseTokensGetStuck(address _token) external onlyManager {
+        require(_token != want, "!want");
+        require(_token != aToken, "!aToken");
+        require(_token != debtToken, "!debtToken");
+        uint256 amount = IERC20(_token).balanceOf(address(this));
+        if (amount > 0) {
+            _safeTransfer(_token, address(this), msg.sender, amount);
         }
-        return 0;
     }
 
-    function getBorrowAtLevel(uint256 level) public view returns (uint256) {
-        // Since this is a multi-user vault, we don't track individual levels
-        // Return total debt for level 0, 0 for other levels
-        if (level == 0) {
-            return balanceOfBorrow();
+    function inCaseNativeTokensGetStuck() external onlyManager {
+        uint256 amount = address(this).balance;
+        if (amount > 0) {
+            payable(msg.sender).transfer(amount);
         }
-        return 0;
     }
 
 }

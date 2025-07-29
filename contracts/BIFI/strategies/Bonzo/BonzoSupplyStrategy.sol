@@ -110,12 +110,17 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     }
 
     function deposit() public whenNotPaused nonReentrant {
+        require(msg.sender == vault, "!vault");
+        _deposit();
+        emit Deposit(balanceOf());
+    }
+
+    function _deposit() internal {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "No funds to deposit");
 
         IERC20(want).approve(lendingPool, wantBal);
-        ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);
-        emit Deposit(balanceOf());
+        ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);   
     }
 
     function withdraw(uint256 _amount) external nonReentrant {
@@ -262,17 +267,38 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
     }
 
     function retireStrat() external nonReentrant {
-        require(msg.sender == vault, "!vault");
-        ILendingPool(lendingPool).withdraw(want, balanceOfPool(), address(this));
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        panic();
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         _safeTransfer(want, address(this), vault, wantBal);
+        _transferOwnership(address(0));
         emit StrategyRetired();
     }
 
-    function panic() public onlyManager {
-        pause();
+    function panic() public {
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        address[] memory assets = new address[](1);
+        assets[0] = aToken;
+        uint256 amount = rewardsAvailable();
+        if (amount > 0) {
+            try IRewardsController(rewardsController).claimRewards(
+                    assets,
+                    amount,
+                    address(this),
+                    output
+                ){
+               emit RewardsClaimed(amount, output);
+            } catch {}
+        }
+
         ILendingPool(lendingPool).withdraw(want, balanceOfPool(), address(this));
+        pause();
         emit StratPanicCalled();
+    }
+
+    function reversePanic() public onlyManager {
+        _unpause();
+        _deposit();
     }
 
     function pause() public onlyManager {
@@ -287,6 +313,23 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         if (!isHederaToken) {
             IERC20(want).approve(lendingPool, type(uint).max);
             IERC20(output).approve(unirouter, type(uint).max);
+        }
+    }
+
+    function inCaseNativeTokensGetStuck() external onlyManager {
+        uint256 amount = address(this).balance;
+        if (amount > 0) {
+            payable(msg.sender).transfer(amount);
+        }
+    }
+
+    function inCaseTokensGetStuck(address _token) external onlyManager {
+        require(_token != want, "!want");
+        require(_token != aToken, "!aToken");
+        require(_token != output, "!output");
+        uint256 amount = IERC20(_token).balanceOf(address(this));
+        if (amount > 0) {
+            _safeTransfer(_token, address(this), msg.sender, amount);
         }
     }
 
