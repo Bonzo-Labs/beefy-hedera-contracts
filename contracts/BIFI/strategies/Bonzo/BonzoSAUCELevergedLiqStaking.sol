@@ -50,7 +50,6 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     event Staked(uint256 amount);
     event Unstaked(uint256 amount);
     event SlippageToleranceUpdated(uint256 oldValue, uint256 newValue);
-    event MaxLoopsUpdated(uint256 oldValue, uint256 newValue);
     event MaxBorrowableUpdated(uint256 oldValue, uint256 newValue);
     event RewardsAvailabilityUpdated(bool oldValue, bool newValue);
     event HarvestOnDepositUpdated(bool oldValue, bool newValue);
@@ -66,6 +65,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 maxBorrowBase,
         uint256 desired
     );
+    event RewardsControllerUpated(address oldValue, address newValue);
 
     error MaxBorrowTokenIsZero(
         uint256 baseCollateral,
@@ -376,9 +376,25 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         emit RewardsAvailabilityUpdated(isRewardsAvailable, _isRewardsAvailable);
     }
 
-    function panic() external onlyManager {
+    function panic() public {
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        if (isRewardsAvailable) {
+            // Claim rewards from lending pool
+            address[] memory assets = new address[](1);
+            assets[0] = aToken;
+            IRewardsController(rewardsController).claimRewards(assets, type(uint256).max, address(this), want);
+        }
+        uint256 totalPosition = balanceOf();
+        if (totalPosition > 0) {
+            _unwindYieldLoops(totalPosition);
+        }
         _pause();
         emit StratPanicCalled();
+    }
+
+    function reversePanic() public onlyManager {
+        _unpause();
+        _createYieldLoops(balanceOfWant());
     }
 
     function pause() external onlyManager {
@@ -390,17 +406,14 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function retireStrat() external {
-        require(msg.sender == vault, "!vault");
-
-        uint256 totalPosition = balanceOf();
-        if (totalPosition > 0) {
-            _unwindYieldLoops(totalPosition);
-        }
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        panic();
 
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal > 0) {
             _safeTransfer(want, address(this), vault, wantBal);
         }
+        _transferOwnership(address(0));
         emit StrategyRetired();
     }
 
@@ -413,6 +426,13 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 amount = IERC20(_token).balanceOf(address(this));
         if (amount > 0) {
             _safeTransfer(_token, address(this), msg.sender, amount);
+        }
+    }
+
+    function inCaseNativeTokensGetStuck() external onlyManager {
+        uint256 amount = address(this).balance;
+        if (amount > 0) {
+            payable(msg.sender).transfer(amount);
         }
     }
 
@@ -442,28 +462,15 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     // Strategy-specific getters
-    function getMaxLoops() external view returns (uint256) {
-        return maxLoops;
-    }
-
-    function setMaxLoops(uint256 _maxLoops) external onlyManager {
-        require(_maxLoops > 0 && _maxLoops <= 10, "!range"); // Reasonable range: 1-10x
-        maxLoops = _maxLoops;
-        emit MaxLoopsUpdated(maxLoops, _maxLoops);
-    }
-
-    function getMaxBorrowable() external view returns (uint256) {
-        return maxBorrowable;
-    }
-
-    function setMaxBorrowable(uint256 _maxBorrowable) external onlyManager {
-        require(_maxBorrowable <= 10000, "!cap"); // Cannot be more than 100%
-        maxBorrowable = _maxBorrowable;
-        emit MaxBorrowableUpdated(maxBorrowable, _maxBorrowable);
-    }
 
     function getLendingPool() external view returns (address) {
         return lendingPool;
+    }
+
+    function setRewardsController(address _rewardsController) external onlyManager {
+        require(_rewardsController != address(0), "!zero address");
+        rewardsController = _rewardsController;
+        emit RewardsControllerUpated(rewardsController, _rewardsController);
     }
 
     function getRewardsController() external view returns (address) {
