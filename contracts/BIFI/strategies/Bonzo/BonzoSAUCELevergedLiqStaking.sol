@@ -173,10 +173,10 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 currentCollateral = amount;
         uint256 totalBorrowed = 0;
 
-        uint256 xSaucePerSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(1e6);
+        uint256 saucePerXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(1e6);
        
         for (uint256 i = 0; i < maxLoops; i++) {
-            uint256 inputCollateralValueInSauce = (currentCollateral * xSaucePerSauce) / 1e6;
+            uint256 inputCollateralValueInSauce = (currentCollateral * saucePerXSauce) / 1e6;
             uint256 borrowAmt = (inputCollateralValueInSauce * maxBorrowable) / 10_000;
             if (borrowAmt == 0) break;
             if(totalBorrowed > 0 && borrowAmt > totalBorrowed) {
