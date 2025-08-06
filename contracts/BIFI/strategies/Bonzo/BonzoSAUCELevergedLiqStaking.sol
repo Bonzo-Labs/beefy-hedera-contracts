@@ -154,6 +154,11 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function deposit() public whenNotPaused nonReentrant {
+        require(msg.sender == vault, "!vault");
+        _deposit();
+    }
+
+    function _deposit() internal {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "No funds to deposit");
         _createYieldLoops(wantBal);

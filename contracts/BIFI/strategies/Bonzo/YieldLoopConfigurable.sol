@@ -254,7 +254,7 @@ contract YieldLoopConfigurable is StratFeeManagerInitializable {
                 // Since output == want, no swapping needed - tokens are already in desired form
                 uint256 wantHarvested = balanceOfWant();
                 if (wantHarvested > 0) {
-                    deposit();
+                    _deposit();
                 }
 
                 lastHarvest = block.timestamp;

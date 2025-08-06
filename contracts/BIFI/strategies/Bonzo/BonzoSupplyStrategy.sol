@@ -185,7 +185,7 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         if (outputBal > 0) {
             chargeFees(callFeeRecipient);
             uint256 wantHarvested = balanceOfWant();
-            deposit();
+            _deposit();
 
             lastHarvest = block.timestamp;
             emit StratHarvest(msg.sender, wantHarvested, balanceOf());

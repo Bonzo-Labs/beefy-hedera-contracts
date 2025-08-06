@@ -169,6 +169,11 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function deposit() public whenNotPaused nonReentrant {
+        require(msg.sender == vault, "!vault");
+        _deposit();
+    }
+
+    function _deposit() internal {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "!funds");
         require(wantBal >= minDeposit*10**8, "!min HBARX");
@@ -399,7 +404,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         uint256 wantHarvested = balanceOfWant();
         if (wantHarvested > 0 && wantHarvested >= 3*10**8)  {
             chargeFees(callFeeRecipient);
-            deposit();
+            _deposit();
         }
 
         lastHarvest = block.timestamp;
