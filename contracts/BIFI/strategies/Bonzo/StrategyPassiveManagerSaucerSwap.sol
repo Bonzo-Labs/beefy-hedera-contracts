@@ -307,10 +307,18 @@ contract StrategyPassiveManagerSaucerSwap is
         _addLiquidity();
         fees0 = 0;
         fees1 = 0;
-        uint256 currentLock0 = totalLocked0 > 0 ? (totalLocked0 * (block.timestamp - lastHarvest)) / DURATION : 0;
-        uint256 currentLock1 = totalLocked1 > 0 ? (totalLocked1 * (block.timestamp - lastHarvest)) / DURATION : 0;
-        totalLocked0 = fee0 + currentLock0;
-        totalLocked1 = fee1 + currentLock1;
+         // Calculate remaining locked amounts and add new fees
+        uint256 timeElapsed = block.timestamp - lastHarvest;
+        
+        if (timeElapsed >= DURATION) {
+            // All locked amounts have been unlocked
+            totalLocked0 = fee0;
+            totalLocked1 = fee1;
+        } else {
+            // Calculate remaining locked amounts
+            totalLocked0 = (totalLocked0 * (DURATION - timeElapsed)) / DURATION + fee0;
+            totalLocked1 = (totalLocked1 * (DURATION - timeElapsed)) / DURATION + fee1;
+        }
         lastHarvest = block.timestamp;
         emit Harvest(fee0, fee1);
     }
