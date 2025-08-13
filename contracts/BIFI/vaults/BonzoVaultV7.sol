@@ -49,6 +49,8 @@ contract BonzoVaultV7 is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
     event UpgradeStrat(address implementation);
     event HTSAssociationFailed(address token, address account, int64 responseCode);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
+    event Deposit(address indexed user, address indexed token, uint256 amount, uint256 shares);
+    event Withdraw(address indexed user, address indexed token, uint256 shares, uint256 amount);
 
     /**
      * @dev Initializes the vault with the appropriate strategy, name, symbol, approval delay, and
@@ -145,6 +147,7 @@ contract BonzoVaultV7 is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
             shares = (_amount * totalSupply()) / _pool;
         }
         _mint(msg.sender, shares);
+        emit Deposit(msg.sender, address(want()), _amount, shares);
     }
 
     /**
@@ -199,6 +202,7 @@ contract BonzoVaultV7 is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
             // For ERC20 tokens, use standard SafeERC20 transfer
             want().safeTransfer(msg.sender, r);
         }
+        emit Withdraw(msg.sender, address(want()), _shares, r);
     }
 
     /** 
