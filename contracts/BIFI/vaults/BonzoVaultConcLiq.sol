@@ -33,6 +33,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000163B5a;
 
     address public beefyOracle;
+    
     error NoShares();
     error TooMuchSlippage();
     error NotEnoughTokens();
@@ -197,6 +198,57 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 _totalSupply = totalSupply();
         amount0 = FullMath.mulDiv(bal0, _shares, _totalSupply);
         amount1 = FullMath.mulDiv(bal1, _shares, _totalSupply);
+    }
+
+    /**
+     * @notice Helper function to normalize token amounts to 18 decimals
+     */
+    function _normalizeTo18Decimals(uint256 amount, uint8 decimals) internal pure returns (uint256) {
+        if (decimals == 18) return amount;
+        if (decimals < 18) return amount * (10 ** (18 - decimals));
+        return amount / (10 ** (decimals - 18));
+    }
+
+    /**
+     * @notice Function for various UIs to display the current value of one vault share.
+     * @param inToken0 If true, returns value in token0 terms, otherwise in token1 terms
+     * @return The value of one vault share in the specified token terms with 18 decimals
+     */
+    function getPricePerFullShare(bool inToken0) public view returns (uint256) {
+        uint256 _totalSupply = totalSupply();
+        if (_totalSupply == 0) return 1e18;
+        
+        (uint bal0, uint bal1) = balances();
+        (address token0, address token1) = wants();
+        
+        uint256 normalizedBal0 = _normalizeTo18Decimals(bal0, IERC20Metadata(token0).decimals());
+        uint256 normalizedBal1 = _normalizeTo18Decimals(bal1, IERC20Metadata(token1).decimals());
+        
+        uint256 totalValue;
+        if (inToken0) {
+            totalValue = normalizedBal0 + FullMath.mulDiv(normalizedBal1, PRECISION, strategy.price());
+        } else {
+            totalValue = normalizedBal1 + FullMath.mulDiv(normalizedBal0, strategy.price(), PRECISION);
+        }
+        
+        return FullMath.mulDiv(totalValue, PRECISION, _totalSupply);
+    }
+
+    /**
+     * @notice Function for various UIs to display the current value of one vault share.
+     * Returns the value of one vault share in terms of token1 (quote token) with 18 decimals.
+     * @dev Convenience function that calls getPricePerFullShare(false)
+     */
+    function getPricePerFullShare() public view returns (uint256) {
+        return getPricePerFullShare(false);
+    }
+
+    /**
+     * @notice Function to get the price per share in terms of token0 (base token).
+     * @dev Convenience function that calls getPricePerFullShare(true)
+     */
+    function getPricePerFullShareInToken0() public view returns (uint256) {
+        return getPricePerFullShare(true);
     }
 
     /**
@@ -488,13 +540,6 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         withdraw(balanceOf(msg.sender), _minAmount0, _minAmount1);
     }
 
-    /**
-     * @dev Helper function to withdraw all funds and receive native HBAR for WHBAR tokens
-     */
-    function withdrawAllAsHBAR(uint256 _minAmount0, uint256 _minAmount1) external payable {
-        _prepareWithdraw();
-        withdrawAsHBAR(balanceOf(msg.sender), _minAmount0, _minAmount1);
-    }
 
     /**
      * @notice Withdraw tokens from vault as WHBAR tokens.
@@ -541,63 +586,6 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
                 //unwrap WHBAR to HBAR
                 uint256 unwrappedAmount = _unwrapWHBAR(_amount1);
                 AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            } else {
-                _transferTokens(token1, address(this), msg.sender, _amount1, true);
-            }
-        }
-
-        emit Withdraw(msg.sender, _shares, _amount0, _amount1);
-    }
-
-    /**
-     * @notice Withdraw tokens from vault as native HBAR (unwraps WHBAR).
-     * @dev Only works with HBAR/WHBAR pools. At least one token must be WHBAR for this function to work.
-     *      For other HTS tokens, use the regular withdraw() function.
-     * @param _shares The number of vault shares to withdraw
-     * @param _minAmount0 Minimum amount of token0 to receive (slippage protection)
-     * @param _minAmount1 Minimum amount of token1 to receive (slippage protection)
-     */
-    function withdrawAsHBAR(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public nonReentrant {
-        _prepareWithdraw();
-        if (_shares == 0) revert NoShares();
-
-        // Validate this function is only used with HBAR/WHBAR pools
-        (address token0, address token1) = wants();
-        if (!isWHBAR(token0) && !isWHBAR(token1)) {
-            revert OnlyHBARWHBARPools();
-        }
-
-        // Withdraw All Liquidity to Strat for Accounting.
-        strategy.beforeAction();
-
-        uint256 _totalSupply = totalSupply();
-        _burn(msg.sender, _shares);
-
-        (uint256 _bal0, uint256 _bal1) = balances();
-
-        uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
-        uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
-
-        strategy.withdraw(_amount0, _amount1);
-
-        if (_amount0 < _minAmount0 || _amount1 < _minAmount1 || (_amount0 == 0 && _amount1 == 0))
-            revert TooMuchSlippage();
-
-        // Handle token0 - unwrap WHBAR to HBAR if applicable
-        if (_amount0 > 0) {
-            if (isWHBAR(token0)) {
-                _unwrapWHBAR(_amount0);
-                AddressUpgradeable.sendValue(payable(msg.sender), _amount0);
-            } else {
-                _transferTokens(token0, address(this), msg.sender, _amount0, true);
-            }
-        }
-
-        // Handle token1 - unwrap WHBAR to HBAR if applicable
-        if (_amount1 > 0) {
-            if (isWHBAR(token1)) {
-                _unwrapWHBAR(_amount1);
-                AddressUpgradeable.sendValue(payable(msg.sender), _amount1);
             } else {
                 _transferTokens(token1, address(this), msg.sender, _amount1, true);
             }
