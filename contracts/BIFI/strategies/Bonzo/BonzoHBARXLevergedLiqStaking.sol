@@ -63,8 +63,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     event Unstaked(uint256 amount);
     event SwappedHBARXToHBAR(uint256 hbarxAmount, uint256 hbarReceived);
     event SlippageToleranceUpdated(uint256 oldValue, uint256 newValue);
-    event MaxLoopsUpdated(uint256 oldValue, uint256 newValue);
-    event MaxBorrowableUpdated(uint256 oldValue, uint256 newValue);
     event RewardsAvailabilityUpdated(bool oldValue, bool newValue);
     event HarvestOnDepositUpdated(bool oldValue, bool newValue);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
@@ -171,6 +169,11 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function deposit() public whenNotPaused nonReentrant {
+        require(msg.sender == vault, "!vault");
+        _deposit();
+    }
+
+    function _deposit() internal {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "!funds");
         require(wantBal >= minDeposit*10**8, "!min HBARX");
@@ -401,7 +404,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         uint256 wantHarvested = balanceOfWant();
         if (wantHarvested > 0 && wantHarvested >= 3*10**8)  {
             chargeFees(callFeeRecipient);
-            deposit();
+            _deposit();
         }
 
         lastHarvest = block.timestamp;
@@ -506,16 +509,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     // Strategy-specific getters and setters
-    function getMaxLoops() external view returns (uint256) {
-        return maxLoops;
-    }
-
-    function setMaxLoops(uint256 _maxLoops) external onlyManager {
-        require(_maxLoops > 0 && _maxLoops <= 10, "!range"); // Reasonable range: 1-10x
-        maxLoops = _maxLoops;
-        emit MaxLoopsUpdated(maxLoops, _maxLoops);
-    }
-
+    
     function setWhbarContract(address _whbarContract) external onlyManager {
         whbarContract = _whbarContract;
     }
@@ -547,16 +541,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         return amounts[amounts.length - 1];
     }
 
-    function getMaxBorrowable() external view returns (uint256) {
-        return maxBorrowable;
-    }
-
-    function setMaxBorrowable(uint256 _maxBorrowable) external onlyManager {
-        require(_maxBorrowable <= 10000, "!cap"); // Cannot be more than 100%
-        maxBorrowable = _maxBorrowable;
-        emit MaxBorrowableUpdated(maxBorrowable, _maxBorrowable);
-    }
-
     function setPoolFee(uint24 _poolFee) external onlyManager {
         poolFee = _poolFee;
     }
@@ -577,9 +561,24 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         slippageTolerance = _slippageTolerance;
     }
 
-    function panic() external onlyManager {
+    function panic() public {
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        if (isRewardsAvailable) {
+            address[] memory assets = new address[](1);
+            assets[0] = aToken;
+            IRewardsController(rewardsController).claimRewards(assets, type(uint256).max, address(this), want);
+        }
+        uint256 totalPosition = balanceOf();
+        if (totalPosition > 0) {
+            _unwindYieldLoops(totalPosition);
+        }
         _pause();
         emit StratPanicCalled();
+    }
+
+    function reversePanic() public onlyManager {
+        _unpause();
+        _createYieldLoops(balanceOfWant());
     }
 
     function pause() external onlyManager {
@@ -591,17 +590,13 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function retireStrat() external {
-        require(msg.sender == vault, "!vault");
-
-        uint256 totalPosition = balanceOf();
-        if (totalPosition > 0) {
-            _unwindYieldLoops(totalPosition);
-        }
-
+        require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
+        panic();
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal > 0) {
             _safeTransfer(want, address(this), vault, wantBal);
         }
+        _transferOwnership(address(0));
         emit StrategyRetired();
     }
 
@@ -614,13 +609,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         uint256 amount = IERC20(_token).balanceOf(address(this));
         if (amount > 0) {
             _safeTransfer(_token, address(this), msg.sender, amount);
-        }
-    }
-
-    function inCaseNativeTokensGetStuck() external onlyManager {
-        uint256 amount = address(this).balance;
-        if (amount > 0) {
-            payable(msg.sender).transfer(amount);
         }
     }
 

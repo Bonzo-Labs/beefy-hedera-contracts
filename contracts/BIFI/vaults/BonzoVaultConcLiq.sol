@@ -139,7 +139,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 mintFee = getMintFee();
         // We potentially need fees for both main and alt positions, so multiply by 2
         // TODO - revert this to 2 if needed
-        return mintFee * 3;
+        return mintFee * 2;
     }
 
     /**
