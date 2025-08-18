@@ -12,22 +12,35 @@ The Hedera tests are designed to validate the functionality of:
 
 ## Prerequisites
 
-### Node.js and Yarn
+### Node.js and npm
 - Node.js version 16 or higher
-- Yarn package manager
+- npm package manager
 
 ### Environment Setup
 1. **Install Dependencies**:
    ```bash
-   yarn install
+   npm install
    ```
 
 2. **Compile Contracts**:
    ```bash
-   yarn compile
+   npm run compile
    ```
 
-3. **Environment Variables**:
+3. **Deploy Infrastructure**:
+   ```bash
+   # Deploy chain infrastructure (vault factory, fee config, etc.)
+   npm run deploy:chain hedera_testnet
+   
+   # Deploy Supra Oracle
+   npx hardhat run scripts/infra/deploySupraOracle.js --network hedera_testnet
+   
+   # Deploy Chainlink Oracle
+   npx hardhat run scripts/infra/deployChainlinkOracle.js --network hedera_testnet
+   
+   ```
+
+4. **Environment Variables**:
    Create a `.env` file in the root directory with the following variables:
 
    ```env
@@ -67,16 +80,7 @@ The Hedera tests are designed to validate the functionality of:
 
 ## Running Tests
 
-### 1. Start Local Hardhat Network
-```bash
-# Start a local hardhat node
-yarn net
-
-# Or start with specific network configuration
-yarn net hedera_testnet
-```
-
-### 2. Run All Hedera Tests
+### 1. Run All Hedera Tests
 ```bash
 # Run all tests in the Hedera directory
 npx hardhat test test/Hedera/<testfile.test.ts>
@@ -86,7 +90,7 @@ CHAIN_TYPE=testnet npx hardhat test test/Hedera/
 CHAIN_TYPE=mainnet npx hardhat test test/Hedera/
 ```
 
-### 3. Run Specific Test Files
+### 2. Run Specific Test Files
 ```bash
 # Run a specific test file
 npx hardhat test test/Hedera/BonzoSupplyVault.test.ts
@@ -97,7 +101,7 @@ npx hardhat test test/Hedera/SaucerSwapLariRewardsCLMStrategy.test.ts
 CHAIN_TYPE=testnet npx hardhat test test/Hedera/BonzoSupplyVault.test.ts
 ```
 
-### 4. Run Tests with Verbose Output
+### 3. Run Tests with Verbose Output
 ```bash
 # Run tests with detailed logging
 npx hardhat test test/Hedera/ --verbose
@@ -106,13 +110,25 @@ npx hardhat test test/Hedera/ --verbose
 npx hardhat test test/Hedera/BonzoSupplyVault.test.ts --verbose
 ```
 
-### 5. Run Tests on Specific Network
+### 4. Run Tests on Specific Network
 ```bash
 # Run tests on Hedera testnet
 npx hardhat test test/Hedera/ --network hedera_testnet
 
 # Run tests on Hedera mainnet
 npx hardhat test test/Hedera/ --network hedera_mainnet
+```
+
+### 5. Verify Infrastructure Deployment
+```bash
+# Verify chain infrastructure is deployed
+npx hardhat run scripts/verify/verify-chain.js --network hedera_testnet
+
+# Verify oracle deployments
+npx hardhat run scripts/verify/verify-oracles.js --network hedera_testnet
+
+# Check deployed addresses
+cat scripts/deployed-addresses.json
 ```
 
 ## Test Configuration
@@ -178,8 +194,22 @@ Tests use common utilities for:
 5. **Contract Deployment Failures**:
    ```bash
    # Clean and recompile
-   yarn clean
-   yarn compile
+   npm run clean
+   npm run compile
+   ```
+
+6. **Infrastructure Deployment Issues**:
+   ```bash
+   # Check if infrastructure is already deployed
+   cat scripts/deployed-addresses.json
+   
+   # Redeploy infrastructure if needed
+   npm run deploy:chain -- --network hedera_testnet
+   npm run deploy:supra-oracle -- --network hedera_testnet
+   npm run deploy:chainlink-oracle -- --network hedera_testnet
+   
+   # Verify oracle configurations
+   npx hardhat run scripts/verify/verify-oracles.js --network hedera_testnet
    ```
 
 
