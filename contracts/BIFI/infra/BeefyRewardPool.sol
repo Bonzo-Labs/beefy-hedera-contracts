@@ -134,9 +134,11 @@ contract BeefyRewardPool is ERC20Upgradeable, OwnableUpgradeable {
         bytes32 _r,
         bytes32 _s
     ) external update(_user) {
-        IERC20PermitUpgradeable(address(stakedToken)).permit(
-            _user, address(this), _amount, _deadline, _v, _r, _s
-        );
+        if (IERC20Upgradeable(address(stakedToken)).allowance(_user, address(this)) < _amount) {
+            IERC20PermitUpgradeable(address(stakedToken)).permit(
+                _user, address(this), _amount, _deadline, _v, _r, _s
+            );
+        }
         _stake(_user, _amount);
     }
 
