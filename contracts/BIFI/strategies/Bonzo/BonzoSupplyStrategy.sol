@@ -188,7 +188,7 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
             _deposit();
 
             lastHarvest = block.timestamp;
-            emit StratHarvest(msg.sender, wantHarvested, balanceOf());
+            emit StratHarvest(tx.origin, wantHarvested, balanceOf());
         }
     }
 
