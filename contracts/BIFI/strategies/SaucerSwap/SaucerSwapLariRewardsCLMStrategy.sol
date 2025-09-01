@@ -440,13 +440,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
         uint256 total0 = available0 - locked0;
         uint256 total1 = available1 - locked1;
 
-        uint256 unharvestedFees0 = fees0;
-        uint256 unharvestedFees1 = fees1;
-        // If pair is so imbalanced that we no longer have any enough tokens to pay fees, we set them to 0.
-        if (unharvestedFees0 > total0) unharvestedFees0 = total0;
-        if (unharvestedFees1 > total1) unharvestedFees1 = total1;
-        // For token0 and token1 we return balance of this contract + balance of positions - locked profit - feesUnharvested.
-        return (total0 - unharvestedFees0, total1 - unharvestedFees1);
+        // Return actual available balances without subtracting unharvested fees
+        // Unharvested fees are part of the strategy's value and should be included in TVL
+        return (total0, total1);
     }
 
     function balancesOfThis() public view returns (uint256 token0Bal, uint256 token1Bal) {
