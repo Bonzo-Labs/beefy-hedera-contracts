@@ -288,7 +288,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             }
 
             uint256 debtForThisLayer = (i == maxLoops) ? 
-                (debtToRepay - debtPaid) : // Last layer gets remaining debt
+                (debtToRepay > debtPaid ? debtToRepay - debtPaid : 0) : // Last layer gets remaining debt
                 layerDebt; // Other layers get equal share
 
             if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
@@ -298,7 +298,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
                 // requiredHbarx = IERC20(want).balanceOf(address(this)) < requiredHbarx ? IERC20(want).balanceOf(address(this)) : requiredHbarx;
                 // Swap HBARX to HBAR for debt repayment
                 uint256 hbarAmount = _swapHBARXToHBAR(requiredHbarx);
-                
                 if (hbarAmount > 0) {
                     uint256 currDebtBal = IERC20(debtToken).balanceOf(address(this));
                     if(hbarAmount > currDebtBal) {
@@ -440,7 +439,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     function balanceOf() public view returns (uint256) {
         uint256 borrowBal = IERC20(debtToken).balanceOf(address(this));
         uint256 debtInHbarX = _convertHbarToHbarX(borrowBal);
-        return balanceOfWant() + balanceOfPool() - debtInHbarX;
+        uint256 totalAssets = balanceOfWant() + balanceOfPool();
+        return totalAssets > debtInHbarX ? totalAssets - debtInHbarX : 0;
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -476,7 +476,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         // Apply withdrawal fee if not owner and not paused
         if (tx.origin != owner() && !paused()) {
             uint256 withdrawalFeeAmount = (wantBal * withdrawalFee) / WITHDRAWAL_MAX;
-            wantBal = wantBal - withdrawalFeeAmount;
+            wantBal = wantBal > withdrawalFeeAmount ? wantBal - withdrawalFeeAmount : 0;
         }
 
         // Transfer want tokens to vault
