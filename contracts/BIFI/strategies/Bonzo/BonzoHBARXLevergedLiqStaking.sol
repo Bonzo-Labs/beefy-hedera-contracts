@@ -294,7 +294,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
                 // Convert HBAR debt to HBARX amount needed
                 uint256 requiredHbarx = _convertHbarToHbarX(debtForThisLayer);
-                requiredHbarx = IERC20(want).balanceOf(address(this)) > requiredHbarx ? IERC20(want).balanceOf(address(this)) : requiredHbarx;
+                requiredHbarx = IERC20(want).balanceOf(address(this)) < requiredHbarx ? IERC20(want).balanceOf(address(this)) : requiredHbarx;
+                // requiredHbarx = IERC20(want).balanceOf(address(this)) > requiredHbarx ? IERC20(want).balanceOf(address(this)) : requiredHbarx;
                 // Swap HBARX to HBAR for debt repayment
                 uint256 hbarAmount = _swapHBARXToHBAR(requiredHbarx);
                 
@@ -352,7 +353,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         IERC20(borrowToken).approve(whbarContract, amountOut);
         IWHBAR(whbarContract).withdraw(address(this), address(this), amountOut);
         uint256 balanceAfter = address(this).balance;
-        uint256 received = balanceAfter - balanceBefore;
+        uint256 received = balanceBefore > balanceAfter ? 0 : balanceAfter - balanceBefore;
         
         emit SwappedHBARXToHBAR(amount, received);
         require(received > 0, "No HBAR received from swap");
