@@ -288,16 +288,16 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             }
 
             uint256 debtForThisLayer = (i == maxLoops) ? 
-                (debtToRepay - debtPaid) : // Last layer gets remaining debt
+                (debtToRepay > debtPaid ? debtToRepay - debtPaid : 0) : // Last layer gets remaining debt
                 layerDebt; // Other layers get equal share
 
             if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
                 // Convert HBAR debt to HBARX amount needed
                 uint256 requiredHbarx = _convertHbarToHbarX(debtForThisLayer);
                 requiredHbarx = IERC20(want).balanceOf(address(this)) > requiredHbarx ? IERC20(want).balanceOf(address(this)) : requiredHbarx;
+                // requiredHbarx = IERC20(want).balanceOf(address(this)) < requiredHbarx ? IERC20(want).balanceOf(address(this)) : requiredHbarx;
                 // Swap HBARX to HBAR for debt repayment
                 uint256 hbarAmount = _swapHBARXToHBAR(requiredHbarx);
-                
                 if (hbarAmount > 0) {
                     uint256 currDebtBal = IERC20(debtToken).balanceOf(address(this));
                     if(hbarAmount > currDebtBal) {
@@ -348,12 +348,13 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         
         uint256 amountOut = IUniswapRouterV3WithDeadline(saucerSwapRouter).exactInput(params);
         //unwrap whbar to hbar
-
+        if(amountOut == 0) {
+            revert("No HBAR received from swap");
+        }
         IERC20(borrowToken).approve(whbarContract, amountOut);
         IWHBAR(whbarContract).withdraw(address(this), address(this), amountOut);
         uint256 balanceAfter = address(this).balance;
-        uint256 received = balanceAfter - balanceBefore;
-        
+        uint256 received = balanceBefore > balanceAfter ? 0 : balanceAfter - balanceBefore;        
         emit SwappedHBARXToHBAR(amount, received);
         require(received > 0, "No HBAR received from swap");
         
@@ -438,7 +439,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     function balanceOf() public view returns (uint256) {
         uint256 borrowBal = IERC20(debtToken).balanceOf(address(this));
         uint256 debtInHbarX = _convertHbarToHbarX(borrowBal);
-        return balanceOfWant() + balanceOfPool() - debtInHbarX;
+        uint256 totalAssets = balanceOfWant() + balanceOfPool();
+        return totalAssets > debtInHbarX ? totalAssets - debtInHbarX : 0;
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -474,7 +476,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         // Apply withdrawal fee if not owner and not paused
         if (tx.origin != owner() && !paused()) {
             uint256 withdrawalFeeAmount = (wantBal * withdrawalFee) / WITHDRAWAL_MAX;
-            wantBal = wantBal - withdrawalFeeAmount;
+            wantBal = wantBal > withdrawalFeeAmount ? wantBal - withdrawalFeeAmount : 0;
         }
 
         // Transfer want tokens to vault
