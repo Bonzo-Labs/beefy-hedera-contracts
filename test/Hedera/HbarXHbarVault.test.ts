@@ -63,7 +63,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = true;
+  let deployNewContract = false;
   let staking: MockStaking | any;
 
   before(async () => {
@@ -162,8 +162,8 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0x4e03a1f45f89C010bfdD5E04A1A165084B2343Ec";
-      const STRATEGY_ADDRESS = "0xb9c0e8839aa26D04E6a5248c9BBb993d6A8707c4";
+      const VAULT_ADDRESS = "0xaCAFE46d911022e378b8FD2ABe731b060745fA02";
+      const STRATEGY_ADDRESS = "0xb1a6413F18E0E8D02a5Fb789A9f48f025e9dA4ec";
       vault = await ethers.getContractAt("BonzoVaultV7", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -386,7 +386,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       const totalUserShares = await vault.balanceOf(deployer.address);
       console.log("Total user shares for withdrawal:", totalUserShares.toString());
 
-      const withdrawAmount = totalUserShares.div(2); // Withdraw half
+      const withdrawAmount = totalUserShares.div(4); // Withdraw half
       console.log("Withdrawing shares:", withdrawAmount.toString());
 
       const preWithdrawBalance = await want.balanceOf(deployer.address);
@@ -438,7 +438,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       //complete withdrawal
       console.log("Completing withdrawal...");
       const remainingShares = await vault.balanceOf(deployer.address);
-      const withdrawTxAfter2 = await vault.withdraw(remainingShares, { gasLimit: 4000000 });
+      const withdrawTxAfter2 = await vault.withdraw(remainingShares, { gasLimit: 6000000 });
       const withdrawReceiptAfter2 = await withdrawTxAfter2.wait();
       console.log("Withdrawal completed:", withdrawReceiptAfter2.transactionHash);
 
