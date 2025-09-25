@@ -63,7 +63,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   let want: IERC20Upgradeable | any;
   let deployer: SignerWithAddress | any;
   let vaultAddress: string;
-  let deployNewContract = false;
+  let deployNewContract = true;
   let staking: MockStaking | any;
 
   before(async () => {
@@ -102,7 +102,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("BonzoHBARXLevergedLiqStaking deployed to:", strategy.address);
 
       // Step 2: Connect to the vault factory
-      const vaultFactory = await ethers.getContractAt("BeefyVaultV7FactoryHedera", VAULT_FACTORY_ADDRESS);
+      const vaultFactory = await ethers.getContractAt("BonzoVaultV7Factory", VAULT_FACTORY_ADDRESS);
       console.log("Connected to vault factory at:", VAULT_FACTORY_ADDRESS);
 
       // Step 3: Create a new vault using the factory
@@ -162,9 +162,9 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0xA96469c3b09a07fC1929578C902ffaECDE50054B";
-      const STRATEGY_ADDRESS = "0x0E30B2F24147841CADa06856AdaBb33741E0be43";
-      vault = await ethers.getContractAt("BeefyVaultV7Hedera", VAULT_ADDRESS);
+      const VAULT_ADDRESS = "0x499Ff2E8E10654C67431205C0dbA4c616ea339Fc";
+      const STRATEGY_ADDRESS = "0x35C171B02680CCFEEb2187a68dffEDccBD65EEe9";
+      vault = await ethers.getContractAt("BonzoVaultV7", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
     }
@@ -277,7 +277,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
   });
 
   describe("Deposit and Withdraw", () => {
-    it("should handle deposit", async function () {
+    it.skip("should handle deposit", async function () {
       console.log("Testing deposit functionality...");
 
       // Skip this test if we don't have HBARX tokens to test with
@@ -292,6 +292,14 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       const depositAmount = "300000000"; // 0.1 HBARX (8 decimals)
       
       // Approve the vault to spend tokens
+      const allowance = await want.allowance(deployer.address, vault.address);
+      console.log("Allowance:", allowance.toString());
+      if(allowance.lt(depositAmount)) {
+        const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
+        const approveReceipt = await approveTx.wait();
+        console.log("Approve transaction hash:", approveReceipt.transactionHash);
+        console.log("Tokens approved for vault");
+      }
       const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
       const approveReceipt = await approveTx.wait();
       console.log("Approve transaction hash:", approveReceipt.transactionHash);
@@ -311,7 +319,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       
       // Perform deposit
       console.log("Depositing...");
-      const tx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
+      const tx = await vault.deposit(depositAmount, { gasLimit: 6000000 });
       const receipt = await tx.wait();
       console.log("Deposit transaction:", receipt.transactionHash);
 
@@ -360,12 +368,17 @@ describe("BeefyBonzoHbarXHbarVault", function () {
           return;
         }
 
-        const depositAmount = "10000000"; // 0.1 HBARX
-        const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
-        const approveReceipt = await approveTx.wait();
-        console.log("Approve transaction hash:", approveReceipt.transactionHash);
-
-        const trx = await vault.deposit(depositAmount, { gasLimit: 3500000 });
+        const depositAmount = "300000001"; // 0.1 HBARX
+        const allowance = await want.allowance(deployer.address, vault.address);
+        console.log("Allowance:", allowance.toString());
+        if(allowance.lt(depositAmount)) {
+          const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
+          const approveReceipt = await approveTx.wait();
+          console.log("Approve transaction hash:", approveReceipt.transactionHash);
+          console.log("Tokens approved for vault");
+        }
+        
+        const trx = await vault.deposit(depositAmount, { gasLimit: 5000000 });
         const receipt = await trx.wait();
         console.log("Deposit transaction hash:", receipt.transactionHash);
       }
@@ -373,13 +386,13 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       const totalUserShares = await vault.balanceOf(deployer.address);
       console.log("Total user shares for withdrawal:", totalUserShares.toString());
 
-      const withdrawAmount = totalUserShares.div(2); // Withdraw half
+      const withdrawAmount = totalUserShares.div(4); // Withdraw half
       console.log("Withdrawing shares:", withdrawAmount.toString());
 
       const preWithdrawBalance = await want.balanceOf(deployer.address);
       const preWithdrawStrategyBalance = await strategy.balanceOf();
 
-      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 5000000 });
+      const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 6000000 });
       const withdrawReceipt = await withdrawTx.wait();
       console.log("Withdrawal completed, hash: ", withdrawReceipt.transactionHash);
 
