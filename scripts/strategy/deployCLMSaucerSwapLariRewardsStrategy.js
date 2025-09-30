@@ -68,16 +68,26 @@ if (CHAIN_TYPE === "testnet") {
     // SaucerSwap V3 addresses (mainnet)
     // USDC-HBAR pool: 0xc5b707348da504e9be1bd4e21525459830e7b11d
     // USDC-SAUCE pool: 0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xc5b707348da504e9be1bd4e21525459830e7b11d", // Update with actual mainnet pool
+    // PACK-XPACK pool: 0x3f5c61862e3546f5424d3f2da46cdb00128c390c
+    // SAUCE-XSAUCE pool: 0xcfeffaae43f176f91602d75ec1d0637e273c973b
+    // BONZO-XBONZO pool: 0xf6cc94f16bc141115fcb9b587297aecfa14f4eb6
+    // USDC-WETH hts pool: 0x335b3a8aaaecd63019091187dc8d99574f6552d0
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x3f5c61862e3546f5424d3f2da46cdb00128c390c", // Update with actual mainnet pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000003c4370", // Update with actual mainnet quoter
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000003c3951", // Update with actual mainnet factory
     unirouter: process.env.UNIROUTER_ADDRESS || "0x00000000000000000000000000000000003c437a", // Update with actual mainnet unirouter
     // Token addresses (mainnet)
     // USDC: 0x000000000000000000000000000000000006f89a
     // HBAR: 0x0000000000000000000000000000000000163b5a
-    // SAUCE: 0x00000000000000000000000000000000000b2ad5
-    token0: process.env.TOKEN0_ADDRESS || "0x000000000000000000000000000000000006f89a", // Update with actual mainnet token0
-    token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000163b5a", // Update with actual mainnet token1
+    // SAUCE:0x00000000000000000000000000000000000b2ad5
+    // PACK: 0x0000000000000000000000000000000000492a28
+    // XPACK:0x00000000000000000000000000000000006e86ce
+    // XSAUCE:0x00000000000000000000000000000000001647e8
+    // BONZO: 0x00000000000000000000000000000000007e545e
+    // XBONZO:0x0000000000000000000000000000000000818e2d
+    // WETH: 0x0000000000000000000000000000000000951679
+    token0: process.env.TOKEN0_ADDRESS || "0x0000000000000000000000000000000000492a28", // Update with actual mainnet token0
+    token1: process.env.TOKEN1_ADDRESS || "0x00000000000000000000000000000000006e86ce", // Update with actual mainnet token1
 
     // Native token (WHBAR)
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet
@@ -406,16 +416,19 @@ async function deployNewStrategy() {
     console.warn("  You can set these parameters manually later");
   }
 
+  
+  
   // Configure reward token routes if specified
   console.log("\n=== Configuring Reward Token Routes ===");
 
-  // let strategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", "0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286");
+  // let strategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", "0x91b64893a630B8C8F48e7d3474136698EC1797aB");
   //for USDC-SAUCE Pool
   //NOTE: check mainnet-reward-routes.jsonc for the routes based on LP tokens
   const rewardRoutes = require("./mainnet-reward-routes.js");
   for (let i = 0; i < config.rewardTokens.length; i++) {
     const rewardToken = config.rewardTokens[i];
     const targetToken = config.token0;
+    console.log(`Setting routes for ${rewardToken} to ${targetToken}`);
     const route = rewardRoutes[rewardToken][targetToken].route;
     const fees = rewardRoutes[rewardToken][targetToken].fees;
     console.log(`Setting routes for ${rewardToken} to ${targetToken}: ${route.join(" -> ")} with fees: ${fees}`);
@@ -426,7 +439,7 @@ async function deployNewStrategy() {
     await strategy.setRewardRoute(rewardToken, route,route2, fees, fees2, { gasLimit: 1000000 });
 
   }
-
+console.log("Reward token routes configured");
   // for (let i = 0; i < config.rewardTokens.length; i++) {
   //   const rewardToken = config.rewardTokens[i];
   //   console.log(`Setting routes for reward token ${i}: ${rewardToken}`);

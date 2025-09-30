@@ -38,13 +38,14 @@ if (CHAIN_TYPE === "testnet") {
   nonManagerPK = process.env.NON_MANAGER_PK;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
+  POOL_ADDRESS = "0x3f5c61862e3546f5424d3f2da46cdb00128c390c"; // SAUCE-CLXY pool
   // POOL_ADDRESS = "0x36acdfe1cbf9098bdb7a3c62b8eaa1016c111e31"; // USDC-SAUCE pool
-  POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
+  // POOL_ADDRESS = "0xc5b707348da504e9be1bd4e21525459830e7b11d"; // USDC-HBAR pool
   QUOTER_ADDRESS = "0x00000000000000000000000000000000003c4370"; // TODO: Update with actual mainnet quoter
   FACTORY_ADDRESS = "0x00000000000000000000000000000000003c3951"; // TODO: Update with actual mainnet factory
-  TOKEN0_ADDRESS = "0x000000000000000000000000000000000006f89a"; // USDC mainnet
+  TOKEN0_ADDRESS = "0x0000000000000000000000000000000000492a28"; // USDC mainnet
   // TOKEN1_ADDRESS = "0x00000000000000000000000000000000000b2ad5"; // SAUCE mainnet
-  TOKEN1_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR mainnet
+  TOKEN1_ADDRESS = "0x00000000000000000000000000000000006e86ce"; // HBAR mainnet
   NATIVE_ADDRESS = "0x0000000000000000000000000000000000163b5a"; // HBAR (native) mainnet
   WHBAR_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000163B59";
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET;
@@ -107,8 +108,8 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
     // const EXISTING_STRATEGY_ADDRESS = "0x314fd6520B560228fCFB750a60B18e030920c73B";
     // const EXISTING_VAULT_ADDRESS = "0x9C4116ac95dFe8D81df4969C4315a8e83D9ebF13";
     
-    const EXISTING_STRATEGY_ADDRESS = "0xe71271EC79565C844984Ca75Cdc4dAa3E3f82494"; //"0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286";
-    const EXISTING_VAULT_ADDRESS = "0xf84F29343A4A35e139d8A788ec4386926ED0357B"; //"0xe712c66d849f71273D3DC4dd893c6F55d1c67Bf2";
+    const EXISTING_STRATEGY_ADDRESS = "0x3618edb90aDa25395142cc406ac8633eFb33087D"; //"0xAaB69D6B51876b8DeEe5017BE3DaBA284cf70286";
+    const EXISTING_VAULT_ADDRESS = "0xd5110D64F4AedD188ef64836984027346E4368B8"; //"0xe712c66d849f71273D3DC4dd893c6F55d1c67Bf2";
 
     console.log("Vault address:", EXISTING_VAULT_ADDRESS);
     console.log("Strategy address:", EXISTING_STRATEGY_ADDRESS);
@@ -817,6 +818,36 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
   });
 
   describe("Integration Tests SAUCE-CLXY(testnet) | USDC-SAUCE(mainnet)", function () {
+
+    it("testnet:Should handle real PACK + XPACK deposits", async function () {
+      const PACK_ADDRESS = "0x0000000000000000000000000000000000492a28";
+      const packToken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        PACK_ADDRESS
+      );
+
+      const XPACK_ADDRESS = "0x00000000000000000000000000000000006e86ce";
+      const xpackToken = await ethers.getContractAt(
+        "@openzeppelin-4/contracts/token/ERC20/IERC20.sol:IERC20",
+        XPACK_ADDRESS
+      );
+
+      const amountPack = ethers.utils.parseUnits("0.1", 6);
+      const amountXPACK = ethers.utils.parseUnits("0.1", 6);
+      const approvePackTx = await packToken.approve(vault.address, amountPack, {gasLimit: 1000000});
+      const approveXPACKTx = await xpackToken.approve(vault.address, amountXPACK, {gasLimit: 1000000});
+      const approvePackReceipt = await approvePackTx.wait();
+      const approveXPACKReceipt = await approveXPACKTx.wait();
+      console.log("Approve PACK receipt:", approvePackReceipt.transactionHash);
+      console.log("Approve XPACK receipt:", approveXPACKReceipt.transactionHash);
+      
+
+      const hbarRequired = await vault.estimateDepositHBARRequired();
+      const depositTx = await vault.deposit(amountPack, amountXPACK, 0, { value: hbarRequired.mul(10**10), gasLimit: 4000000 });
+      const receipt = await depositTx.wait();
+      console.log("Deposit receipt:", receipt.transactionHash);
+    });
+
     it.skip("testnet:Should handle real CLXY + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
@@ -1077,7 +1108,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
 
     //Mainnet: USDC-SAUCE POOL ========================================================
     //handle deposits of USDC and SAUCE
-    it("mainnet:Should handle real USDC + SAUCE deposits", async function () {
+    it.skip("mainnet:Should handle real USDC + SAUCE deposits", async function () {
       const price = await strategy.price();
       const balances = await strategy.balances();
       const [keyMain, keyAlt] = await strategy.getKeys();
