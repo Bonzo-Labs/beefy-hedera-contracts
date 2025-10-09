@@ -476,7 +476,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
     }
 
-        function getMintFee() public view returns (uint256 mintFee) {
+    function getMintFee() public view returns (uint256 mintFee) {
         mintFee = _getMintFeeFromPool();
         // Convert tinycent US to HBAR using oracle
         if (beefyOracle != address(0)) {
@@ -487,6 +487,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
                     //1e26: 1e18 * 1e8 (1e18 is the decimals of usdc, 1e8 is the decimals of hbar)
                     //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                    mintFee = mintFee * 150 / 100;
                 } else {
                     revert("HBAR price fail");
                 }
@@ -513,6 +514,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             try IBeefyOracle(beefyOracle).getFreshPriceInUSD(native) returns (uint256 hbarPrice, bool success) {
                 if (success && hbarPrice > 0) {
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                    mintFee = mintFee * 150 / 100;
                 } else {
                     revert("HBAR price fail");
                 }
