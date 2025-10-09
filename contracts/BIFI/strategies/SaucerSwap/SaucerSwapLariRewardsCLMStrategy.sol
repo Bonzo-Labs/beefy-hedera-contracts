@@ -36,6 +36,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
     uint256 private constant MINT_SLIPPAGE_TOLERANCE = 2000;
     uint256 private constant PRICE_DEVIATION_TOLERANCE = 200;
+    int24 private constant MIN_TICK = -887272;
+    int24 private constant MAX_TICK = 887272;
 
     IWHBAR private whbarContract;
     address public pool;
@@ -612,6 +614,21 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function _associateToken(address token) internal {
         SaucerSwapCLMLib.safeAssociateToken(token);
+    }
+
+    function setPositionWidth(int24 _positionWidth) external onlyOwner {
+        // Validate width against tick spacing and global tick bounds
+        int24 distance = _tickDistance();
+        if (_positionWidth <= 0) revert InvalidInput();
+        int24 width = _positionWidth * distance;
+        int24 tick = currentTick();
+        int24 tickFloor = TickUtils.floor(tick, distance);
+        if (tickFloor - width < MIN_TICK || tickFloor + width > MAX_TICK) revert InvalidInput();
+
+        _removeLiquidity();
+        positionWidth = _positionWidth;
+        _setTicks();
+        _addLiquidity();
     }
 
     function setDeviation(int56 _maxDeviation) external onlyOwner {
