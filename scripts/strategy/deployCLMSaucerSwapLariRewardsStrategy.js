@@ -72,7 +72,7 @@ if (CHAIN_TYPE === "testnet") {
     // SAUCE-XSAUCE pool: 0xcfeffaae43f176f91602d75ec1d0637e273c973b
     // BONZO-XBONZO pool: 0xf6cc94f16bc141115fcb9b587297aecfa14f4eb6
     // USDC-WETH hts pool: 0x335b3a8aaaecd63019091187dc8d99574f6552d0
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0x3f5c61862e3546f5424d3f2da46cdb00128c390c", // Update with actual mainnet pool
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xf6cc94f16bc141115fcb9b587297aecfa14f4eb6", // Update with actual mainnet pool
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000003c4370", // Update with actual mainnet quoter
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000003c3951", // Update with actual mainnet factory
     unirouter: process.env.UNIROUTER_ADDRESS || "0x00000000000000000000000000000000003c437a", // Update with actual mainnet unirouter
@@ -86,8 +86,8 @@ if (CHAIN_TYPE === "testnet") {
     // BONZO: 0x00000000000000000000000000000000007e545e
     // XBONZO:0x0000000000000000000000000000000000818e2d
     // WETH: 0x0000000000000000000000000000000000951679
-    token0: process.env.TOKEN0_ADDRESS || "0x0000000000000000000000000000000000492a28", // Update with actual mainnet token0
-    token1: process.env.TOKEN1_ADDRESS || "0x00000000000000000000000000000000006e86ce", // Update with actual mainnet token1
+    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000007e545e", // Update with actual mainnet token0
+    token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000818e2d", // Update with actual mainnet token1
 
     // Native token (WHBAR)
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet
@@ -222,7 +222,7 @@ async function deployNewStrategy() {
   // InitParams struct: pool, quoter, positionWidth, native, factory, beefyOracle, rewardTokens
   const initParams = [
     config.pool,
-    config.quoter,
+    // config.quoter,
     config.positionWidth,
     config.native,
     config.factory,
