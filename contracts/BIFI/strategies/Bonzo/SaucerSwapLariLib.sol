@@ -316,35 +316,25 @@ library SaucerSwapLariLib {
         rewardTokens[index].lp1RoutePoolFees = _lp1RoutePoolFees;
     }
 
-    function removeRewardToken(
-        RewardToken[] storage rewardTokens,
-        mapping(address => uint256) storage rewardTokenIndex,
-        mapping(address => bool) storage isRewardToken,
-        address _token
-    ) external {
-        require(isRewardToken[_token], "Token not found");
-        uint256 index = rewardTokenIndex[_token];
-        rewardTokens[index].isActive = false;
-    }
 
-    function quoteLpTokenToNativePrice(
-        address lpToken,
-        address native,
-        address quoter,
-        uint8 decimals
-    ) external returns (uint256) {
-        uint256 amount = 10 ** decimals / 10;
-        if (lpToken == native) return amount * 10;
+    // function quoteLpTokenToNativePrice(
+    //     address lpToken,
+    //     address native,
+    //     address quoter,
+    //     uint8 decimals
+    // ) external returns (uint256) {
+    //     uint256 amount = 10 ** decimals / 10;
+    //     if (lpToken == native) return amount * 10;
         
-        // For SaucerSwap, we can use a simple direct path since it's based on UniswapV3
-        bytes memory path = abi.encodePacked(lpToken, uint24(3000), native);
-        try IQuoter(quoter).quoteExactInput(path, amount) returns (uint256 amountOut) {
-            return amountOut * 10;
-        } catch {
-            // If quoter fails, return 0 to indicate unavailable price
-            return 0;
-        }
-    }
+    //     // For SaucerSwap, we can use a simple direct path since it's based on UniswapV3
+    //     bytes memory path = abi.encodePacked(lpToken, uint24(3000), native);
+    //     try IQuoter(quoter).quoteExactInput(path, amount) returns (uint256 amountOut) {
+    //         return amountOut * 10;
+    //     } catch {
+    //         // If quoter fails, return 0 to indicate unavailable price
+    //         return 0;
+    //     }
+    // }
 
     function giveAllowances(
         address lpToken0,

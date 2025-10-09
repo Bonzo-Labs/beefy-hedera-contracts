@@ -14,7 +14,6 @@ import "../../utils/FullMath.sol";
 import "../../interfaces/beefy/IBeefyVaultConcLiq.sol";
 import "../../interfaces/beefy/IStrategyFactory.sol";
 import "../../interfaces/beefy/IStrategyConcLiq.sol";
-import "../../interfaces/uniswap/IQuoter.sol";
 import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
 import "../../Hedera/IHederaTokenService.sol";
 import "../../interfaces/oracle/IBeefyOracle.sol";
@@ -39,7 +38,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     IWHBAR private whbarContract;
     address public pool;
-    address public quoter;
     address public lpToken0;
     address public lpToken1;
     uint256 public fees0;
@@ -50,7 +48,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
     struct InitParams {
         address pool;
-        address quoter;
         int24 positionWidth;
         address native;
         address factory;
@@ -128,7 +125,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         __ReentrancyGuard_init();
 
         pool = _params.pool;
-        quoter = _params.quoter;
         lpToken0 = ISaucerSwapPool(_params.pool).token0();
         lpToken1 = ISaucerSwapPool(_params.pool).token1();
         native = _params.native;
@@ -480,7 +476,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             );
     }
 
-        function getMintFee() public view returns (uint256 mintFee) {
+    function getMintFee() public view returns (uint256 mintFee) {
         mintFee = _getMintFeeFromPool();
         // Convert tinycent US to HBAR using oracle
         if (beefyOracle != address(0)) {
@@ -491,6 +487,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
                     //1e26: 1e18 * 1e8 (1e18 is the decimals of usdc, 1e8 is the decimals of hbar)
                     //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                    mintFee = mintFee * 150 / 100;
                 } else {
                     revert("HBAR price fail");
                 }
@@ -517,6 +514,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             try IBeefyOracle(beefyOracle).getFreshPriceInUSD(native) returns (uint256 hbarPrice, bool success) {
                 if (success && hbarPrice > 0) {
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
+                    mintFee = mintFee * 150 / 100;
                 } else {
                     revert("HBAR price fail");
                 }
@@ -614,6 +612,21 @@ contract SaucerSwapLariRewardsCLMStrategy is
         SaucerSwapCLMLib.safeAssociateToken(token);
     }
 
+    function setPositionWidth(int24 _positionWidth) external onlyOwner {
+        // Validate width against tick spacing and global tick bounds
+        int24 distance = _tickDistance();
+        // if (_positionWidth <= 0) revert InvalidInput();
+        int24 width = _positionWidth * distance;
+        int24 tick = currentTick();
+        int24 tickFloor = TickUtils.floor(tick, distance);
+        if (tickFloor - width < -887272 || tickFloor + width > 887272) revert InvalidInput();
+
+        _removeLiquidity();
+        positionWidth = _positionWidth;
+        _setTicks();
+        _addLiquidity();
+    }
+
     function setDeviation(int56 _maxDeviation) external onlyOwner {
         // Require the deviation to be less than or equal to 4 times the tick spacing.
         if (_maxDeviation >= _tickDistance() * 4) revert InvalidInput();
@@ -698,15 +711,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         beefyOracle = _beefyOracle;
     }
 
-    // function lpToken0ToNativePrice() external returns (uint256) {
-    //     return
-    //         SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken0, native, quoter, IERC20Metadata(lpToken0).decimals());
-    // }
-
-    // function lpToken1ToNativePrice() external returns (uint256) {
-    //     return
-    //         SaucerSwapLariLib.quoteLpTokenToNativePrice(lpToken1, native, quoter, IERC20Metadata(lpToken1).decimals());
-    // }
 
     function addRewardToken(address _token, bool _isHTS) external onlyManager {
         if (isRewardToken[_token]) revert TokenExists();
@@ -748,16 +752,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
             _lp0RoutePoolFees,
             _lp1RoutePoolFees
         );
-    }
-
-    function removeRewardToken(address _token) external onlyManager {
-        SaucerSwapLariLib.removeRewardToken(rewardTokens, rewardTokenIndex, isRewardToken, _token);
-        emit RewardTokenRemoved(_token);
-    }
-
-    function getRewardToken(uint256 index) external view returns (SaucerSwapLariLib.RewardToken memory) {
-        require(index < rewardTokens.length, "Index out of bounds");
-        return rewardTokens[index];
     }
 
     function getRewardTokensLength() external view returns (uint256) {
