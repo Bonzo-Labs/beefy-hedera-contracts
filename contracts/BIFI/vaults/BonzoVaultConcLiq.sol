@@ -11,7 +11,7 @@ import {AddressUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Addr
 import {IStrategyConcLiq} from "../interfaces/beefy/IStrategyConcLiq.sol";
 import {IHederaTokenService} from "../Hedera/IHederaTokenService.sol";
 import {IBeefyOracle} from "../interfaces/oracle/IBeefyOracle.sol";
-import {IWHBAR} from "../Hedera/IWHBAR.sol";
+import {IWHBARHelper} from "../Hedera/IWHBARHelper.sol";
 import "../utils/FullMath.sol";
 
 contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
@@ -25,11 +25,9 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
-    //testnet
-    // address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000003aD1;
-    // address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000003aD2;
+   
     //mainnet
-    address private constant WHBAR_CONTRACT = 0x0000000000000000000000000000000000163B59;
+    address private constant WHBAR_HELPER_CONTRACT = 0x000000000000000000000000000000000058A2BA;
     address private constant WHBAR_TOKEN = 0x0000000000000000000000000000000000163B5a;
 
     address public beefyOracle;
@@ -602,14 +600,14 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     function _wrapHBAR(uint256 amount) internal returns (uint256) {
         if (amount == 0) return 0;
 
-        address _whbarContract = WHBAR_CONTRACT;
+        address _whbarContract = WHBAR_HELPER_CONTRACT;
         address _whbarToken = WHBAR_TOKEN;
 
         if (_whbarContract == address(0)) revert WHBARWrapFailed();
 
         uint256 whbarBefore = IERC20Upgradeable(_whbarToken).balanceOf(address(this));
 
-        try IWHBAR(_whbarContract).deposit{value: amount}() {
+        try IWHBARHelper(_whbarContract).deposit{value: amount}() {
             uint256 whbarAfter = IERC20Upgradeable(_whbarToken).balanceOf(address(this));
             uint256 whbarReceived = whbarAfter - whbarBefore;
 
@@ -628,7 +626,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     function _unwrapWHBAR(uint256 amount) internal returns (uint256) {
         if (amount == 0) return 0;
 
-        address _whbarContract = WHBAR_CONTRACT;
+        address _whbarContract = WHBAR_HELPER_CONTRACT;
         if (_whbarContract == address(0)) revert WHBARUnwrapFailed();
 
         uint256 hbarBefore = address(this).balance;
@@ -636,7 +634,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         //approve WHBAR to be withdrawn
         IERC20Upgradeable(WHBAR_TOKEN).approve(_whbarContract, amount);
 
-        try IWHBAR(_whbarContract).withdraw(amount) {
+        try IWHBARHelper(_whbarContract).unwrapWhbar(amount) {
             uint256 hbarAfter = address(this).balance;
             uint256 hbarReceived = hbarAfter - hbarBefore;
 
