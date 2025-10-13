@@ -36,7 +36,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     uint256 private constant MINT_SLIPPAGE_TOLERANCE = 2000;
     uint256 private constant PRICE_DEVIATION_TOLERANCE = 200;
 
-    IWHBAR private whbarContract;
+    IWHBARHelper private whbarHelper;
     address public pool;
     address public lpToken0;
     address public lpToken1;
@@ -142,10 +142,10 @@ contract SaucerSwapLariRewardsCLMStrategy is
         for (uint256 i = 0; i < _params.rewardTokens.length; i++) {
             _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
-        whbarContract = IWHBAR(
+        whbarHelper = IWHBARHelper(
             block.chainid == 295
-                ? 0x0000000000000000000000000000000000163B59
-                : 0x0000000000000000000000000000000000003aD1
+                ? 0x000000000000000000000000000000000058A2BA
+                : 0x000000000000000000000000000000000050a8a7
         );
         // _safeGiveAllowances();
     }
@@ -347,7 +347,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             lpToken0,
             lpToken1,
             native,
-            whbarContract
+            whbarHelper
         );
         fees0 += newFees0;
         fees1 += newFees1;

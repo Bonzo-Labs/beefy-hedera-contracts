@@ -11,7 +11,7 @@ import "../../utils/TickMath.sol";
 import "../../utils/TickUtils.sol";
 import "../../utils/FullMath.sol";
 import "../../utils/UniswapV3Utils.sol";
-import "../../Hedera/IWHBAR.sol";
+import "../../Hedera/IWHBARHelper.sol";
 import {AddressUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
 
 library SaucerSwapLariLib {
@@ -205,7 +205,7 @@ library SaucerSwapLariLib {
         address lpToken0,
         address lpToken1,
         address native,
-        IWHBAR whbarContract
+        IWHBARHelper whbarHelper
     ) external returns (uint256 fees0, uint256 fees1) {
         // Check if any reward tokens have routes set
         bool hasRoutes = false;
@@ -229,7 +229,7 @@ library SaucerSwapLariLib {
                 //wrap
                 if(balance > 0){
                     IERC20Metadata(native).approve(unirouter, balance);
-                    IWHBAR(whbarContract).deposit{value: balance}(address(this), address(this));
+                    IWHBARHelper(whbarHelper).deposit{value: balance}();
                 }
             }else{
                 balance = IERC20Metadata(rewardToken.token).balanceOf(address(this));
