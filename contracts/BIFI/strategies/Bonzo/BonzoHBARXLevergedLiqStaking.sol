@@ -34,6 +34,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     address public stakingContract; // HBAR staking contract
     uint8 public wantTokenDecimals = 8; // Token decimals
     uint8 public borrowTokenDecimals = 8; // Token decimals
+    address public whbarContract;
     address public whbarHelper;
 
     // Third party contracts
@@ -124,9 +125,14 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         isRewardsAvailable = _isRewardsAvailable;
         isBonzoDeployer = _isBonzoDeployer;
 
+        whbarContract = block.chainid == 295
+            ? 0x0000000000000000000000000000000000163B59
+            : 0x0000000000000000000000000000000000003aD1;
+
         whbarHelper =  block.chainid == 295
                 ? 0x000000000000000000000000000000000058A2BA
                 : 0x000000000000000000000000000000000050a8a7;
+
         poolFee = block.chainid == 295 ? 1500 : 3000;
         // Associate HTS tokens
         _associateToken(_want);
@@ -204,7 +210,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             if (borrowAmt == 0) break;
 
             // [4] borrow & stake → HBARX
-            IERC20(borrowToken).approve(whbarHelper, borrowAmt);
+            IERC20(borrowToken).approve(whbarContract, borrowAmt);
             ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
             uint256 hbarBalance = address(this).balance;
             //min staking amount is 10**8 on staking contract
