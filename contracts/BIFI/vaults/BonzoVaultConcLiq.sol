@@ -12,6 +12,7 @@ import {IStrategyConcLiq} from "../interfaces/beefy/IStrategyConcLiq.sol";
 import {IHederaTokenService} from "../Hedera/IHederaTokenService.sol";
 import {IBeefyOracle} from "../interfaces/oracle/IBeefyOracle.sol";
 import {IWHBARHelper} from "../Hedera/IWHBARHelper.sol";
+import {StratFeeManagerInitializable} from "../strategies/Common/StratFeeManagerInitializable.sol";
 import "../utils/FullMath.sol";
 
 contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUpgradeable {
@@ -192,10 +193,13 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      */
     function previewWithdraw(uint256 _shares) external view returns (uint256 amount0, uint256 amount1) {
         (uint bal0, uint bal1) = balances();
-
+        uint256 withdrawFee = StratFeeManagerInitializable(address(strategy)).withdrawFee();
+        uint256 withdrawalMax = StratFeeManagerInitializable(address(strategy)).WITHDRAWAL_MAX();
         uint256 _totalSupply = totalSupply();
         amount0 = FullMath.mulDiv(bal0, _shares, _totalSupply);
+        amount0 = amount0 - FullMath.mulDiv(amount0, withdrawFee, withdrawalMax);
         amount1 = FullMath.mulDiv(bal1, _shares, _totalSupply);
+        amount1 = amount1 - FullMath.mulDiv(amount1, withdrawFee, withdrawalMax);
     }
 
     /**
