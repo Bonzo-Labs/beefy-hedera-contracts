@@ -190,9 +190,19 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
         _removeLiquidity(); // Since we commented it out in beforeAction(), we need to remove it here.
         if (_amount0 > 0) {
+            if(withdrawalFee > 0) {
+                uint256 wfee0 = (_amount0 * withdrawalFee) / WITHDRAWAL_MAX;
+                _amount0 = _amount0 - wfee0;
+                _transferTokens(lpToken0, address(this), beefyFeeRecipient, wfee0, true);
+            }
             _transferTokens(lpToken0, address(this), vault, _amount0, true);
         }
         if (_amount1 > 0) {
+            if(withdrawalFee > 0) {
+                uint256 wfee1 = (_amount1 * withdrawalFee) / WITHDRAWAL_MAX;
+                _amount1 = _amount1 - wfee1;
+                _transferTokens(lpToken1, address(this), beefyFeeRecipient, wfee1, true);
+            }
             _transferTokens(lpToken1, address(this), vault, _amount1, true);
         }
         emit Withdraw(vault, _amount0, _amount1);

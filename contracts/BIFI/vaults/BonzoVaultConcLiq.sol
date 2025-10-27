@@ -567,29 +567,35 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             strategy.withdraw(_amount0, _amount1);
         }
 
-        if (_amount0 < _minAmount0 || _amount1 < _minAmount1 || (_amount0 == 0 && _amount1 == 0))
+        // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
+        uint256 ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
+        uint256 ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
+        uint256 send0 = ava0 < _amount0 ? ava0 : _amount0;
+        uint256 send1 = ava1 < _amount1 ? ava1 : _amount1;
+
+        if (send0 < _minAmount0 || send1 < _minAmount1 || (send0 == 0 && send1 == 0))
             revert TooMuchSlippage();
 
-        if (_amount0 > 0) {
+        if (send0 > 0) {
             if (token0 == strategy.native()) {
                 //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(_amount0);
+                uint256 unwrappedAmount = _unwrapWHBAR(send0);
                 AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
             } else {
-                _transferTokens(token0, address(this), msg.sender, _amount0, true);
+                _transferTokens(token0, address(this), msg.sender, send0, true);
             }
         }
-        if (_amount1 > 0) {
+        if (send1 > 0) {
             if (token1 == strategy.native()) {
                 //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(_amount1);
+                uint256 unwrappedAmount = _unwrapWHBAR(send1);
                 AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
             } else {
-                _transferTokens(token1, address(this), msg.sender, _amount1, true);
+                _transferTokens(token1, address(this), msg.sender, send1, true);
             }
         }
 
-        emit Withdraw(msg.sender, _shares, _amount0, _amount1);
+        emit Withdraw(msg.sender, _shares, send0, send1);
     }
 
     /**
