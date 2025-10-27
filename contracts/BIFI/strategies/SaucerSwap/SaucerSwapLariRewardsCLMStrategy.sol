@@ -81,6 +81,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
     address private beefyOracle;
     uint256 public leftover0;
     uint256 public leftover1;
+    // Track the strategy balances before the vault sends deposit tokens
+    uint256 private balanceBeforeDeposit0;
+    uint256 private balanceBeforeDeposit1;
     SaucerSwapLariLib.RewardToken[] public rewardTokens;
     mapping(address => uint256) private rewardTokenIndex;
     mapping(address => bool) private isRewardToken;
@@ -157,22 +160,28 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function beforeAction() external {
         _onlyVault();
         _claimEarnings();
+        // Store balances before the vault sends new deposit tokens
+        (balanceBeforeDeposit0, balanceBeforeDeposit1) = balancesOfThis();
         // _removeLiquidity();
     }
 
     function deposit() external onlyCalmPeriods {
         _onlyVault();
-        (uint256 balBefore0, uint256 balBefore1) = balancesOfThis(); // Get current balances before adding liquidity
+        (uint256 balBefore0, uint256 balBefore1) = balancesOfThis(); // Current balances before adding liquidity
         if (!initTicks) {
             _setTicks();
             initTicks = true;
         }
         _addLiquidity();
         (uint256 balAfter0, uint256 balAfter1) = balancesOfThis();
-        leftover0 = balAfter0;
-        leftover1 = balAfter1;
+        // Only report the unused portion from THIS deposit as leftovers
+        leftover0 = balAfter0 > balanceBeforeDeposit0 ? balAfter0 - balanceBeforeDeposit0 : 0;
+        leftover1 = balAfter1 > balanceBeforeDeposit1 ? balAfter1 - balanceBeforeDeposit1 : 0;
         lastDeposit = block.timestamp;
-        emit Deposit(vault, balBefore0, balBefore1);
+        // Emit only the amounts deposited by the current user (not entire balance)
+        uint256 userDeposited0 = balBefore0 > balanceBeforeDeposit0 ? balBefore0 - balanceBeforeDeposit0 : 0;
+        uint256 userDeposited1 = balBefore1 > balanceBeforeDeposit1 ? balBefore1 - balanceBeforeDeposit1 : 0;
+        emit Deposit(vault, userDeposited0, userDeposited1);
     }
 
     function withdraw(uint256 _amount0, uint256 _amount1) external {
