@@ -5,7 +5,7 @@ import BeefyOracleAbi from "../data/abi/BeefyOracle.json";
 const addresses = require("./deployed-addresses-mainnet.json");
 
 // Hedera mainnet HBAR (WHBAR) address
-const token = "0x00000000000000000000000000000000007e545e";
+const HBAR_MAINNET = "0x0000000000000000000000000000000000163b5a";
 
 async function main() {
   const rpcUrl = process.env.HEDERA_MAINNET_RPC || "https://mainnet.hashio.io/api";
@@ -26,16 +26,16 @@ async function main() {
   const beefyOracle = await ethers.getContractAt(BeefyOracleAbi, beefyOracleAddress, signer);
 
   // Log current stored price
-  const before = await beefyOracle.getPrice(token);
+  const before = await beefyOracle.getPriceInUSD(HBAR_MAINNET);
   console.log(`Before -> price: ${before}`);
 
-  console.log(`Calling getFreshPrice(token) on BeefyOracle at ${beefyOracleAddress}...`);
-  const tx = await beefyOracle.getFreshPrice(token, { gasLimit: 1_200_000 });
+  console.log(`Calling getFreshPriceInUSD(HBAR) on BeefyOracle at ${beefyOracleAddress}...`);
+  const tx = await beefyOracle.getFreshPriceInUSD(HBAR_MAINNET, { gasLimit: 1_200_000 });
   console.log(`Submitted tx: ${tx.hash}`);
   const receipt = await tx.wait();
   console.log(`Mined in block ${receipt.blockNumber} status ${receipt.status}`);
 
-  const after = await beefyOracle.getPrice(token);
+  const after = await beefyOracle.getPriceInUSD(HBAR_MAINNET);
   console.log(`After  -> price: ${after}`);
 }
 

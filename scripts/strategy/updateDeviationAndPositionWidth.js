@@ -14,7 +14,7 @@ const ethers = hardhat.ethers;
 // Configure here
 // =====================
 const STRATEGY_ADDRESSES = [
-  "0x84b6978e0D5Dd3ed0e484cD3c4aE77e2B9E4CBb2",
+  "0x806Ae05a3B6fC2f4b00e5bbe45Ec3948Ab480eCe",
 ];
 
 // Desired values. Leave as undefined to skip that setting.
