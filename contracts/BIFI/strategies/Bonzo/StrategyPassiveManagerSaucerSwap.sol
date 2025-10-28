@@ -81,6 +81,9 @@ contract StrategyPassiveManagerSaucerSwap is
     address public beefyOracle;
     uint256 public leftover0;
     uint256 public leftover1;
+    uint256 private balanceBeforeDeposit0;
+    uint256 private balanceBeforeDeposit1;
+    bool private depositPrepared;
 
     error NotAuthorized();
     error NotPool();
@@ -96,6 +99,7 @@ contract StrategyPassiveManagerSaucerSwap is
     error InvalidTokenAddress();
     error InsufficientHBARForMintFee();
     error MintSlippageExceeded();
+    error DepositNotPrepared();
 
     event Harvest(uint256 fee0, uint256 fee1);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
@@ -154,10 +158,13 @@ contract StrategyPassiveManagerSaucerSwap is
         _onlyVault();
         _claimEarnings();
         _removeLiquidity();
+        (balanceBeforeDeposit0, balanceBeforeDeposit1) = balancesOfThis();
+        depositPrepared = true;
     }
 
     function deposit() external onlyCalmPeriods {
         _onlyVault();
+        if (!depositPrepared) revert DepositNotPrepared();
         (uint256 balBefore0, uint256 balBefore1) = balancesOfThis();
         if (!initTicks) {
             _setTicks();
@@ -165,10 +172,15 @@ contract StrategyPassiveManagerSaucerSwap is
         }
         _addLiquidity();
         (uint256 balAfter0, uint256 balAfter1) = balancesOfThis();
-        leftover0 = balAfter0;
-        leftover1 = balAfter1;
+        leftover0 = balAfter0 > balanceBeforeDeposit0 ? balAfter0 - balanceBeforeDeposit0 : 0;
+        leftover1 = balAfter1 > balanceBeforeDeposit1 ? balAfter1 - balanceBeforeDeposit1 : 0;
         lastDeposit = block.timestamp;
-        emit Deposit(vault, balBefore0, balBefore1);
+        uint256 userDeposited0 = balBefore0 > balanceBeforeDeposit0 ? balBefore0 - balanceBeforeDeposit0 : 0;
+        uint256 userDeposited1 = balBefore1 > balanceBeforeDeposit1 ? balBefore1 - balanceBeforeDeposit1 : 0;
+        emit Deposit(vault, userDeposited0, userDeposited1);
+        balanceBeforeDeposit0 = 0;
+        balanceBeforeDeposit1 = 0;
+        depositPrepared = false;
     }
 
     function withdraw(uint256 _amount0, uint256 _amount1) external {
@@ -183,6 +195,9 @@ contract StrategyPassiveManagerSaucerSwap is
         }
         emit Withdraw(vault, _amount0, _amount1);
         if (!_isPaused()) _addLiquidity();
+        balanceBeforeDeposit0 = 0;
+        balanceBeforeDeposit1 = 0;
+        depositPrepared = false;
     }
 
     function _addLiquidity() private onlyCalmPeriods {
