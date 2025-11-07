@@ -6,7 +6,9 @@ import "@openzeppelin-4/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin-4/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin-4/contracts/security/Pausable.sol";
 import "../../interfaces/bonzo/ILendingPool.sol";
+import "../../interfaces/bonzo/IWHBARGateway.sol";
 import "../../interfaces/bonzo/IRewardsController.sol";
+import "../../interfaces/bonzo/IDebtToken.sol";
 import "../Common/StratFeeManagerInitializable.sol";
 import "../../utils/GasFeeThrottler.sol";
 import "../../Hedera/IHederaTokenService.sol";
@@ -32,20 +34,20 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     address public aToken; // aHBARX token
     address public debtToken; // debtHBAR token
     address public stakingContract; // HBAR staking contract
-    uint8 public wantTokenDecimals = 8; // Token decimals
-    uint8 public borrowTokenDecimals = 8; // Token decimals
-    address public whbarContract;
+    uint8 public wantTokenDecimals; // Token decimals
+    uint8 public borrowTokenDecimals; // Token decimals
     address public whbarHelper;
 
     // Third party contracts
     address public lendingPool;
     address public rewardsController;
+    address public whbarGateway; // WHBARGateway for borrow/repay operations
     address public saucerSwapRouter; // SaucerSwap router for HBARX to HBAR swaps
     uint24 public poolFee; // Default pool fee (0.3% mainnet) (0.30% testnet)
 
     //  loop parameters
-    uint8 minDeposit = 3;
-    uint256 public maxLoops = 1; // Maximum number of yield loops (e.g., 3 for 3x)
+    uint8 minDeposit;
+    uint256 public maxLoops; // Maximum number of yield loops (e.g., 3 for 3x)
     uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
     uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
 
@@ -125,9 +127,11 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         isRewardsAvailable = _isRewardsAvailable;
         isBonzoDeployer = _isBonzoDeployer;
 
-        whbarContract = block.chainid == 295
-            ? 0x0000000000000000000000000000000000163B59
-            : 0x0000000000000000000000000000000000003aD1;
+        wantTokenDecimals = 8;
+        borrowTokenDecimals = 8;
+        minDeposit = 3;
+        maxLoops = 1;
+        whbarGateway = 0xa7e46f496b088A8f8ee35B74D7E58d6Ce648Ae64;
 
         whbarHelper =  block.chainid == 295
                 ? 0x000000000000000000000000000000000058A2BA
@@ -192,7 +196,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         uint256 approvalAmount = amount * (maxLoops * 2);
 
         IERC20(want).approve(lendingPool, approvalAmount);
-        IERC20(borrowToken).approve(lendingPool, approvalAmount);
+        IDebtToken(debtToken).approveDelegation(whbarGateway, approvalAmount);
 
         // Initial deposit
         ILendingPool(lendingPool).deposit(want, amount, address(this), 0);
@@ -210,8 +214,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             if (borrowAmt == 0) break;
 
             // [4] borrow & stake → HBARX
-            IERC20(borrowToken).approve(whbarContract, borrowAmt);
-            ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
+            IDebtToken(debtToken).approveDelegation(whbarGateway, borrowAmt);
+            IWHBARGateway(whbarGateway).borrowHBAR(lendingPool, borrowAmt, 2, 0);
             uint256 hbarBalance = address(this).balance;
             //min staking amount is 10**8 on staking contract
             if(hbarBalance > 10**8) {
@@ -271,7 +275,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         if(layerSupply == 0) return;
         uint256 debtPaid = 0;
 
-        IERC20(borrowToken).approve(lendingPool, debtToRepay*3);
         IERC20(want).approve(saucerSwapRouter, _targetAmount*3);
         for (uint256 i = 0; i < maxLoops+1; i++) {
             uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
@@ -307,12 +310,12 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
                     uint256 currDebtBal = IERC20(debtToken).balanceOf(address(this));
                     if(hbarAmount > currDebtBal) {
                         // Repay full debt and restake remaining HBAR
-                        ILendingPool(lendingPool).repay{value: currDebtBal}(borrowToken, currDebtBal, 2, address(this));
+                        IWHBARGateway(whbarGateway).repayHBAR{value: currDebtBal}(lendingPool, currDebtBal, 2, address(this));
                         debtPaid += currDebtBal;
                         _swapHBARToHBARX(hbarAmount - currDebtBal);
                     }
                     else{
-                        ILendingPool(lendingPool).repay{value: hbarAmount}(borrowToken, hbarAmount, 2, address(this));
+                        IWHBARGateway(whbarGateway).repayHBAR{value: hbarAmount}(lendingPool, hbarAmount, 2, address(this));
                         debtPaid += hbarAmount;
                     }
                 }
@@ -519,6 +522,11 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     
     function setWhbarHelper(address _whbarHelper) external onlyManager {
         whbarHelper = _whbarHelper;
+    }
+
+    function setWhbarGateway(address _whbarGateway) external onlyManager {
+        require(_whbarGateway != address(0), "Gateway cannot be zero address");
+        whbarGateway = _whbarGateway;
     }
 
     function setSaucerSwapRouter(address _saucerSwapRouter) external onlyManager {
