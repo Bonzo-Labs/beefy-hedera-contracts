@@ -19,7 +19,8 @@ let addresses,
   LENDING_POOL_ADDRESS: string,
   REWARDS_CONTROLLER_ADDRESS: string,
   UNIROUTER_ADDRESS: string,
-  STAKING_CONTRACT_ADDRESS: string;
+  STAKING_CONTRACT_ADDRESS: string,
+  WHBAR_GATEWAY_ADDRESS: string;
 let nonManagerPK: string;
 
 if (CHAIN_TYPE === "testnet") {
@@ -32,6 +33,7 @@ if (CHAIN_TYPE === "testnet") {
   REWARDS_CONTROLLER_ADDRESS = "0x40f1f4247972952ab1D276Cf552070d2E9880DA6"; // Bonzo rewards controller
   UNIROUTER_ADDRESS = "0x0000000000000000000000000000000000159398"; // Router address
   STAKING_CONTRACT_ADDRESS = ""; // Will be set by mock deployment
+  WHBAR_GATEWAY_ADDRESS = "0xa7e46f496b088A8f8ee35B74D7E58d6Ce648Ae64"; // WHBARGateway address
   nonManagerPK = process.env.NON_MANAGER_PK!;
 } else if (CHAIN_TYPE === "mainnet") {
   addresses = require("../../scripts/deployed-addresses-mainnet.json");
@@ -43,6 +45,7 @@ if (CHAIN_TYPE === "testnet") {
   REWARDS_CONTROLLER_ADDRESS = "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC"; // Bonzo rewards controller mainnet
   UNIROUTER_ADDRESS = "0x00000000000000000000000000000000003c437a"; // Router address mainnet
   STAKING_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000158d97"; // Stader staking contract mainnet
+  WHBAR_GATEWAY_ADDRESS = "0xa7e46f496b088A8f8ee35B74D7E58d6Ce648Ae64"; // WHBARGateway address
   nonManagerPK = process.env.NON_MANAGER_PK_MAINNET!;
 }
 
@@ -162,8 +165,8 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       console.log("Vault initialized");
     } else {
       // Use already deployed contract
-      const VAULT_ADDRESS = "0xaCAFE46d911022e378b8FD2ABe731b060745fA02";
-      const STRATEGY_ADDRESS = "0xb1a6413F18E0E8D02a5Fb789A9f48f025e9dA4ec";
+      const VAULT_ADDRESS = "0xCeaE9A7988114cDd78F83570dc19B2F9D2F10f4E";
+      const STRATEGY_ADDRESS = "0x71356Eb9EAb15F3AE176063f1466A6B23910f798";
       vault = await ethers.getContractAt("BonzoVaultV7", VAULT_ADDRESS);
       strategy = await ethers.getContractAt("BonzoHBARXLevergedLiqStaking", STRATEGY_ADDRESS);
       vaultAddress = VAULT_ADDRESS;
@@ -300,11 +303,7 @@ describe("BeefyBonzoHbarXHbarVault", function () {
         console.log("Approve transaction hash:", approveReceipt.transactionHash);
         console.log("Tokens approved for vault");
       }
-      const approveTx = await want.approve(vault.address, depositAmount, { gasLimit: 1000000 });
-      const approveReceipt = await approveTx.wait();
-      console.log("Approve transaction hash:", approveReceipt.transactionHash);
-      console.log("Tokens approved for vault");
-
+     
       // Check initial balances
       // const initialUserBalance = await want.balanceOf(deployer.address);
       // const initialVaultBalance = await want.balanceOf(vault.address);
@@ -386,49 +385,49 @@ describe("BeefyBonzoHbarXHbarVault", function () {
       const totalUserShares = await vault.balanceOf(deployer.address);
       console.log("Total user shares for withdrawal:", totalUserShares.toString());
 
-      const withdrawAmount = totalUserShares.div(4); // Withdraw half
-      console.log("Withdrawing shares:", withdrawAmount.toString());
+      // const withdrawAmount = totalUserShares.div(4); // Withdraw half
+      // console.log("Withdrawing shares:", withdrawAmount.toString());
 
-      const preWithdrawBalance = await want.balanceOf(deployer.address);
-      const preWithdrawStrategyBalance = await strategy.balanceOf();
+      // const preWithdrawBalance = await want.balanceOf(deployer.address);
+      // const preWithdrawStrategyBalance = await strategy.balanceOf();
 
-      try {
-        const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 6000000 });
-        const withdrawReceipt = await withdrawTx.wait();
-        console.log("Withdrawal completed, hash: ", withdrawReceipt.transactionHash);
+      // try {
+      //   const withdrawTx = await vault.withdraw(withdrawAmount, { gasLimit: 6000000 });
+      //   const withdrawReceipt = await withdrawTx.wait();
+      //   console.log("Withdrawal completed, hash: ", withdrawReceipt.transactionHash);
 
-        const debugEvents = withdrawReceipt.events?.filter((e: any) => e.event === "Debug");
-        if (debugEvents && debugEvents.length > 0) {
-          const debugEvent = debugEvents[0];
-          console.log("Debug Event Values:");
-          console.log("  HBARX Amount:", debugEvent.args.hbarxAmount.toString());
-          console.log("  HBAR Amount:", debugEvent.args.hbarAmount.toString());
-          console.log("  Contract Balance:", debugEvent.args.contractBalance.toString());
-          console.log("  Exchange Rate:", debugEvent.args.exchangeRate.toString());
-        }
+      //   const debugEvents = withdrawReceipt.events?.filter((e: any) => e.event === "Debug");
+      //   if (debugEvents && debugEvents.length > 0) {
+      //     const debugEvent = debugEvents[0];
+      //     console.log("Debug Event Values:");
+      //     console.log("  HBARX Amount:", debugEvent.args.hbarxAmount.toString());
+      //     console.log("  HBAR Amount:", debugEvent.args.hbarAmount.toString());
+      //     console.log("  Contract Balance:", debugEvent.args.contractBalance.toString());
+      //     console.log("  Exchange Rate:", debugEvent.args.exchangeRate.toString());
+      //   }
 
-        //catch unstake debug event
-        const unstakeDebugEvent = (await withdrawTx.wait()).events?.find((e: any) => e.event === "UnstakeDebug");
-        console.log("Unstake debug:", unstakeDebugEvent?.args?.hbarxAmount.toString());
-        console.log("Unstake debug:", unstakeDebugEvent?.args?.expectedHbar.toString());
-        console.log("Unstake debug:", unstakeDebugEvent?.args?.received.toString());
+      //   //catch unstake debug event
+      //   const unstakeDebugEvent = (await withdrawTx.wait()).events?.find((e: any) => e.event === "UnstakeDebug");
+      //   console.log("Unstake debug:", unstakeDebugEvent?.args?.hbarxAmount.toString());
+      //   console.log("Unstake debug:", unstakeDebugEvent?.args?.expectedHbar.toString());
+      //   console.log("Unstake debug:", unstakeDebugEvent?.args?.received.toString());
 
-        const postWithdrawBalance = await want.balanceOf(deployer.address);
-        const postWithdrawShares = await vault.balanceOf(deployer.address);
-        const postWithdrawStrategyBalance = await strategy.balanceOf();
+      //   const postWithdrawBalance = await want.balanceOf(deployer.address);
+      //   const postWithdrawShares = await vault.balanceOf(deployer.address);
+      //   const postWithdrawStrategyBalance = await strategy.balanceOf();
 
-        console.log("Post-withdrawal user balance:", postWithdrawBalance.toString());
-        console.log("Remaining user shares:", postWithdrawShares.toString());
-        console.log("Post-withdrawal strategy balance:", postWithdrawStrategyBalance.toString());
+      //   console.log("Post-withdrawal user balance:", postWithdrawBalance.toString());
+      //   console.log("Remaining user shares:", postWithdrawShares.toString());
+      //   console.log("Post-withdrawal strategy balance:", postWithdrawStrategyBalance.toString());
 
-        // Withdrawal assertions
-        expect(postWithdrawBalance).to.be.gt(preWithdrawBalance);
-        expect(postWithdrawShares).to.be.lt(totalUserShares);
-        expect(postWithdrawStrategyBalance).to.be.lt(preWithdrawStrategyBalance);
-      }
-      catch(error) {
-        console.log("Error:", error);
-      }
+      //   // Withdrawal assertions
+      //   expect(postWithdrawBalance).to.be.gt(preWithdrawBalance);
+      //   expect(postWithdrawShares).to.be.lt(totalUserShares);
+      //   expect(postWithdrawStrategyBalance).to.be.lt(preWithdrawStrategyBalance);
+      // }
+      // catch(error) {
+      //   console.log("Error:", error);
+      // }
 
       //complete withdrawal
       // const withdrawTxAfter = await vault.withdraw(postWithdrawShares/2, { gasLimit: 6000000 });

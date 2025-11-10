@@ -224,8 +224,6 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
                  currentCollateral += xAmt;
                  totalBorrowed += borrowAmt;
                  ILendingPool(lendingPool).deposit(want, xAmt, address(this), 0);
-                 currentCollateral += xAmt;
-                 totalBorrowed += borrowAmt;
             } 
             else {
                 break;
