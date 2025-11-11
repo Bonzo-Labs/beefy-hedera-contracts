@@ -43,10 +43,10 @@ const MAINNET_VAULTS: VaultConfig[] = [
     strategyAddress: "0x2A04d850B464b52f7a69c1983C357E8539370626", // TODO: Add deployed strategy address
     token0Address: "0x00000000000000000000000000000000007e545e", // BONZO
     token0Symbol: "BONZO",
-    token0Decimals: 6,
+    token0Decimals: 8,
     token1Address: "0x0000000000000000000000000000000000818e2d", // XBONZO
     token1Symbol: "XBONZO",
-    token1Decimals: 6,
+    token1Decimals: 8,
     depositAmounts: {
       token0: "0.1", // 0.1 BONZO
       token1: "0.1", // 0.1 XBONZO
