@@ -105,6 +105,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     event RewardTokenAdded(address indexed token, bool isHTS);
     event RewardTokenRemoved(address indexed token);
     event RewardTokenUpdated(address indexed token, bool isActive);
+    event ClaimEarnings(uint256 fee0, uint256 fee1, uint256 feeAlt0, uint256 feeAlt1);
     modifier onlyCalmPeriods() {
         _onlyCalmPeriods();
         _;
@@ -401,6 +402,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         // Set the total fees collected to state.
         fees0 = fees0 + fee0 + feeAlt0;
         fees1 = fees1 + fee1 + feeAlt1;
+        emit ClaimEarnings(fee0, fee1, feeAlt0, feeAlt1);
     }
 
     function _chargeFees(
