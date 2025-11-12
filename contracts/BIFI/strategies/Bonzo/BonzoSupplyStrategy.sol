@@ -119,7 +119,7 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "No funds to deposit");
 
-        IERC20(want).approve(lendingPool, wantBal);
+        IERC20(want).safeApprove(lendingPool, wantBal);
         ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);   
     }
 
@@ -311,8 +311,8 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
 
     function _giveAllowances() internal {
         if (!isHederaToken) {
-            IERC20(want).approve(lendingPool, type(uint).max);
-            IERC20(output).approve(unirouter, type(uint).max);
+            IERC20(want).safeApprove(lendingPool, type(uint).max);
+            IERC20(output).safeApprove(unirouter, type(uint).max);
         }
     }
 
