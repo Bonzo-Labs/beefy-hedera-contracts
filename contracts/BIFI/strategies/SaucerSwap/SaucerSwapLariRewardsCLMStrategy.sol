@@ -282,9 +282,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
         }
 
         uint256 hbarBalanceAfter = address(this).balance;
-        //return the excess hbar to caller
+        // Return excess HBAR to msg.sender (the immediate caller)
+        // This prevents tx.origin exploits where malicious signers could drain treasury funds
+        // The vault can receive HBAR and will handle user refunds appropriately
         if (hbarBalanceAfter > hbarBalanceBefore) {
-            AddressUpgradeable.sendValue(payable(tx.origin), hbarBalanceAfter - hbarBalanceBefore);
+            AddressUpgradeable.sendValue(payable(msg.sender), hbarBalanceAfter - hbarBalanceBefore);
         }
     }
 

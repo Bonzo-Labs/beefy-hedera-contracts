@@ -570,6 +570,8 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      * @notice Withdraw tokens from vault as WHBAR tokens.
      */
     function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public payable nonReentrant {
+        // Track vault's HBAR reserves before user's msg.value to ensure proper refunds
+        uint256 vaultHBARReserves = address(this).balance - msg.value;
         _prepareWithdraw();
         if (_shares == 0) revert NoShares();
 
@@ -578,48 +580,59 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             strategy.beforeAction();
         }
 
-        uint256 _totalSupply = totalSupply();
-        _burn(msg.sender, _shares);
+        uint256 send0;
+        uint256 send1;
+        {
+            // Scope to reduce stack depth
+            uint256 _totalSupply = totalSupply();
+            _burn(msg.sender, _shares);
 
-        (uint256 _bal0, uint256 _bal1) = balances();
+            (uint256 _bal0, uint256 _bal1) = balances();
 
-        uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
-        uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
-        (address token0, address token1) = wants();
+            uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
+            uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
+            (address token0, address token1) = wants();
 
-        if (
-            IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 ||
-            IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
-        ) {
-            strategy.withdraw(_amount0, _amount1);
-        }
+            if (
+                IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 ||
+                IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
+            ) {
+                strategy.withdraw(_amount0, _amount1);
+            }
 
-        // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
-        uint256 ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
-        uint256 ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
-        uint256 send0 = ava0 < _amount0 ? ava0 : _amount0;
-        uint256 send1 = ava1 < _amount1 ? ava1 : _amount1;
+            // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
+            uint256 ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
+            uint256 ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
+            send0 = ava0 < _amount0 ? ava0 : _amount0;
+            send1 = ava1 < _amount1 ? ava1 : _amount1;
 
-        if (send0 < _minAmount0 || send1 < _minAmount1 || (send0 == 0 && send1 == 0))
-            revert TooMuchSlippage();
+            if (send0 < _minAmount0 || send1 < _minAmount1 || (send0 == 0 && send1 == 0))
+                revert TooMuchSlippage();
 
-        if (send0 > 0) {
-            if (token0 == strategy.native()) {
-                //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(send0);
-                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            } else {
-                _transferTokens(token0, address(this), msg.sender, send0, true);
+            if (send0 > 0) {
+                if (token0 == strategy.native()) {
+                    //unwrap WHBAR to HBAR
+                    uint256 unwrappedAmount = _unwrapWHBAR(send0);
+                    AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+                } else {
+                    _transferTokens(token0, address(this), msg.sender, send0, true);
+                }
+            }
+            if (send1 > 0) {
+                if (token1 == strategy.native()) {
+                    //unwrap WHBAR to HBAR
+                    uint256 unwrappedAmount = _unwrapWHBAR(send1);
+                    AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+                } else {
+                    _transferTokens(token1, address(this), msg.sender, send1, true);
+                }
             }
         }
-        if (send1 > 0) {
-            if (token1 == strategy.native()) {
-                //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(send1);
-                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            } else {
-                _transferTokens(token1, address(this), msg.sender, send1, true);
-            }
+
+        // Refund excess HBAR to user (from mint fee overestimation, user overpayment, or strategy refunds)
+        // Any HBAR beyond vault's original reserves (before user sent msg.value) should go to user
+        if (address(this).balance > vaultHBARReserves) {
+            AddressUpgradeable.sendValue(payable(msg.sender), address(this).balance - vaultHBARReserves);
         }
 
         emit Withdraw(msg.sender, _shares, send0, send1);
