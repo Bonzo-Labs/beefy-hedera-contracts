@@ -431,7 +431,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
             DIVISOR,
             lpToken0,
             lpToken1,
-            native
+            native,
+            whbarHelper
         );
     }
 

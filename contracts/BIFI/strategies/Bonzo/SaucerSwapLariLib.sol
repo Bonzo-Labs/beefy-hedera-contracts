@@ -46,6 +46,17 @@ library SaucerSwapLariLib {
         address lpToken1;
     }
 
+    struct FeeDistributionParams {
+        address callFeeRecipient;
+        address strategist;
+        address beefyFeeRecipient;
+        uint256 feeCall;
+        uint256 feeStrategist;
+        uint256 divisor;
+        address native;
+        IWHBARHelper whbarHelper;
+    }
+
 
     function processRewardTokens(
         address[] memory rewardTokens,
@@ -99,6 +110,20 @@ library SaucerSwapLariLib {
     function transferTokens(address token, address to, uint256 amount) internal {
         if (amount == 0) return;
         SaucerSwapCLMLib.transferHTS(token, to, amount);
+    }
+
+    function _unwrapAndSendNative(
+        IWHBARHelper whbarHelper,
+        address whbarToken,
+        address recipient,
+        uint256 amount
+    ) private {
+        if (amount == 0 || address(whbarHelper) == address(0)) return;
+        IERC20Metadata(whbarToken).approve(address(whbarHelper), amount);
+        uint256 hbarBefore = address(this).balance;
+        whbarHelper.unwrapWhbar(amount);
+        uint256 hbarReceived = address(this).balance - hbarBefore;
+        AddressUpgradeable.sendValue(payable(recipient), hbarReceived);
     }
 
     function swapRewardToNative(
@@ -173,26 +198,43 @@ library SaucerSwapLariLib {
         uint256 divisor,
         address lpToken0,
         address lpToken1,
-        address /* native */
+        address native,
+        IWHBARHelper whbarHelper
     ) external {
-        if (feeAmount0 > 0) {
-            uint256 callFee0 = (feeAmount0 * feeCall) / divisor;
-            uint256 strategistFee0 = (feeAmount0 * feeStrategist) / divisor;
-            uint256 beefyFee0 = feeAmount0 - callFee0 - strategistFee0;
-            
-            if (callFee0 > 0) transferTokens(lpToken0, callFeeRecipient, callFee0);
-            if (strategistFee0 > 0) transferTokens(lpToken0, strategist, strategistFee0);
-            if (beefyFee0 > 0) transferTokens(lpToken0, beefyFeeRecipient, beefyFee0);
-        }
-        
-        if (feeAmount1 > 0) {
-            uint256 callFee1 = (feeAmount1 * feeCall) / divisor;
-            uint256 strategistFee1 = (feeAmount1 * feeStrategist) / divisor;
-            uint256 beefyFee1 = feeAmount1 - callFee1 - strategistFee1;
-            
-            if (callFee1 > 0) transferTokens(lpToken1, callFeeRecipient, callFee1);
-            if (strategistFee1 > 0) transferTokens(lpToken1, strategist, strategistFee1);
-            if (beefyFee1 > 0) transferTokens(lpToken1, beefyFeeRecipient, beefyFee1);
+        FeeDistributionParams memory params = FeeDistributionParams({
+            callFeeRecipient: callFeeRecipient,
+            strategist: strategist,
+            beefyFeeRecipient: beefyFeeRecipient,
+            feeCall: feeCall,
+            feeStrategist: feeStrategist,
+            divisor: divisor,
+            native: native,
+            whbarHelper: whbarHelper
+        });
+
+        _distributeTokenFees(lpToken0, feeAmount0, params);
+        _distributeTokenFees(lpToken1, feeAmount1, params);
+    }
+
+    function _distributeTokenFees(
+        address token,
+        uint256 feeAmount,
+        FeeDistributionParams memory params
+    ) private {
+        if (feeAmount == 0) return;
+
+        uint256 callFee = (feeAmount * params.feeCall) / params.divisor;
+        uint256 strategistFee = (feeAmount * params.feeStrategist) / params.divisor;
+        uint256 beefyFee = feeAmount - callFee - strategistFee;
+
+        if (token == params.native) {
+            if (callFee > 0) _unwrapAndSendNative(params.whbarHelper, params.native, params.callFeeRecipient, callFee);
+            if (strategistFee > 0) _unwrapAndSendNative(params.whbarHelper, params.native, params.strategist, strategistFee);
+            if (beefyFee > 0) _unwrapAndSendNative(params.whbarHelper, params.native, params.beefyFeeRecipient, beefyFee);
+        } else {
+            if (callFee > 0) transferTokens(token, params.callFeeRecipient, callFee);
+            if (strategistFee > 0) transferTokens(token, params.strategist, strategistFee);
+            if (beefyFee > 0) transferTokens(token, params.beefyFeeRecipient, beefyFee);
         }
     }
 
