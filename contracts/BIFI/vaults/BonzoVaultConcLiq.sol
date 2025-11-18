@@ -367,6 +367,10 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 sentAmount1;
         uint256 leftover0;
         uint256 leftover1;
+        uint256 actualAmount0;
+        uint256 actualAmount1;
+        uint256 actualFee0;
+        uint256 actualFee1;
         address token0;
         address token1;
     }
@@ -433,30 +437,47 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      * @notice Complete deposit by returning excess HBAR and minting shares
      */
     function _completeDeposit(DepositVars memory vars, uint256 /* shares */, address recipient) internal {
-        // Calculate shares based on sent amounts (no leftover handling)
-        if (vars.sentAmount1 < vars.fee1) revert SentAmt1LTFee1(vars.sentAmount1, vars.fee1);
-        if (vars.sentAmount0 < vars.fee0) revert SentAmt0LTFee0(vars.sentAmount0, vars.fee0);
-        uint256 shares = (vars.sentAmount1 - vars.fee1) +
-            FullMath.mulDiv(vars.sentAmount0 - vars.fee0, vars.price, PRECISION);
+        // Calculate ACTUAL amounts that stayed in protocol (subtract leftovers)
+        vars.actualAmount0 = vars.sentAmount0 > vars.leftover0 ? vars.sentAmount0 - vars.leftover0 : 0;
+        vars.actualAmount1 = vars.sentAmount1 > vars.leftover1 ? vars.sentAmount1 - vars.leftover1 : 0;
+        
+        // Recalculate fees on ACTUAL amounts (don't charge fees on returned tokens)
+        vars.actualFee0 = vars.fee0;
+        vars.actualFee1 = vars.fee1;
+        
+        // If entire amount was leftover, no fees should be charged
+        if (vars.actualAmount0 == 0) vars.actualFee0 = 0;
+        if (vars.actualAmount1 == 0) vars.actualFee1 = 0;
+        
+        // Validate actual amounts can cover fees
+        if (vars.actualAmount1 < vars.actualFee1) revert SentAmt1LTFee1(vars.actualAmount1, vars.actualFee1);
+        if (vars.actualAmount0 < vars.actualFee0) revert SentAmt0LTFee0(vars.actualAmount0, vars.actualFee0);
+        
+        uint256 shares;
+        {
+            // Scope to avoid stack too deep - calculate shares based on ACTUAL deposited amounts
+            shares = (vars.actualAmount1 - vars.actualFee1) +
+                FullMath.mulDiv(vars.actualAmount0 - vars.actualFee0, vars.price, PRECISION);
 
-        uint256 _totalSupply = totalSupply();
-        if (_totalSupply > 0) {
-            // How much of wants() do we have in token 1 equivalents;
-            shares = FullMath.mulDiv(
-                shares,
-                _totalSupply,
-                FullMath.mulDiv(vars.bal0 + vars.fee0, vars.price, PRECISION) + (vars.bal1 + vars.fee1)
-            );
-        } else {
-            // First user donates MINIMUM_SHARES for security of the vault.
-            shares = shares - MINIMUM_SHARES;
-            _mint(BURN_ADDRESS, MINIMUM_SHARES); // permanently lock the first MINIMUM_SHARES
+            uint256 _totalSupply = totalSupply();
+            if (_totalSupply > 0) {
+                // Calculate total value using ACTUAL fees (not fees on returned tokens)
+                shares = FullMath.mulDiv(
+                    shares,
+                    _totalSupply,
+                    FullMath.mulDiv(vars.bal0 + vars.actualFee0, vars.price, PRECISION) + (vars.bal1 + vars.actualFee1)
+                );
+            } else {
+                // First user donates MINIMUM_SHARES for security of the vault.
+                shares = shares - MINIMUM_SHARES;
+                _mint(BURN_ADDRESS, MINIMUM_SHARES); // permanently lock the first MINIMUM_SHARES
+            }
+
+            if (shares < vars.minShares) revert TooMuchSlippage();
+            if (shares == 0) revert NoShares();
         }
 
-        if (shares < vars.minShares) revert TooMuchSlippage();
-        if (shares == 0) revert NoShares();
-
-        // Return leftover tokens to user if any
+        // Return leftover tokens to user BEFORE minting shares (prevents reentrancy issues)
         if (vars.leftover0 > 0) {
             if (isWHBAR(vars.token0)) {
                 _unwrapWHBAR(vars.leftover0);
@@ -475,21 +496,27 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         }
 
         // Return excess HBAR to user if any
-        uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
-        if (msg.value > actualHBARUsed) {
-            if (address(this).balance >= msg.value - actualHBARUsed) {
-                AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
+        {
+            // Scope to reduce stack depth
+            uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
+            if (msg.value > actualHBARUsed) {
+                if (address(this).balance >= msg.value - actualHBARUsed) {
+                    AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
+                }
             }
         }
 
+        // Mint shares AFTER all transfers are complete
         _mint(recipient, shares);
+        
+        // Emit with ACTUAL amounts that stayed in protocol
         emit Deposit(
             recipient,
             shares,
-            vars.sentAmount0,
-            vars.sentAmount1,
-            vars.fee0,
-            vars.fee1,
+            vars.actualAmount0,
+            vars.actualAmount1,
+            vars.actualFee0,
+            vars.actualFee1,
             vars.leftover0,
             vars.leftover1
         );
@@ -543,6 +570,8 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      * @notice Withdraw tokens from vault as WHBAR tokens.
      */
     function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public payable nonReentrant {
+        // Track vault's HBAR reserves before user's msg.value to ensure proper refunds
+        uint256 vaultHBARReserves = address(this).balance - msg.value;
         _prepareWithdraw();
         if (_shares == 0) revert NoShares();
 
@@ -551,48 +580,59 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             strategy.beforeAction();
         }
 
-        uint256 _totalSupply = totalSupply();
-        _burn(msg.sender, _shares);
+        uint256 send0;
+        uint256 send1;
+        {
+            // Scope to reduce stack depth
+            uint256 _totalSupply = totalSupply();
+            _burn(msg.sender, _shares);
 
-        (uint256 _bal0, uint256 _bal1) = balances();
+            (uint256 _bal0, uint256 _bal1) = balances();
 
-        uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
-        uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
-        (address token0, address token1) = wants();
+            uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
+            uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
+            (address token0, address token1) = wants();
 
-        if (
-            IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 ||
-            IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
-        ) {
-            strategy.withdraw(_amount0, _amount1);
-        }
+            if (
+                IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 ||
+                IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
+            ) {
+                strategy.withdraw(_amount0, _amount1);
+            }
 
-        // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
-        uint256 ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
-        uint256 ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
-        uint256 send0 = ava0 < _amount0 ? ava0 : _amount0;
-        uint256 send1 = ava1 < _amount1 ? ava1 : _amount1;
+            // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
+            uint256 ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
+            uint256 ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
+            send0 = ava0 < _amount0 ? ava0 : _amount0;
+            send1 = ava1 < _amount1 ? ava1 : _amount1;
 
-        if (send0 < _minAmount0 || send1 < _minAmount1 || (send0 == 0 && send1 == 0))
-            revert TooMuchSlippage();
+            if (send0 < _minAmount0 || send1 < _minAmount1 || (send0 == 0 && send1 == 0))
+                revert TooMuchSlippage();
 
-        if (send0 > 0) {
-            if (token0 == strategy.native()) {
-                //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(send0);
-                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            } else {
-                _transferTokens(token0, address(this), msg.sender, send0, true);
+            if (send0 > 0) {
+                if (token0 == strategy.native()) {
+                    //unwrap WHBAR to HBAR
+                    uint256 unwrappedAmount = _unwrapWHBAR(send0);
+                    AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+                } else {
+                    _transferTokens(token0, address(this), msg.sender, send0, true);
+                }
+            }
+            if (send1 > 0) {
+                if (token1 == strategy.native()) {
+                    //unwrap WHBAR to HBAR
+                    uint256 unwrappedAmount = _unwrapWHBAR(send1);
+                    AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+                } else {
+                    _transferTokens(token1, address(this), msg.sender, send1, true);
+                }
             }
         }
-        if (send1 > 0) {
-            if (token1 == strategy.native()) {
-                //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(send1);
-                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            } else {
-                _transferTokens(token1, address(this), msg.sender, send1, true);
-            }
+
+        // Refund excess HBAR to user (from mint fee overestimation, user overpayment, or strategy refunds)
+        // Any HBAR beyond vault's original reserves (before user sent msg.value) should go to user
+        if (address(this).balance > vaultHBARReserves) {
+            AddressUpgradeable.sendValue(payable(msg.sender), address(this).balance - vaultHBARReserves);
         }
 
         emit Withdraw(msg.sender, _shares, send0, send1);

@@ -53,6 +53,7 @@ if (CHAIN_TYPE === "testnet") {
         ],
 
     positionWidth: parseInt(process.env.POSITION_WIDTH) || 200,
+    lockDuration:  21600,
     vaultName: process.env.VAULT_NAME || "Beefy CLM LARI SaucerSwap Testnet",
     vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-LARI-SS-T",
   };
@@ -64,7 +65,7 @@ if (CHAIN_TYPE === "testnet") {
     // SAUCE-XSAUCE pool: 0xcfeffaae43f176f91602d75ec1d0637e273c973b
     // BONZO-XBONZO pool: 0xf6cc94f16bc141115fcb9b587297aecfa14f4eb6
     // USDC-WETH hts pool: 0x335b3a8aaaecd63019091187dc8d99574f6552d0
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xcfeffaae43f176f91602d75ec1d0637e273c973b",
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xc5b707348da504e9be1bd4e21525459830e7b11d",
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000003c4370",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000003c3951",
     unirouter: process.env.UNIROUTER_ADDRESS || "0x00000000000000000000000000000000003c437a",
@@ -79,8 +80,8 @@ if (CHAIN_TYPE === "testnet") {
     // BONZO: 0x00000000000000000000000000000000007e545e
     // XBONZO:0x0000000000000000000000000000000000818e2d
     // WETH: 0x0000000000000000000000000000000000951679
-    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000b2ad5",
-    token1: process.env.TOKEN1_ADDRESS || "0x00000000000000000000000000000000001647e8",
+    token0: process.env.TOKEN0_ADDRESS || "0x000000000000000000000000000000000006f89a",
+    token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000163b5a",
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet
 
     rewardTokens: process.env.REWARD_TOKENS
@@ -94,6 +95,7 @@ if (CHAIN_TYPE === "testnet") {
     positionWidth: 30,
     maxDeviation: 30,
     twapInterval: 300,
+    lockDuration: 21600,
     vaultName: process.env.VAULT_NAME || "Beefy CLM LARI SaucerSwap",
     vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-LARI-SS",
   };
@@ -299,6 +301,12 @@ async function deployStrategyWithHardhatUpgrades() {
       const twapTx = await strategy.setTwapInterval(config.twapInterval, { gasLimit: 1000000 });
       await twapTx.wait();
       console.log(`✅ TWAP interval set: ${config.twapInterval}s`);
+    }
+
+    if (typeof config.lockDuration === "number") {
+      const lockTx = await strategy.setLockDuration(config.lockDuration, { gasLimit: 500000 });
+      await lockTx.wait();
+      console.log(`✅ Lock duration set: ${config.lockDuration}s`);
     }
   } catch (error) {
     console.warn("⚠️  Failed to set parameters:", error.message);
