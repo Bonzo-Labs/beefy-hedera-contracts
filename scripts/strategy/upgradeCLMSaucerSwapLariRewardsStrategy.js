@@ -24,7 +24,8 @@ const ethers = hardhat.ethers;
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
-const PROXY_ADDRESS = "0x2A04d850B464b52f7a69c1983C357E8539370626"
+const PROXY_ADDRESS = "0x55C27c0f51ba56F9C4BAD96BFE2ac7990C20f0F8";
+const LOCK_DURATION;// set  only if you want to update the lock duration
 //*******************SET CHAIN TYPE HERE*******************
 
 // Load addresses based on chain type
@@ -193,9 +194,24 @@ async function upgradeStrategyWithHardhatUpgrades() {
     throw error;
   }
 
-  // Verify state preservation
-  console.log("\n=== Step 6: Verify State Preservation ===");
-  const upgradedStrategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", PROXY_ADDRESS);
+    // Verify state preservation
+    console.log("\n=== Step 6: Verify State Preservation ===");
+    const upgradedStrategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", PROXY_ADDRESS);
+
+    // Optionally set lock duration post-upgrade
+    if (LOCK_DURATION) {
+      console.log("\n=== Step 8: Update Lock Duration ===");
+      try {
+        const lockTx = await upgradedStrategy.setLockDuration(LOCK_DURATION, { gasLimit: 500000 });
+        await lockTx.wait();
+        console.log(`✅ Lock duration updated to ${LOCK_DURATION}s`);
+      } catch (error) {
+        console.error("❌ Failed to update lock duration:", error.message);
+        throw error;
+      }
+    }
+
+
 
   try {
     const afterConfig = {
@@ -209,6 +225,7 @@ async function upgradeStrategyWithHardhatUpgrades() {
       maxTickDeviation: await upgradedStrategy.maxTickDeviation(),
       owner: await upgradedStrategy.owner(),
       rewardTokensLength: await upgradedStrategy.getRewardTokensLength(),
+      lockDuration: await upgradedStrategy.lockDuration(),  
     };
 
     console.log("Configuration after upgrade:");
@@ -218,14 +235,15 @@ async function upgradeStrategyWithHardhatUpgrades() {
     console.log("  Token1:", afterConfig.lpToken1);
     console.log("  Position Width:", afterConfig.positionWidth.toString());
     console.log("  Owner:", afterConfig.owner);
-
+    console.log("  Lock Duration:", afterConfig.lockDuration.toString());
     // Verify critical state preserved
     const statePreserved = 
       currentConfig.pool === afterConfig.pool &&
       currentConfig.vault === afterConfig.vault &&
       currentConfig.lpToken0 === afterConfig.lpToken0 &&
       currentConfig.lpToken1 === afterConfig.lpToken1 &&
-      currentConfig.owner === afterConfig.owner;
+      currentConfig.owner === afterConfig.owner &&
+      currentConfig.lockDuration === afterConfig.lockDuration;
 
     if (!statePreserved) {
       console.error("❌ CRITICAL: State not preserved!");

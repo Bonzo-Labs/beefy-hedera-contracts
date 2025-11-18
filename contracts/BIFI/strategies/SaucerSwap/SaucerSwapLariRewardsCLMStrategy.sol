@@ -29,7 +29,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
     using TickMath for int24;
     using AddressUpgradeable for address payable;
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant DURATION = 21600;
     address private constant HTS_PRECOMPILE = address(0x167);
     int64 private constant HTS_SUCCESS = 22;
     int64 private constant PRECOMPILE_BIND_ERROR = -1;
@@ -87,6 +86,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     SaucerSwapLariLib.RewardToken[] public rewardTokens;
     mapping(address => uint256) private rewardTokenIndex;
     mapping(address => bool) private isRewardToken;
+    uint256 public lockDuration;
     // Errors
     error NotAuthorized();
     error NotPool();
@@ -106,6 +106,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     event RewardTokenRemoved(address indexed token);
     event RewardTokenUpdated(address indexed token, bool isActive);
     event ClaimEarnings(uint256 fee0, uint256 fee1, uint256 feeAlt0, uint256 feeAlt1);
+    event LockDurationUpdated(uint256 oldDuration, uint256 newDuration);
     modifier onlyCalmPeriods() {
         _onlyCalmPeriods();
         _;
@@ -137,6 +138,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         positionWidth = _params.positionWidth; // Our width multiplier. The tick distance of each side will be width * tickSpacing.
         twapInterval = 120; // Set the twap interval to 120 seconds.
         maxTickDeviation = 200; // Set default max tick deviation
+        lockDuration = 21600;
         if (lpToken0 != native) {
             SaucerSwapCLMLib.safeAssociateToken(lpToken0);
         }
@@ -282,9 +284,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
         }
 
         uint256 hbarBalanceAfter = address(this).balance;
-        //return the excess hbar to caller
+        // Return excess HBAR to msg.sender (the immediate caller)
+        // This prevents tx.origin exploits where malicious signers could drain treasury funds
+        // The vault can receive HBAR and will handle user refunds appropriately
         if (hbarBalanceAfter > hbarBalanceBefore) {
-            AddressUpgradeable.sendValue(payable(tx.origin), hbarBalanceAfter - hbarBalanceBefore);
+            AddressUpgradeable.sendValue(payable(msg.sender), hbarBalanceAfter - hbarBalanceBefore);
         }
     }
 
@@ -345,14 +349,16 @@ contract SaucerSwapLariRewardsCLMStrategy is
         // Calculate remaining locked amounts and add new fees
         uint256 timeElapsed = block.timestamp - lastHarvest;
         
-        if (timeElapsed >= DURATION) {
-            // All locked amounts have been unlocked
+        uint256 duration = lockDuration;
+        if (duration == 0 || timeElapsed >= duration) {
+            // All locked amounts have been unlocked (or locking disabled)
             totalLocked0 = fee0;
             totalLocked1 = fee1;
         } else {
             // Calculate remaining locked amounts
-            totalLocked0 = (totalLocked0 * (DURATION - timeElapsed)) / DURATION + fee0;
-            totalLocked1 = (totalLocked1 * (DURATION - timeElapsed)) / DURATION + fee1;
+            uint256 remaining = duration - timeElapsed;
+            totalLocked0 = (totalLocked0 * remaining) / duration + fee0;
+            totalLocked1 = (totalLocked1 * remaining) / duration + fee1;
         }
         // Log the last time we claimed fees.
         lastHarvest = block.timestamp;
@@ -439,12 +445,14 @@ contract SaucerSwapLariRewardsCLMStrategy is
         uint256 timeElapsed = block.timestamp - lastHarvest;
         uint256 locked0;
         uint256 locked1;
-        if (timeElapsed >= DURATION) {
+        uint256 duration = lockDuration;
+        if (duration == 0 || timeElapsed >= duration) {
             locked0 = 0;
             locked1 = 0;
         } else {
-            locked0 = totalLocked0 * (DURATION - timeElapsed) / DURATION;
-            locked1 = totalLocked1 * (DURATION - timeElapsed) / DURATION;
+            uint256 remaining = duration - timeElapsed;
+            locked0 = totalLocked0 * remaining / duration;
+            locked1 = totalLocked1 * remaining / duration;
         }
 
         uint256 available0 = thisBal0 + poolInfo.token0Bal;
@@ -773,6 +781,12 @@ contract SaucerSwapLariRewardsCLMStrategy is
             _lp0RoutePoolFees,
             _lp1RoutePoolFees
         );
+    }
+
+    function setLockDuration(uint256 _lockDuration) external onlyManager {
+        uint256 oldDuration = lockDuration;
+        lockDuration = _lockDuration;
+        emit LockDurationUpdated(oldDuration, _lockDuration);
     }
 
     function getRewardTokensLength() external view returns (uint256) {
