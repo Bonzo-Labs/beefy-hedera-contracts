@@ -208,6 +208,28 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     }
 
     /**
+     * @notice Convert the oracle price into raw token1-per-token0 units.
+     */
+    function _normalizePriceToRawTokenUnits(
+        uint256 price,
+        address token0,
+        address token1
+    ) internal view returns (uint256) {
+        uint8 decimals0 = IERC20Metadata(token0).decimals();
+        uint8 decimals1 = IERC20Metadata(token1).decimals();
+        if (decimals0 == decimals1) return price;
+
+        uint256 diff = decimals0 > decimals1 ? uint256(decimals0 - decimals1) : uint256(decimals1 - decimals0);
+        uint256 factor = 10 ** diff;
+
+        if (decimals1 > decimals0) {
+            return price * factor;
+        } else {
+            return price / factor;
+        }
+    }
+
+    /**
      * @notice Function for various UIs to display the current value of one vault share.
      * @param inToken0 If true, returns value in token0 terms, otherwise in token1 terms
      * @return The value of one vault share in the specified token terms with 18 decimals
@@ -257,6 +279,8 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 _amount1
     ) external view returns (uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1) {
         uint256 price = strategy.price();
+        (address token0, address token1) = wants();
+        price = _normalizePriceToRawTokenUnits(price, token0, token1);
 
         (uint bal0, uint bal1) = balances();
 
@@ -401,7 +425,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         strategy.beforeAction();
 
         (vars.bal0, vars.bal1) = balances();
-        vars.price = strategy.price();
+        vars.price = _normalizePriceToRawTokenUnits(strategy.price(), vars.token0, vars.token1);
         (vars.amount0, vars.amount1, vars.fee0, vars.fee1) = _getTokensRequired(
             vars.price,
             _amount0,
