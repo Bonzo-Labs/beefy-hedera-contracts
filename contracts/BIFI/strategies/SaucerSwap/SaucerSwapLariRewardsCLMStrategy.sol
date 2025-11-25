@@ -11,8 +11,6 @@ import "../../utils/LiquidityAmounts.sol";
 import "../../utils/TickMath.sol";
 import "../../utils/TickUtils.sol";
 import "../../utils/FullMath.sol";
-import "../../interfaces/beefy/IBeefyVaultConcLiq.sol";
-import "../../interfaces/beefy/IStrategyFactory.sol";
 import "../../interfaces/beefy/IStrategyConcLiq.sol";
 import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
 import "../../Hedera/IHederaTokenService.sol";
@@ -39,8 +37,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
     address public pool;
     address public lpToken0;
     address public lpToken1;
-    uint256 public fees0;
-    uint256 public fees1;
+    uint256 private fees0;
+    uint256 private fees1;
     struct Position {
         int24 tickLower;
         int24 tickUpper;
@@ -73,13 +71,16 @@ contract SaucerSwapLariRewardsCLMStrategy is
     uint256 private lastDeposit;
     address public native;
     address public factory;
-    uint256 public totalLocked0;
-    uint256 public totalLocked1;
+    uint256 private totalLocked0;
+    uint256 private totalLocked1;
     uint256 public lastHarvest;
+    uint256 private pendingRewardLock0;
+    uint256 private pendingRewardLock1;
+    uint256 private lastRewardLockUpdate;
     uint256 public lastPositionAdjustment;
     address private beefyOracle;
-    uint256 public leftover0;
-    uint256 public leftover1;
+    uint256 private leftover0;
+    uint256 private leftover1;
     // Track the strategy balances before the vault sends deposit tokens
     uint256 private balanceBeforeDeposit0;
     uint256 private balanceBeforeDeposit1;
@@ -345,6 +346,13 @@ contract SaucerSwapLariRewardsCLMStrategy is
         // Reset state fees to 0.
         fees0 = 0;
         fees1 = 0;
+
+        _refreshRewardLocks();
+        if (pendingRewardLock0 > 0 || pendingRewardLock1 > 0) {
+            pendingRewardLock0 = 0;
+            pendingRewardLock1 = 0;
+            lastRewardLockUpdate = block.timestamp;
+        }
         
         // Calculate remaining locked amounts and add new fees
         uint256 timeElapsed = block.timestamp - lastHarvest;
@@ -377,6 +385,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         );
         fees0 += newFees0;
         fees1 += newFees1;
+        _lockRewardFees(newFees0, newFees1);
     }
 
     // This function will be called by Bonzo every 30 min or so in order to re-balance the positions.
@@ -455,6 +464,10 @@ contract SaucerSwapLariRewardsCLMStrategy is
             locked1 = totalLocked1 * remaining / duration;
         }
 
+        (uint256 rewardLocked0, uint256 rewardLocked1) = _pendingRewardLocks();
+        locked0 += rewardLocked0;
+        locked1 += rewardLocked1;
+
         uint256 available0 = thisBal0 + poolInfo.token0Bal;
         uint256 available1 = thisBal1 + poolInfo.token1Bal;
 
@@ -518,13 +531,13 @@ contract SaucerSwapLariRewardsCLMStrategy is
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
                     mintFee = mintFee * 150 / 100;
                 } else {
-                    revert("HBAR price fail");
+                    revert("HBAR-PF");
                 }
             } catch {
-                revert("HBAR price fail");
+                revert("HBAR-PF2");
             }
         } else {
-            revert("!BeefyOracle");
+            revert("!BO");
         }
     }
 
@@ -545,13 +558,13 @@ contract SaucerSwapLariRewardsCLMStrategy is
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
                     mintFee = mintFee * 150 / 100;
                 } else {
-                    revert("HBAR price fail");
+                    revert("HBAR-PF");
                 }
             } catch {
-                revert("HBAR price fail");
+                revert("HBAR-PF2");
             }
         } else {
-            revert("No oracle");
+            revert("!BO");
         }
         return mintFee;
     }
@@ -635,6 +648,72 @@ contract SaucerSwapLariRewardsCLMStrategy is
     ) internal {
         if(amount == 0) return;
         SaucerSwapLariLib.transferTokens(token, to, amount);
+    }
+
+    function _lockRewardFees(uint256 amount0, uint256 amount1) private {
+        if (lockDuration == 0 || (amount0 == 0 && amount1 == 0)) {
+            return;
+        }
+        _refreshRewardLocks();
+        pendingRewardLock0 += amount0;
+        pendingRewardLock1 += amount1;
+        lastRewardLockUpdate = block.timestamp;
+    }
+
+    function _refreshRewardLocks() private {
+        if (pendingRewardLock0 == 0 && pendingRewardLock1 == 0) {
+            return;
+        }
+
+        uint256 duration = lockDuration;
+        if (duration == 0) {
+            pendingRewardLock0 = 0;
+            pendingRewardLock1 = 0;
+            lastRewardLockUpdate = block.timestamp;
+            return;
+        }
+
+        uint256 lastUpdate = lastRewardLockUpdate;
+        if (lastUpdate == 0) {
+            lastRewardLockUpdate = block.timestamp;
+            return;
+        }
+
+        uint256 elapsed = block.timestamp - lastUpdate;
+        if (elapsed == 0) {
+            return;
+        }
+
+        if (elapsed >= duration) {
+            pendingRewardLock0 = 0;
+            pendingRewardLock1 = 0;
+        } else {
+            uint256 remaining = duration - elapsed;
+            pendingRewardLock0 = (pendingRewardLock0 * remaining) / duration;
+            pendingRewardLock1 = (pendingRewardLock1 * remaining) / duration;
+        }
+        lastRewardLockUpdate = block.timestamp;
+    }
+
+    function _pendingRewardLocks() private view returns (uint256 locked0, uint256 locked1) {
+        uint256 duration = lockDuration;
+        uint256 lastUpdate = lastRewardLockUpdate;
+        if (
+            duration == 0 ||
+            lastUpdate == 0 ||
+            (pendingRewardLock0 == 0 && pendingRewardLock1 == 0)
+        ) {
+            return (0, 0);
+        }
+
+        uint256 elapsed = block.timestamp - lastUpdate;
+        if (elapsed >= duration) {
+            return (0, 0);
+        }
+
+        uint256 remaining = duration - elapsed;
+        locked0 = (pendingRewardLock0 * remaining) / duration;
+        locked1 = (pendingRewardLock1 * remaining) / duration;
     }
 
     function _associateToken(address token) internal {
@@ -784,8 +863,14 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function setLockDuration(uint256 _lockDuration) external onlyManager {
+        _refreshRewardLocks();
         uint256 oldDuration = lockDuration;
         lockDuration = _lockDuration;
+        if (_lockDuration == 0) {
+            pendingRewardLock0 = 0;
+            pendingRewardLock1 = 0;
+            lastRewardLockUpdate = block.timestamp;
+        }
         emit LockDurationUpdated(oldDuration, _lockDuration);
     }
 
