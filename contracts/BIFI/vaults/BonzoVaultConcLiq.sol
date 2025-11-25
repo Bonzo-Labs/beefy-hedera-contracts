@@ -297,7 +297,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
 
         if (_totalSupply > 0) {
             // How much of wants() do we have in token 1 equivalents;
-            uint256 token1EquivalentBalance = FullMath.mulDiv(bal0 + fee0, price, PRECISION) + (bal1 + fee1);
+            uint256 token1EquivalentBalance = FullMath.mulDiv(bal0, price, PRECISION) + bal1;
             shares = FullMath.mulDiv(shares, _totalSupply, token1EquivalentBalance);
         } else {
             // First user donates MINIMUM_SHARES for security of the vault.
@@ -485,11 +485,11 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
 
             uint256 _totalSupply = totalSupply();
             if (_totalSupply > 0) {
-                // Calculate total value using ACTUAL fees (not fees on returned tokens)
+                // Calculate total value using actual balances only
                 shares = FullMath.mulDiv(
                     shares,
                     _totalSupply,
-                    FullMath.mulDiv(vars.bal0 + vars.actualFee0, vars.price, PRECISION) + (vars.bal1 + vars.actualFee1)
+                    FullMath.mulDiv(vars.bal0, vars.price, PRECISION) + vars.bal1
                 );
             } else {
                 // First user donates MINIMUM_SHARES for security of the vault.
