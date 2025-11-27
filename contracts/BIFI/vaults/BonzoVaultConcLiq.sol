@@ -606,6 +606,8 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
 
         uint256 send0;
         uint256 send1;
+        uint256 ava0;
+        uint256 ava1;
         {
             // Scope to reduce stack depth
             uint256 _totalSupply = totalSupply();
@@ -617,16 +619,18 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
             (address token0, address token1) = wants();
 
-            if (
-                IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 ||
-                IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
-            ) {
-                strategy.withdraw(_amount0, _amount1);
+            ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
+            ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
+
+            if (ava0 < _amount0 || ava1 < _amount1) {
+                uint256 _amt0ToWithdraw = ava0 < _amount0 ? _amount0 - ava0 : 0;
+                uint256 _amt1ToWithdraw = ava1 < _amount1 ? _amount1 - ava1 : 0;
+                strategy.withdraw(_amt0ToWithdraw, _amt1ToWithdraw);
             }
 
             // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
-            uint256 ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
-            uint256 ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
+            ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
+            ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
             send0 = ava0 < _amount0 ? ava0 : _amount0;
             send1 = ava1 < _amount1 ? ava1 : _amount1;
 
