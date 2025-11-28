@@ -720,7 +720,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         SaucerSwapCLMLib.safeAssociateToken(token);
     }
 
-    function setPositionWidth(int24 _positionWidth) external onlyOwner {
+    function setPositionWidth(int24 _positionWidth) external onlyOwner payable {
         // Validate width against tick spacing and global tick bounds
         int24 distance = _tickDistance();
         // if (_positionWidth <= 0) revert InvalidInput();
