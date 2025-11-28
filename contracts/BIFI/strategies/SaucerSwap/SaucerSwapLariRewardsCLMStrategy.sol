@@ -337,6 +337,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     // In the harvest function, we WILL NOT remove and add liquidity because this creates >50 child transactions and fails on-chain.
     // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
+        require(msg.value >= 2*getMintFee(), "IMF");
         // Claim fees from the pool and collect them.
         _claimEarnings();
         _removeLiquidity();
@@ -798,7 +799,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _whenStrategyNotPaused() internal view {
-        require(!paused(), "Strategy is paused");
+        require(!paused(), "SP");
     }
 
     function associateToken(address token) external onlyOwner {
@@ -806,7 +807,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function setBeefyOracle(address _beefyOracle) external onlyOwner {
-        require(_beefyOracle != address(0), "Invalid oracle address");
+        require(_beefyOracle != address(0), "BO-IA");
         beefyOracle = _beefyOracle;
     }
 
