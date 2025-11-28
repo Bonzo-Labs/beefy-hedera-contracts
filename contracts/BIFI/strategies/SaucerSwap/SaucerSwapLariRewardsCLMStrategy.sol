@@ -337,6 +337,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     // In the harvest function, we WILL NOT remove and add liquidity because this creates >50 child transactions and fails on-chain.
     // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
+        require(msg.value >= 2*getMintFee(), "IMF");
         // Claim fees from the pool and collect them.
         _claimEarnings();
         _removeLiquidity();
@@ -451,36 +452,27 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function balances() public view returns (uint256 token0Bal, uint256 token1Bal) {
         (uint256 thisBal0, uint256 thisBal1) = balancesOfThis();
         BalanceInfo memory poolInfo = balancesOfPool();
-        uint256 timeElapsed = block.timestamp - lastHarvest;
-        uint256 locked0;
-        uint256 locked1;
+        return (thisBal0 + poolInfo.token0Bal, thisBal1 + poolInfo.token1Bal);
+    }
+
+    function lockedBalances() external view returns (uint256 locked0, uint256 locked1) {
+        return _lockedBalances();
+    }
+
+    function _lockedBalances() private view returns (uint256 locked0, uint256 locked1) {
         uint256 duration = lockDuration;
-        if (duration == 0 || timeElapsed >= duration) {
-            locked0 = 0;
-            locked1 = 0;
-        } else {
-            uint256 remaining = duration - timeElapsed;
-            locked0 = totalLocked0 * remaining / duration;
-            locked1 = totalLocked1 * remaining / duration;
+        if (duration != 0) {
+            uint256 timeElapsed = block.timestamp - lastHarvest;
+            if (timeElapsed < duration) {
+                uint256 remaining = duration - timeElapsed;
+                locked0 = (totalLocked0 * remaining) / duration;
+                locked1 = (totalLocked1 * remaining) / duration;
+            }
         }
 
         (uint256 rewardLocked0, uint256 rewardLocked1) = _pendingRewardLocks();
         locked0 += rewardLocked0;
         locked1 += rewardLocked1;
-
-        uint256 available0 = thisBal0 + poolInfo.token0Bal;
-        uint256 available1 = thisBal1 + poolInfo.token1Bal;
-
-        // Prevent underflow: locked0/locked1 cannot exceed available balances
-        if (locked0 > available0) locked0 = available0;
-        if (locked1 > available1) locked1 = available1;
-
-        uint256 total0 = available0 - locked0;
-        uint256 total1 = available1 - locked1;
-
-        // Return actual available balances without subtracting unharvested fees
-        // Unharvested fees are part of the strategy's value and should be included in TVL
-        return (total0, total1);
     }
 
     function balancesOfThis() public view returns (uint256 token0Bal, uint256 token1Bal) {
@@ -720,7 +712,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         SaucerSwapCLMLib.safeAssociateToken(token);
     }
 
-    function setPositionWidth(int24 _positionWidth) external onlyOwner {
+    function setPositionWidth(int24 _positionWidth) external onlyOwner payable {
         // Validate width against tick spacing and global tick bounds
         int24 distance = _tickDistance();
         // if (_positionWidth <= 0) revert InvalidInput();
@@ -807,7 +799,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _whenStrategyNotPaused() internal view {
-        require(!paused(), "Strategy is paused");
+        require(!paused(), "SP");
     }
 
     function associateToken(address token) external onlyOwner {
@@ -815,7 +807,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function setBeefyOracle(address _beefyOracle) external onlyOwner {
-        require(_beefyOracle != address(0), "Invalid oracle address");
+        require(_beefyOracle != address(0), "BO-IA");
         beefyOracle = _beefyOracle;
     }
 
