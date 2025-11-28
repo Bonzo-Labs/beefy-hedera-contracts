@@ -423,8 +423,9 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     function _harvest(address callFeeRecipient) internal {
         require(callFeeRecipient != address(0), "Invalid fee recipient");
         if (isRewardsAvailable) {
-            address[] memory assets = new address[](1);
+            address[] memory assets = new address[](2);
             assets[0] = aToken;
+            assets[1] = debtToken;
             IRewardsController(rewardsController).claimRewards(assets, type(uint256).max, address(this), want);
         }
 
@@ -597,8 +598,9 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     function panic() public {
         require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
         if (isRewardsAvailable) {
-            address[] memory assets = new address[](1);
+            address[] memory assets = new address[](2);
             assets[0] = aToken;
+            assets[1] = debtToken;
             IRewardsController(rewardsController).claimRewards(assets, type(uint256).max, address(this), want);
         }
         uint256 totalPosition = balanceOf();

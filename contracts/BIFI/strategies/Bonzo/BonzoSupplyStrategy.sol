@@ -119,7 +119,7 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         require(wantBal > 0, "No funds to deposit");
 
-        IERC20(want).approve(lendingPool, wantBal);
+        IERC20(want).safeApprove(lendingPool, wantBal);
         ILendingPool(lendingPool).deposit(want, wantBal, address(this), 0);   
     }
 
@@ -170,34 +170,34 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
         address[] memory assets = new address[](1);
         assets[0] = aToken;
         uint256 amount = rewardsAvailable();
-        
+        uint256 claimedAmount = 0;
         if (amount > 0) {
-            IRewardsController(rewardsController).claimRewards(
+            claimedAmount = IRewardsController(rewardsController).claimRewards(
                 assets,
                 amount,
                 address(this),
                 output
             );
-            emit RewardsClaimed(amount, output);
+            emit RewardsClaimed(claimedAmount, output);
         }
 
-        uint256 outputBal = IERC20(output).balanceOf(address(this));
-        if (outputBal > 0) {
-            chargeFees(callFeeRecipient);
+        if (claimedAmount > 0) {
+            chargeFees(callFeeRecipient, claimedAmount);
             uint256 wantHarvested = balanceOfWant();
-            _deposit();
-
-            lastHarvest = block.timestamp;
-            emit StratHarvest(tx.origin, wantHarvested, balanceOf());
+            if(wantHarvested > 0) {
+                _deposit();
+            }
         }
+        
+        lastHarvest = block.timestamp;
+        emit StratHarvest(tx.origin, claimedAmount, balanceOf());
     }
 
-    function chargeFees(address callFeeRecipient) internal {
+    function chargeFees(address callFeeRecipient, uint256 claimedAmount) internal {
         require(callFeeRecipient != address(0), "Invalid fee recipient");
         
         IFeeConfig.FeeCategory memory fees = getFees();
-        uint256 outputBal = IERC20(output).balanceOf(address(this));
-        uint256 totalFees = outputBal * fees.total / DIVISOR;
+        uint256 totalFees = claimedAmount * fees.total / DIVISOR;
 
         uint256 callFeeAmount = totalFees * fees.call / DIVISOR;
         if(callFeeAmount > 0) {
@@ -311,8 +311,8 @@ contract BonzoSupplyStrategy is StratFeeManagerInitializable {
 
     function _giveAllowances() internal {
         if (!isHederaToken) {
-            IERC20(want).approve(lendingPool, type(uint).max);
-            IERC20(output).approve(unirouter, type(uint).max);
+            IERC20(want).safeApprove(lendingPool, type(uint).max);
+            IERC20(output).safeApprove(unirouter, type(uint).max);
         }
     }
 

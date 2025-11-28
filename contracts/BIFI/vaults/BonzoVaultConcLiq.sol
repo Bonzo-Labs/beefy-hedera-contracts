@@ -208,6 +208,28 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     }
 
     /**
+     * @notice Convert the oracle price into raw token1-per-token0 units.
+     */
+    function _normalizePriceToRawTokenUnits(
+        uint256 price,
+        address token0,
+        address token1
+    ) internal view returns (uint256) {
+        uint8 decimals0 = IERC20Metadata(token0).decimals();
+        uint8 decimals1 = IERC20Metadata(token1).decimals();
+        if (decimals0 == decimals1) return price;
+
+        uint256 diff = decimals0 > decimals1 ? uint256(decimals0 - decimals1) : uint256(decimals1 - decimals0);
+        uint256 factor = 10 ** diff;
+
+        if (decimals1 > decimals0) {
+            return price * factor;
+        } else {
+            return price / factor;
+        }
+    }
+
+    /**
      * @notice Function for various UIs to display the current value of one vault share.
      * @param inToken0 If true, returns value in token0 terms, otherwise in token1 terms
      * @return The value of one vault share in the specified token terms with 18 decimals
@@ -257,6 +279,8 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 _amount1
     ) external view returns (uint256 shares, uint256 amount0, uint256 amount1, uint256 fee0, uint256 fee1) {
         uint256 price = strategy.price();
+        (address token0, address token1) = wants();
+        price = _normalizePriceToRawTokenUnits(price, token0, token1);
 
         (uint bal0, uint bal1) = balances();
 
@@ -273,7 +297,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
 
         if (_totalSupply > 0) {
             // How much of wants() do we have in token 1 equivalents;
-            uint256 token1EquivalentBalance = FullMath.mulDiv(bal0 + fee0, price, PRECISION) + (bal1 + fee1);
+            uint256 token1EquivalentBalance = FullMath.mulDiv(bal0, price, PRECISION) + bal1;
             shares = FullMath.mulDiv(shares, _totalSupply, token1EquivalentBalance);
         } else {
             // First user donates MINIMUM_SHARES for security of the vault.
@@ -367,6 +391,10 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         uint256 sentAmount1;
         uint256 leftover0;
         uint256 leftover1;
+        uint256 actualAmount0;
+        uint256 actualAmount1;
+        uint256 actualFee0;
+        uint256 actualFee1;
         address token0;
         address token1;
     }
@@ -397,7 +425,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         strategy.beforeAction();
 
         (vars.bal0, vars.bal1) = balances();
-        vars.price = strategy.price();
+        vars.price = _normalizePriceToRawTokenUnits(strategy.price(), vars.token0, vars.token1);
         (vars.amount0, vars.amount1, vars.fee0, vars.fee1) = _getTokensRequired(
             vars.price,
             _amount0,
@@ -433,30 +461,47 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      * @notice Complete deposit by returning excess HBAR and minting shares
      */
     function _completeDeposit(DepositVars memory vars, uint256 /* shares */, address recipient) internal {
-        // Calculate shares based on sent amounts (no leftover handling)
-        if (vars.sentAmount1 < vars.fee1) revert SentAmt1LTFee1(vars.sentAmount1, vars.fee1);
-        if (vars.sentAmount0 < vars.fee0) revert SentAmt0LTFee0(vars.sentAmount0, vars.fee0);
-        uint256 shares = (vars.sentAmount1 - vars.fee1) +
-            FullMath.mulDiv(vars.sentAmount0 - vars.fee0, vars.price, PRECISION);
+        // Calculate ACTUAL amounts that stayed in protocol (subtract leftovers)
+        vars.actualAmount0 = vars.sentAmount0 > vars.leftover0 ? vars.sentAmount0 - vars.leftover0 : 0;
+        vars.actualAmount1 = vars.sentAmount1 > vars.leftover1 ? vars.sentAmount1 - vars.leftover1 : 0;
+        
+        // Recalculate fees on ACTUAL amounts (don't charge fees on returned tokens)
+        vars.actualFee0 = vars.fee0;
+        vars.actualFee1 = vars.fee1;
+        
+        // If entire amount was leftover, no fees should be charged
+        if (vars.actualAmount0 == 0) vars.actualFee0 = 0;
+        if (vars.actualAmount1 == 0) vars.actualFee1 = 0;
+        
+        // Validate actual amounts can cover fees
+        if (vars.actualAmount1 < vars.actualFee1) revert SentAmt1LTFee1(vars.actualAmount1, vars.actualFee1);
+        if (vars.actualAmount0 < vars.actualFee0) revert SentAmt0LTFee0(vars.actualAmount0, vars.actualFee0);
+        
+        uint256 shares;
+        {
+            // Scope to avoid stack too deep - calculate shares based on ACTUAL deposited amounts
+            shares = (vars.actualAmount1 - vars.actualFee1) +
+                FullMath.mulDiv(vars.actualAmount0 - vars.actualFee0, vars.price, PRECISION);
 
-        uint256 _totalSupply = totalSupply();
-        if (_totalSupply > 0) {
-            // How much of wants() do we have in token 1 equivalents;
-            shares = FullMath.mulDiv(
-                shares,
-                _totalSupply,
-                FullMath.mulDiv(vars.bal0 + vars.fee0, vars.price, PRECISION) + (vars.bal1 + vars.fee1)
-            );
-        } else {
-            // First user donates MINIMUM_SHARES for security of the vault.
-            shares = shares - MINIMUM_SHARES;
-            _mint(BURN_ADDRESS, MINIMUM_SHARES); // permanently lock the first MINIMUM_SHARES
+            uint256 _totalSupply = totalSupply();
+            if (_totalSupply > 0) {
+                // Calculate total value using actual balances only
+                shares = FullMath.mulDiv(
+                    shares,
+                    _totalSupply,
+                    FullMath.mulDiv(vars.bal0, vars.price, PRECISION) + vars.bal1
+                );
+            } else {
+                // First user donates MINIMUM_SHARES for security of the vault.
+                shares = shares - MINIMUM_SHARES;
+                _mint(BURN_ADDRESS, MINIMUM_SHARES); // permanently lock the first MINIMUM_SHARES
+            }
+
+            if (shares < vars.minShares) revert TooMuchSlippage();
+            if (shares == 0) revert NoShares();
         }
 
-        if (shares < vars.minShares) revert TooMuchSlippage();
-        if (shares == 0) revert NoShares();
-
-        // Return leftover tokens to user if any
+        // Return leftover tokens to user BEFORE minting shares (prevents reentrancy issues)
         if (vars.leftover0 > 0) {
             if (isWHBAR(vars.token0)) {
                 _unwrapWHBAR(vars.leftover0);
@@ -475,21 +520,27 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         }
 
         // Return excess HBAR to user if any
-        uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
-        if (msg.value > actualHBARUsed) {
-            if (address(this).balance >= msg.value - actualHBARUsed) {
-                AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
+        {
+            // Scope to reduce stack depth
+            uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
+            if (msg.value > actualHBARUsed) {
+                if (address(this).balance >= msg.value - actualHBARUsed) {
+                    AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
+                }
             }
         }
 
+        // Mint shares AFTER all transfers are complete
         _mint(recipient, shares);
+        
+        // Emit with ACTUAL amounts that stayed in protocol
         emit Deposit(
             recipient,
             shares,
-            vars.sentAmount0,
-            vars.sentAmount1,
-            vars.fee0,
-            vars.fee1,
+            vars.actualAmount0,
+            vars.actualAmount1,
+            vars.actualFee0,
+            vars.actualFee1,
             vars.leftover0,
             vars.leftover1
         );
@@ -519,12 +570,15 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         return 0; // Placeholder, real calculation happens in _completeDeposit
     }
 
-    function _prepareWithdraw() internal {
+    function _prepareWithdraw(uint256 userSentHBAR) internal {
         if (OwnableUpgradeable(address(strategy)).owner() == address(0)) return;
         uint256 totalMintFeeRequired = estimateDepositHBARRequired();
 
         // Forward HBAR for mint fees to strategy if required
         if (totalMintFeeRequired > 0) {
+            if (userSentHBAR < totalMintFeeRequired) {
+                revert InsufficientHBARBalance(userSentHBAR, totalMintFeeRequired);
+            }
             AddressUpgradeable.sendValue(payable(address(strategy)), totalMintFeeRequired);
         }
     }
@@ -543,7 +597,9 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      * @notice Withdraw tokens from vault as WHBAR tokens.
      */
     function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public payable nonReentrant {
-        _prepareWithdraw();
+        // Track vault's HBAR reserves before user's msg.value to ensure proper refunds
+        uint256 vaultHBARReserves = address(this).balance - msg.value;
+        _prepareWithdraw(msg.value);
         if (_shares == 0) revert NoShares();
 
         // Withdraw All Liquidity to Strat for Accounting if strategy is not retired.
@@ -551,48 +607,63 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             strategy.beforeAction();
         }
 
-        uint256 _totalSupply = totalSupply();
-        _burn(msg.sender, _shares);
+        uint256 send0;
+        uint256 send1;
+        uint256 ava0;
+        uint256 ava1;
+        {
+            // Scope to reduce stack depth
+            uint256 _totalSupply = totalSupply();
+            _burn(msg.sender, _shares);
 
-        (uint256 _bal0, uint256 _bal1) = balances();
+            (uint256 _bal0, uint256 _bal1) = balances();
 
-        uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
-        uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
-        (address token0, address token1) = wants();
+            uint256 _amount0 = FullMath.mulDiv(_bal0, _shares, _totalSupply);
+            uint256 _amount1 = FullMath.mulDiv(_bal1, _shares, _totalSupply);
+            (address token0, address token1) = wants();
 
-        if (
-            IERC20Upgradeable(token0).balanceOf(address(this)) < _amount0 ||
-            IERC20Upgradeable(token1).balanceOf(address(this)) < _amount1
-        ) {
-            strategy.withdraw(_amount0, _amount1);
-        }
+            ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
+            ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
 
-        // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
-        uint256 ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
-        uint256 ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
-        uint256 send0 = ava0 < _amount0 ? ava0 : _amount0;
-        uint256 send1 = ava1 < _amount1 ? ava1 : _amount1;
+            if (ava0 < _amount0 || ava1 < _amount1) {
+                uint256 _amt0ToWithdraw = ava0 < _amount0 ? _amount0 - ava0 : 0;
+                uint256 _amt1ToWithdraw = ava1 < _amount1 ? _amount1 - ava1 : 0;
+                strategy.withdraw(_amt0ToWithdraw, _amt1ToWithdraw);
+            }
 
-        if (send0 < _minAmount0 || send1 < _minAmount1 || (send0 == 0 && send1 == 0))
-            revert TooMuchSlippage();
+            // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
+            ava0 = IERC20Upgradeable(token0).balanceOf(address(this));
+            ava1 = IERC20Upgradeable(token1).balanceOf(address(this));
+            send0 = ava0 < _amount0 ? ava0 : _amount0;
+            send1 = ava1 < _amount1 ? ava1 : _amount1;
 
-        if (send0 > 0) {
-            if (token0 == strategy.native()) {
-                //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(send0);
-                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            } else {
-                _transferTokens(token0, address(this), msg.sender, send0, true);
+            if (send0 < _minAmount0 || send1 < _minAmount1 || (send0 == 0 && send1 == 0))
+                revert TooMuchSlippage();
+
+            if (send0 > 0) {
+                if (token0 == strategy.native()) {
+                    //unwrap WHBAR to HBAR
+                    uint256 unwrappedAmount = _unwrapWHBAR(send0);
+                    AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+                } else {
+                    _transferTokens(token0, address(this), msg.sender, send0, true);
+                }
+            }
+            if (send1 > 0) {
+                if (token1 == strategy.native()) {
+                    //unwrap WHBAR to HBAR
+                    uint256 unwrappedAmount = _unwrapWHBAR(send1);
+                    AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
+                } else {
+                    _transferTokens(token1, address(this), msg.sender, send1, true);
+                }
             }
         }
-        if (send1 > 0) {
-            if (token1 == strategy.native()) {
-                //unwrap WHBAR to HBAR
-                uint256 unwrappedAmount = _unwrapWHBAR(send1);
-                AddressUpgradeable.sendValue(payable(msg.sender), unwrappedAmount);
-            } else {
-                _transferTokens(token1, address(this), msg.sender, send1, true);
-            }
+
+        // Refund excess HBAR to user (from mint fee overestimation, user overpayment, or strategy refunds)
+        // Any HBAR beyond vault's original reserves (before user sent msg.value) should go to user
+        if (address(this).balance > vaultHBARReserves) {
+            AddressUpgradeable.sendValue(payable(msg.sender), address(this).balance - vaultHBARReserves);
         }
 
         emit Withdraw(msg.sender, _shares, send0, send1);

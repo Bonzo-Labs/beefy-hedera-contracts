@@ -43,7 +43,9 @@ contract BonzoVaultV7 is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
     bool private strategyTokenAssociated;
     // token address
     address public wantToken;
-
+    // Minimum liquidity locked on first deposit to prevent share inflation attack
+    uint256 private constant MINIMUM_SHARES = 10 ** 3;
+    address private constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     event NewStratCandidate(address implementation);
     event UpgradeStrat(address implementation);
@@ -142,10 +144,13 @@ contract BonzoVaultV7 is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
         _amount = balance() - _pool; // Additional check for deflationary tokens
         uint256 shares = 0;
         if (totalSupply() == 0) {
-            shares = _amount;
+            // Mint minimum liquidity to dead address (locks it forever)
+            _mint(BURN_ADDRESS, MINIMUM_SHARES);
+            shares = _amount - MINIMUM_SHARES;
         } else {
             shares = (_amount * totalSupply()) / _pool;
         }
+        require(shares > 0, "Cannot mint zero shares");
         _mint(msg.sender, shares);
         emit Deposit(msg.sender, address(want()), _amount, shares);
     }
@@ -180,7 +185,7 @@ contract BonzoVaultV7 is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGuardUp
      * from the strategy and pay up the token holder. A proportional number of IOU
      * tokens are burned in the process.
      */
-    function withdraw(uint256 _shares) public {
+    function withdraw(uint256 _shares) public nonReentrant {
         uint256 r = (balance() * _shares) / totalSupply();
         _burn(msg.sender, _shares);
 
