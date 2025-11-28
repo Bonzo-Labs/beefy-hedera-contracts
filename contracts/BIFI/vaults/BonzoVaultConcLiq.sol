@@ -570,12 +570,15 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         return 0; // Placeholder, real calculation happens in _completeDeposit
     }
 
-    function _prepareWithdraw() internal {
+    function _prepareWithdraw(uint256 userSentHBAR) internal {
         if (OwnableUpgradeable(address(strategy)).owner() == address(0)) return;
         uint256 totalMintFeeRequired = estimateDepositHBARRequired();
 
         // Forward HBAR for mint fees to strategy if required
         if (totalMintFeeRequired > 0) {
+            if (userSentHBAR < totalMintFeeRequired) {
+                revert InsufficientHBARBalance(userSentHBAR, totalMintFeeRequired);
+            }
             AddressUpgradeable.sendValue(payable(address(strategy)), totalMintFeeRequired);
         }
     }
@@ -596,7 +599,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public payable nonReentrant {
         // Track vault's HBAR reserves before user's msg.value to ensure proper refunds
         uint256 vaultHBARReserves = address(this).balance - msg.value;
-        _prepareWithdraw();
+        _prepareWithdraw(msg.value);
         if (_shares == 0) revert NoShares();
 
         // Withdraw All Liquidity to Strat for Accounting if strategy is not retired.
