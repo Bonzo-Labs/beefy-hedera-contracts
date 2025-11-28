@@ -451,36 +451,27 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function balances() public view returns (uint256 token0Bal, uint256 token1Bal) {
         (uint256 thisBal0, uint256 thisBal1) = balancesOfThis();
         BalanceInfo memory poolInfo = balancesOfPool();
-        uint256 timeElapsed = block.timestamp - lastHarvest;
-        uint256 locked0;
-        uint256 locked1;
+        return (thisBal0 + poolInfo.token0Bal, thisBal1 + poolInfo.token1Bal);
+    }
+
+    function lockedBalances() external view returns (uint256 locked0, uint256 locked1) {
+        return _lockedBalances();
+    }
+
+    function _lockedBalances() private view returns (uint256 locked0, uint256 locked1) {
         uint256 duration = lockDuration;
-        if (duration == 0 || timeElapsed >= duration) {
-            locked0 = 0;
-            locked1 = 0;
-        } else {
-            uint256 remaining = duration - timeElapsed;
-            locked0 = totalLocked0 * remaining / duration;
-            locked1 = totalLocked1 * remaining / duration;
+        if (duration != 0) {
+            uint256 timeElapsed = block.timestamp - lastHarvest;
+            if (timeElapsed < duration) {
+                uint256 remaining = duration - timeElapsed;
+                locked0 = (totalLocked0 * remaining) / duration;
+                locked1 = (totalLocked1 * remaining) / duration;
+            }
         }
 
         (uint256 rewardLocked0, uint256 rewardLocked1) = _pendingRewardLocks();
         locked0 += rewardLocked0;
         locked1 += rewardLocked1;
-
-        uint256 available0 = thisBal0 + poolInfo.token0Bal;
-        uint256 available1 = thisBal1 + poolInfo.token1Bal;
-
-        // Prevent underflow: locked0/locked1 cannot exceed available balances
-        if (locked0 > available0) locked0 = available0;
-        if (locked1 > available1) locked1 = available1;
-
-        uint256 total0 = available0 - locked0;
-        uint256 total1 = available1 - locked1;
-
-        // Return actual available balances without subtracting unharvested fees
-        // Unharvested fees are part of the strategy's value and should be included in TVL
-        return (total0, total1);
     }
 
     function balancesOfThis() public view returns (uint256 token0Bal, uint256 token1Bal) {
