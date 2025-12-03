@@ -331,10 +331,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function harvest() external payable {
-        _harvest(tx.origin);
+        _harvest(msg.sender);
     }
 
-    // In the harvest function, we WILL NOT remove and add liquidity because this creates >50 child transactions and fails on-chain.
     // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
         require(msg.value >= 2*getMintFee(), "IMF");
