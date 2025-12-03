@@ -16,6 +16,7 @@ async function associateToken(strategyAddress, tokenAddress, signer) {
   const tx = await strategy.associateToken(tokenAddress, {gasLimit: 500000});
   console.log("Sent transaction:", tx.hash);
   const receipt = await tx.wait();
+  console.log("Receipt trx hash:", receipt.transactionHash);
   console.log("Confirmed in block:", receipt.blockNumber);
 }
 
