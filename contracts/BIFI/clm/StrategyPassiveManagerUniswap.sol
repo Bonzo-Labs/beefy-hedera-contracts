@@ -224,7 +224,7 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     }
 
     /// @notice Called during deposit to add all liquidity back to their positions.
-    function deposit() external onlyCalmPeriods {
+    function deposit() external onlyCalmPeriods payable {
         _onlyVault();
 
         // Get current balances before adding liquidity
@@ -260,7 +260,7 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
      * @param _amount0 The amount of token0 to withdraw.
      * @param _amount1 The amount of token1 to withdraw.
      */
-    function withdraw(uint256 _amount0, uint256 _amount1) external {
+    function withdraw(uint256 _amount0, uint256 _amount1) external payable {
         _onlyVault();
 
         if (block.timestamp == lastDeposit) _onlyCalmPeriods();

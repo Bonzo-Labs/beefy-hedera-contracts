@@ -169,7 +169,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         // _removeLiquidity();
     }
 
-    function deposit() external onlyCalmPeriods {
+    function deposit() external payable onlyCalmPeriods {
         _onlyVault();
         (uint256 balBefore0, uint256 balBefore1) = balancesOfThis(); // Current balances before adding liquidity
         if (!initTicks) {
@@ -188,7 +188,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         emit Deposit(vault, userDeposited0, userDeposited1);
     }
 
-    function withdraw(uint256 _amount0, uint256 _amount1) external {
+    function withdraw(uint256 _amount0, uint256 _amount1) external payable {
         _onlyVault();
         if (block.timestamp == lastDeposit) _onlyCalmPeriods();
 
@@ -215,7 +215,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function _addLiquidity() private onlyCalmPeriods {
         _whenStrategyNotPaused();
-        uint256 hbarBalanceBefore = address(this).balance > 0 && address(this).balance > msg.value ? address(this).balance - msg.value : 0;
+        uint256 hbarBalanceBefore = address(this).balance;
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = updateMintFeeWithFreshPrice();
@@ -285,11 +285,14 @@ contract SaucerSwapLariRewardsCLMStrategy is
         }
 
         uint256 hbarBalanceAfter = address(this).balance;
-        // Return excess HBAR to msg.sender (the immediate caller)
-        // This prevents tx.origin exploits where malicious signers could drain treasury funds
-        // The vault can receive HBAR and will handle user refunds appropriately
-        if (hbarBalanceAfter > hbarBalanceBefore) {
-            AddressUpgradeable.sendValue(payable(msg.sender), hbarBalanceAfter - hbarBalanceBefore);
+        
+        uint256 hbarSpent = hbarBalanceBefore > hbarBalanceAfter ? hbarBalanceBefore - hbarBalanceAfter : 0;
+        
+        // Return excess HBAR if we received any for this operation
+        // msg.value contains HBAR for: deposit(), withdraw(), harvest(), moveTicks(), setPositionWidth()
+        if (msg.value > hbarSpent) {
+            uint256 excessHbar = msg.value - hbarSpent;
+            AddressUpgradeable.sendValue(payable(msg.sender), excessHbar);
         }
     }
 

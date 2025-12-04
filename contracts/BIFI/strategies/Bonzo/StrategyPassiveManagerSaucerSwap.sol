@@ -162,7 +162,7 @@ contract StrategyPassiveManagerSaucerSwap is
         depositPrepared = true;
     }
 
-    function deposit() external onlyCalmPeriods {
+    function deposit() external onlyCalmPeriods payable {
         _onlyVault();
         if (!depositPrepared) revert DepositNotPrepared();
         (uint256 balBefore0, uint256 balBefore1) = balancesOfThis();
@@ -183,7 +183,7 @@ contract StrategyPassiveManagerSaucerSwap is
         depositPrepared = false;
     }
 
-    function withdraw(uint256 _amount0, uint256 _amount1) external {
+    function withdraw(uint256 _amount0, uint256 _amount1) external payable {
         // It removes liquidity in beforeAction()
         _onlyVault();
         if (block.timestamp == lastDeposit) _onlyCalmPeriods();
@@ -202,7 +202,7 @@ contract StrategyPassiveManagerSaucerSwap is
 
     function _addLiquidity() private onlyCalmPeriods {
         _whenStrategyNotPaused();
-        uint256 hbarBalanceBefore = address(this).balance > 0 ? address(this).balance - msg.value : 0;
+        uint256 hbarBalanceBefore = address(this).balance;
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = updateMintFeeWithFreshPrice();
@@ -274,9 +274,13 @@ contract StrategyPassiveManagerSaucerSwap is
         }
         
         uint256 hbarBalanceAfter = address(this).balance;
-        //return the excess hbar to caller
-        if (hbarBalanceAfter > hbarBalanceBefore) {
-            AddressUpgradeable.sendValue(payable(tx.origin), hbarBalanceAfter - hbarBalanceBefore);
+        
+        uint256 hbarSpent = hbarBalanceBefore > hbarBalanceAfter ? hbarBalanceBefore - hbarBalanceAfter : 0;
+        
+        // Return excess HBAR if we received any for this operation
+        if (msg.value > hbarSpent) {
+            uint256 excessHbar = msg.value - hbarSpent;
+            AddressUpgradeable.sendValue(payable(tx.origin), excessHbar);
         }
     }
 
