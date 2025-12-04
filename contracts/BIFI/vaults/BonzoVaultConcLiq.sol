@@ -446,15 +446,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         if (vars.amount1 > 0) {
             _transferTokens(vars.token1, msg.sender, address(strategy), vars.amount1, false);
         }
-
-        // Forward HBAR for mint fees to strategy if required
-        if (vars.totalMintFeeRequired > 0) {
-            uint256 hbarBalance = address(this).balance;
-            if (hbarBalance < vars.totalMintFeeRequired) {
-                revert InsufficientHBARBalance(hbarBalance, vars.totalMintFeeRequired);
-            }
-            AddressUpgradeable.sendValue(payable(address(strategy)), vars.totalMintFeeRequired);
-        }
+        // HBAR for mint fees will be forwarded when calling strategy.deposit()
     }
 
     /**
@@ -557,7 +549,16 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             vars.sentAmount1 = _after1 - vars.bal1; // Update sentAmount1 instead of amount1
         }
 
-        strategy.deposit();
+        // Forward HBAR for mint fees to strategy
+        if (vars.totalMintFeeRequired > 0) {
+            uint256 hbarBalance = address(this).balance;
+            if (hbarBalance < vars.totalMintFeeRequired) {
+                revert InsufficientHBARBalance(hbarBalance, vars.totalMintFeeRequired);
+            }
+            strategy.deposit{value: vars.totalMintFeeRequired}();
+        } else {
+            strategy.deposit();
+        }
 
         // Get leftover amounts from strategy
         (vars.leftover0, vars.leftover1) = strategy.getLeftoverAmounts();
@@ -570,16 +571,13 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
         return 0; // Placeholder, real calculation happens in _completeDeposit
     }
 
-    function _prepareWithdraw(uint256 userSentHBAR) internal {
-        if (OwnableUpgradeable(address(strategy)).owner() == address(0)) return;
-        uint256 totalMintFeeRequired = estimateDepositHBARRequired();
+    function _prepareWithdraw(uint256 userSentHBAR) internal view returns (uint256 mintFeeRequired) {
+        if (OwnableUpgradeable(address(strategy)).owner() == address(0)) return 0;
+        mintFeeRequired = estimateDepositHBARRequired();
 
-        // Forward HBAR for mint fees to strategy if required
-        if (totalMintFeeRequired > 0) {
-            if (userSentHBAR < totalMintFeeRequired) {
-                revert InsufficientHBARBalance(userSentHBAR, totalMintFeeRequired);
-            }
-            AddressUpgradeable.sendValue(payable(address(strategy)), totalMintFeeRequired);
+        // Validate user sent enough HBAR
+        if (mintFeeRequired > 0 && userSentHBAR < mintFeeRequired) {
+            revert InsufficientHBARBalance(userSentHBAR, mintFeeRequired);
         }
     }
 
@@ -599,7 +597,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
     function withdraw(uint256 _shares, uint256 _minAmount0, uint256 _minAmount1) public payable nonReentrant {
         // Track vault's HBAR reserves before user's msg.value to ensure proper refunds
         uint256 vaultHBARReserves = address(this).balance - msg.value;
-        _prepareWithdraw(msg.value);
+        uint256 mintFeeRequired = _prepareWithdraw(msg.value);
         if (_shares == 0) revert NoShares();
 
         // Withdraw All Liquidity to Strat for Accounting if strategy is not retired.
@@ -628,7 +626,12 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
             if (ava0 < _amount0 || ava1 < _amount1) {
                 uint256 _amt0ToWithdraw = ava0 < _amount0 ? _amount0 - ava0 : 0;
                 uint256 _amt1ToWithdraw = ava1 < _amount1 ? _amount1 - ava1 : 0;
-                strategy.withdraw(_amt0ToWithdraw, _amt1ToWithdraw);
+                // Forward HBAR for mint fees when calling withdraw
+                if (mintFeeRequired > 0) {
+                    strategy.withdraw{value: mintFeeRequired}(_amt0ToWithdraw, _amt1ToWithdraw);
+                } else {
+                    strategy.withdraw(_amt0ToWithdraw, _amt1ToWithdraw);
+                }
             }
 
             // Recompute actual transferable amounts after strategy withdrawal (net of any strategy-side fees)
