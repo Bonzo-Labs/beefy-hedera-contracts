@@ -359,6 +359,7 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
      * @notice Deposit tokens into vault. Supports native HBAR for WHBAR deposits and mint fees.
      */
     function deposit(uint256 _amount0, uint256 _amount1, uint256 _minShares) public payable nonReentrant {
+        uint256 vaultHBARReserves = address(this).balance - msg.value;
         DepositVars memory vars;
         (vars.token0, vars.token1) = wants();
 
@@ -373,6 +374,11 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
 
         // Return excess HBAR and mint shares
         _completeDeposit(vars, shares, msg.sender);
+
+        //return excess mint fees to user
+        if (address(this).balance > vaultHBARReserves) {
+            AddressUpgradeable.sendValue(payable(msg.sender), address(this).balance - vaultHBARReserves);
+        }
     }
 
     /// @notice Struct to reduce stack depth in deposit function
@@ -508,17 +514,6 @@ contract BonzoVaultConcLiq is ERC20Upgradeable, OwnableUpgradeable, ReentrancyGu
                 AddressUpgradeable.sendValue(payable(recipient), vars.leftover1);
             } else {
                 _transferTokens(vars.token1, address(this), recipient, vars.leftover1, true);
-            }
-        }
-
-        // Return excess HBAR to user if any
-        {
-            // Scope to reduce stack depth
-            uint256 actualHBARUsed = vars.whbarAmount + vars.totalMintFeeRequired;
-            if (msg.value > actualHBARUsed) {
-                if (address(this).balance >= msg.value - actualHBARUsed) {
-                    AddressUpgradeable.sendValue(payable(recipient), msg.value - actualHBARUsed);
-                }
             }
         }
 
