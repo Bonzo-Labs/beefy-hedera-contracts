@@ -140,12 +140,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
         twapInterval = 120; // Set the twap interval to 120 seconds.
         maxTickDeviation = 200; // Set default max tick deviation
         lockDuration = 21600;
-        if (lpToken0 != native) {
-            SaucerSwapCLMLib.safeAssociateToken(lpToken0);
-        }
-        if (lpToken1 != native) {
-            SaucerSwapCLMLib.safeAssociateToken(lpToken1);
-        }
+        SaucerSwapCLMLib.safeAssociateToken(lpToken0);
+        SaucerSwapCLMLib.safeAssociateToken(lpToken1);
+        
         for (uint256 i = 0; i < _params.rewardTokens.length; i++) {
             _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
