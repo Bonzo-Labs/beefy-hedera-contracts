@@ -771,11 +771,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         if (bal0 < _minAmount0 || bal1 < _minAmount1) revert TooMuchSlippage();
     }
 
-    function unpause() external onlyManager {
-        if (owner() == address(0)) revert NotAuthorized();
-        _unpause();
-    }
-
     function reversePanic() external payable onlyManager onlyCalmPeriods {
         if (owner() == address(0)) revert NotAuthorized();
         _unpause();
