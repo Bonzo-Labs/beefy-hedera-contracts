@@ -151,7 +151,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
                 ? 0x000000000000000000000000000000000058A2BA
                 : 0x000000000000000000000000000000000050a8a7
         );
-        // _safeGiveAllowances();
     }
 
     function _onlyVault() private view {
@@ -745,7 +744,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function setUnirouter(address _unirouter) external override onlyOwner {
         _removeAllowances();
         unirouter = _unirouter;
-        _giveAllowances();
         emit SetUnirouter(_unirouter);
     }
 
@@ -775,18 +773,14 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function unpause() external onlyManager {
         if (owner() == address(0)) revert NotAuthorized();
-        // _giveAllowances();
         _unpause();
-        // _setTicks();
-        // _addLiquidity();
     }
 
-    function _giveAllowances() private {
-        SaucerSwapLariLib.giveAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
-    }
-
-    function _safeGiveAllowances() private {
-        SaucerSwapLariLib.safeGiveAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
+    function reversePanic() external payable onlyManager onlyCalmPeriods {
+        if (owner() == address(0)) revert NotAuthorized();
+        _unpause();
+        _setTicks();
+        _addLiquidity();
     }
 
     function _removeAllowances() private {
