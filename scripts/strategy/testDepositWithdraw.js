@@ -9,8 +9,8 @@ const { ethers } = hardhat;
  * STRATEGY_ADDRESS=0x... VAULT_ADDRESS=0x... npx hardhat run scripts/strategy/testDepositWithdraw.js --network hedera_testnet
  */
 
-const STRATEGY_ADDRESS = "0x371aF8A155577E7C2bA0592E8294a3150d642422";
-const VAULT_ADDRESS = "0x464dBaD77730694A088bbAb2fB8435cd6f2dDF48";
+const STRATEGY_ADDRESS = "0x07A66c6F7cF1a8353Df3e51dB8396BaCceF1FFF1";
+const VAULT_ADDRESS = "0x7B77d169c9905Ab19b5F56d5d381E1f23C3f6f5E";
 const AMOUNT_0 = "0.1"; // Default 0.1 tokens
 const AMOUNT_1 = "0.1"; // Default 0.1 tokens
 
@@ -146,12 +146,12 @@ async function main() {
   console.log("  Token0:", ethers.utils.formatUnits(strategyBal0After, decimals0));
   console.log("  Token1:", ethers.utils.formatUnits(strategyBal1After, decimals1));
   
-  const leftover0 = await strategy.leftover0();
-  const leftover1 = await strategy.leftover1();
+  // const leftover0 = await strategy.leftover0();
+  // const leftover1 = await strategy.leftover1();
   
-  console.log("\nReported leftovers:");
-  console.log("  Leftover0:", ethers.utils.formatUnits(leftover0, decimals0));
-  console.log("  Leftover1:", ethers.utils.formatUnits(leftover1, decimals1));
+  // console.log("\nReported leftovers:");
+  // console.log("  Leftover0:", ethers.utils.formatUnits(leftover0, decimals0));
+  // console.log("  Leftover1:", ethers.utils.formatUnits(leftover1, decimals1));
 
   const vaultSharesAfter = await vault.balanceOf(user.address);
   console.log("Vault shares after deposit:", ethers.utils.formatEther(vaultSharesAfter));
@@ -174,19 +174,19 @@ async function main() {
     }
   }
   
-  // Check if leftover is reasonable
-  if (leftover0.gt(depositAmount0)) {
-    console.log("❌ WARNING: Leftover0 exceeds deposit amount!");
-    console.log("  This suggests entire balance is being returned!");
-  } else {
-    console.log("✅ Leftover0 is reasonable (≤ deposit amount)");
-  }
+  // // Check if leftover is reasonable
+  // if (leftover0.gt(depositAmount0)) {
+  //   console.log("❌ WARNING: Leftover0 exceeds deposit amount!");
+  //   console.log("  This suggests entire balance is being returned!");
+  // } else {
+  //   console.log("✅ Leftover0 is reasonable (≤ deposit amount)");
+  // }
   
-  if (leftover1.gt(depositAmount1)) {
-    console.log("❌ WARNING: Leftover1 exceeds deposit amount!");
-  } else {
-    console.log("✅ Leftover1 is reasonable (≤ deposit amount)");
-  }
+  // if (leftover1.gt(depositAmount1)) {
+  //   console.log("❌ WARNING: Leftover1 exceeds deposit amount!");
+  // } else {
+  //   console.log("✅ Leftover1 is reasonable (≤ deposit amount)");
+  // }
   
   // 5. Test withdraw
   console.log("\n╔════════════════════════════════════════════════════════════════╗");

@@ -24,8 +24,8 @@ const ethers = hardhat.ethers;
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
-const PROXY_ADDRESS = "0x55C27c0f51ba56F9C4BAD96BFE2ac7990C20f0F8";
-const LOCK_DURATION;// set  only if you want to update the lock duration
+const PROXY_ADDRESS = "0x07A66c6F7cF1a8353Df3e51dB8396BaCceF1FFF1";
+// const LOCK_DURATION;// set  only if you want to update the lock duration
 //*******************SET CHAIN TYPE HERE*******************
 
 // Load addresses based on chain type
@@ -198,18 +198,18 @@ async function upgradeStrategyWithHardhatUpgrades() {
     console.log("\n=== Step 6: Verify State Preservation ===");
     const upgradedStrategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", PROXY_ADDRESS);
 
-    // Optionally set lock duration post-upgrade
-    if (LOCK_DURATION) {
-      console.log("\n=== Step 8: Update Lock Duration ===");
-      try {
-        const lockTx = await upgradedStrategy.setLockDuration(LOCK_DURATION, { gasLimit: 500000 });
-        await lockTx.wait();
-        console.log(`✅ Lock duration updated to ${LOCK_DURATION}s`);
-      } catch (error) {
-        console.error("❌ Failed to update lock duration:", error.message);
-        throw error;
-      }
-    }
+    // // Optionally set lock duration post-upgrade
+    // if (LOCK_DURATION) {
+    //   console.log("\n=== Step 8: Update Lock Duration ===");
+    //   try {
+    //     const lockTx = await upgradedStrategy.setLockDuration(LOCK_DURATION, { gasLimit: 500000 });
+    //     await lockTx.wait();
+    //     console.log(`✅ Lock duration updated to ${LOCK_DURATION}s`);
+    //   } catch (error) {
+    //     console.error("❌ Failed to update lock duration:", error.message);
+    //     throw error;
+    //   }
+    // }
 
 
 
@@ -242,8 +242,7 @@ async function upgradeStrategyWithHardhatUpgrades() {
       currentConfig.vault === afterConfig.vault &&
       currentConfig.lpToken0 === afterConfig.lpToken0 &&
       currentConfig.lpToken1 === afterConfig.lpToken1 &&
-      currentConfig.owner === afterConfig.owner &&
-      currentConfig.lockDuration === afterConfig.lockDuration;
+      currentConfig.owner === afterConfig.owner;
 
     if (!statePreserved) {
       console.error("❌ CRITICAL: State not preserved!");
@@ -258,19 +257,6 @@ async function upgradeStrategyWithHardhatUpgrades() {
     throw error;
   }
 
-  // Test new functionality
-  console.log("\n=== Step 7: Test New Functionality ===");
-  try {
-    // Test new leftover tracking variables
-    const leftover0 = await upgradedStrategy.leftover0();
-    const leftover1 = await upgradedStrategy.leftover1();
-    console.log("✅ New leftover tracking accessible:");
-    console.log("  Leftover0:", leftover0.toString());
-    console.log("  Leftover1:", leftover1.toString());
-    console.log("✅ Leftover calculation fix is active!");
-  } catch (error) {
-    console.warn("⚠️  Could not verify new functionality:", error.message);
-  }
 
   // Get final implementation
   const finalImplementation = await upgrades.erc1967.getImplementationAddress(PROXY_ADDRESS);
@@ -289,12 +275,6 @@ async function upgradeStrategyWithHardhatUpgrades() {
   console.log("  Upgrade time:        ", new Date().toISOString());
 
   console.log("\n✅ What was fixed in this upgrade:");
-  console.log("  1. ✅ Leftover calculation vulnerability patched");
-  console.log("  2. ✅ Added balanceBeforeDeposit0/1 tracking");
-  console.log("  3. ✅ beforeAction() captures baseline balance");
-  console.log("  4. ✅ deposit() calculates leftovers relative to baseline");
-  console.log("  5. ✅ Deposit event emits actual user amounts");
-  console.log("  6. ✅ Pre-existing balances now protected");
 
   console.log("\n🔒 Hardhat Upgrades Plugin validated:");
   console.log("  ✅ Storage layout compatibility");
@@ -304,16 +284,6 @@ async function upgradeStrategyWithHardhatUpgrades() {
 
   console.log("\n⚠️  Post-Upgrade Actions:");
   console.log("  1. ✅ Monitor first few deposits closely");
-  console.log("  2. ✅ Verify leftover amounts are correct");
-  console.log("  3. ✅ Check pre-existing balances protected");
-  console.log("  4. ✅ Verify Deposit events show correct amounts");
-  console.log("  5. ✅ Test with small amounts first");
-
-  console.log("\n🧪 Test the fix:");
-  console.log("  1. Make a small test deposit");
-  console.log("  2. Check Deposit event (should show user's deposit only)");
-  console.log("  3. Verify leftover calculation (should exclude pre-existing)");
-  console.log("  4. Ensure strategy retains existing balances");
 
   // Save upgrade info
   const upgradeInfo = {

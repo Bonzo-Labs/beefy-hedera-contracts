@@ -140,12 +140,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
         twapInterval = 120; // Set the twap interval to 120 seconds.
         maxTickDeviation = 200; // Set default max tick deviation
         lockDuration = 21600;
-        if (lpToken0 != native) {
-            SaucerSwapCLMLib.safeAssociateToken(lpToken0);
-        }
-        if (lpToken1 != native) {
-            SaucerSwapCLMLib.safeAssociateToken(lpToken1);
-        }
+        SaucerSwapCLMLib.safeAssociateToken(lpToken0);
+        SaucerSwapCLMLib.safeAssociateToken(lpToken1);
+        
         for (uint256 i = 0; i < _params.rewardTokens.length; i++) {
             _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
@@ -154,7 +151,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
                 ? 0x000000000000000000000000000000000058A2BA
                 : 0x000000000000000000000000000000000050a8a7
         );
-        // _safeGiveAllowances();
     }
 
     function _onlyVault() private view {
@@ -748,7 +744,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function setUnirouter(address _unirouter) external override onlyOwner {
         _removeAllowances();
         unirouter = _unirouter;
-        _giveAllowances();
         emit SetUnirouter(_unirouter);
     }
 
@@ -776,20 +771,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
         if (bal0 < _minAmount0 || bal1 < _minAmount1) revert TooMuchSlippage();
     }
 
-    function unpause() external onlyManager {
+    function reversePanic() external payable onlyManager onlyCalmPeriods {
         if (owner() == address(0)) revert NotAuthorized();
-        // _giveAllowances();
         _unpause();
-        // _setTicks();
-        // _addLiquidity();
-    }
-
-    function _giveAllowances() private {
-        SaucerSwapLariLib.giveAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
-    }
-
-    function _safeGiveAllowances() private {
-        SaucerSwapLariLib.safeGiveAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
+        _setTicks();
+        _addLiquidity();
     }
 
     function _removeAllowances() private {
