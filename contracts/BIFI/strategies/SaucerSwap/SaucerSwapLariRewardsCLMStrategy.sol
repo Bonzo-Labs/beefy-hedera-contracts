@@ -215,6 +215,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = updateMintFeeWithFreshPrice();
+        //fix for frequesnt issues of not having enough HBAR for mint fee
+        // mintFee = mintFee * 85 / 100; //reduce mint fee by 15% because we are overestimating it by 1.5x in getMintFee()
         uint160 sqrtprice = sqrtPrice();
         (uint128 liquidity, uint160 adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
