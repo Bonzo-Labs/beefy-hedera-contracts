@@ -87,6 +87,18 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     error NotEnoughHBAR(uint256 availableHBAR, uint256 requiredHBAR);
     error InsufficientHBARForDebtRepayment(uint256 layerDebt, uint256 expectedHBAR, uint256 minHBAR);
 
+    function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+        // (a + b - 1) / b with protection for a=0
+        return a == 0 ? 0 : ((a - 1) / b) + 1;
+    }
+
+    function _convertHbarToHbarXRoundUp(uint256 hbarAmount) internal view returns (uint256) {
+        // Convert HBAR amount to equivalent HBARX amount using exchange rate, rounding up
+        // exchangeRate is HBAR/1 HBARX in 8 decimals
+        uint256 exchangeRate = IStaking(stakingContract).getExchangeRate();
+        return _ceilDiv(hbarAmount * 1e8, exchangeRate);
+    }
+
     function initialize(
         address _want,
         address _borrowToken,
@@ -272,12 +284,18 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
         // Calculate proportional supply to withdraw and distribute across layers
         uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
-        uint256 layerSupply = supplyToWithdraw / (maxLoops+1);
+        uint256 layers = maxLoops + 1;
+        uint256 layerSupply = supplyToWithdraw / layers;
         if(layerSupply == 0) return;
         
         IERC20(want).approve(saucerSwapRouter, _targetAmount*3);
+
+        uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
+        totalDebt = totalDebt * withdrawRatio / 1e18;
+        // Rounding: per-layer debt must account for remainder ("dust") so it doesn't get stuck.
+        // We'll re-compute a target each iteration based on remaining debt and remaining layers.
         
-        for (uint256 i = 0; i < maxLoops+1; i++) {
+        for (uint256 i = 0; i < layers; i++) {
             // Adjust layer supply if remaining supply is less
             uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
             uint256 withdrawAmount = currentSupply < layerSupply ? currentSupply : layerSupply;
@@ -287,8 +305,9 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             ILendingPool(lendingPool).withdraw(want, withdrawAmount, address(this));
             
             // Check current debt
-            uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
-            if (currentDebt == 0) {
+           
+            uint256 debtBal = IERC20(debtToken).balanceOf(address(this));
+            if (debtBal == 0) {
                 // No debt left, withdraw any remaining supply if needed
                 uint256 remainingSupply = IERC20(aToken).balanceOf(address(this));
                 if(remainingSupply > 0) {
@@ -301,8 +320,12 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             uint256 availableHbarx = IERC20(want).balanceOf(address(this));
             if (availableHbarx == 0) continue;
             
-            // Calculate exact HBARX needed to repay current debt
-            uint256 hbarxNeeded = _convertHbarToHbarX(currentDebt);
+            // Calculate per-layer target debt (ceil) to ensure we pick up remainder on final layers
+            uint256 remainingLayers = layers - i;
+            uint256 targetDebt = _ceilDiv(debtBal, remainingLayers);
+
+            // Calculate HBARX needed to cover targetDebt, rounding up to avoid under-swapping
+            uint256 hbarxNeeded = _convertHbarToHbarXRoundUp(targetDebt);
             // Add slippage buffer (2%) to ensure we can cover the debt
             hbarxNeeded = (hbarxNeeded * 10200) / 10000;
             
@@ -314,7 +337,8 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
             
             if (hbarAmount > 0) {
                 // Repay debt (cap at current debt balance to avoid overpayment)
-                uint256 repayAmount = hbarAmount > currentDebt ? currentDebt : hbarAmount;
+                uint256 repayAmount = hbarAmount > targetDebt ? targetDebt : hbarAmount;
+                if (repayAmount > debtBal) repayAmount = debtBal;
                 IWHBARGateway(whbarGateway).repayHBAR{value: repayAmount}(
                     lendingPool, 
                     repayAmount, 
