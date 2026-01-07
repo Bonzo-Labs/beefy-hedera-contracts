@@ -11,6 +11,7 @@ import "../../utils/LiquidityAmounts.sol";
 import "../../utils/TickMath.sol";
 import "../../utils/TickUtils.sol";
 import "../../utils/FullMath.sol";
+import "../../utils/UniswapV3Utils.sol";
 import "../../interfaces/beefy/IStrategyConcLiq.sol";
 import "../../interfaces/saucerswap/IUniswapV3Factory.sol";
 import "../../Hedera/IHederaTokenService.sol";
@@ -215,8 +216,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = updateMintFeeWithFreshPrice();
-         //fix for frequesnt issues of not having enough HBAR for mint fee
-        mintFee = mintFee * 80 / 100; //reduce mint fee by 20% because we are overestimating it by 1.5x in getMintFee()
+        //fix for frequesnt issues of not having enough HBAR for mint fee
+        mintFee = (mintFee * 80) / 100; //reduce mint fee by 20% because we are overestimating it by 1.5x in getMintFee()
         uint160 sqrtprice = sqrtPrice();
         (uint128 liquidity, uint160 adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
@@ -394,6 +395,48 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function moveTicks() external payable onlyCalmPeriods onlyRebalancers {
         _claimEarnings();
         _removeLiquidity();
+        // Rebalance token0/token1 idle amounts to match current pool ratio before re-minting.
+        // This prevents re-adding liquidity with a heavily skewed token balance (e.g. mostly USDC).
+        {
+            (uint256 bal0, uint256 bal1) = balancesOfThis();
+            if (bal0 > 0 || bal1 > 0) {
+                (uint8 decimals0, uint8 decimals1) = SaucerSwapCLMLib.getTokenDecimals(pool);
+                uint256 poolPrice = price(); // token1 per token0, normalized to 1e18
+                if (poolPrice > 0 && unirouter != address(0)) {
+                    // Convert atomic balances to 1e18 "human" units for a consistent comparison.
+                    uint256 bal0Human = FullMath.mulDiv(bal0, PRECISION, 10 ** uint256(decimals0));
+                    uint256 bal1Human = FullMath.mulDiv(bal1, PRECISION, 10 ** uint256(decimals1));
+                    uint256 bal0ValueIn1Human = FullMath.mulDiv(bal0Human, poolPrice, PRECISION);
+
+                    uint24 fee = ISaucerSwapPool(pool).fee();
+
+                    if (bal0ValueIn1Human > bal1Human) {
+                        // token0 is excess by value; swap half the value difference from token0 -> token1
+                        uint256 diff1Human = bal0ValueIn1Human - bal1Human;
+                        uint256 swapValue1Human = diff1Human / 2;
+                        uint256 swap0Human = FullMath.mulDiv(swapValue1Human, PRECISION, poolPrice);
+                        uint256 swap0Atomic = FullMath.mulDiv(swap0Human, 10 ** uint256(decimals0), PRECISION);
+                        if (swap0Atomic > 0 && swap0Atomic < bal0) {
+                            IERC20Metadata(lpToken0).safeApprove(unirouter, 0);
+                            IERC20Metadata(lpToken0).safeApprove(unirouter, swap0Atomic);
+                            bytes memory path = abi.encodePacked(lpToken0, fee, lpToken1);
+                            UniswapV3Utils.swap(unirouter, path, swap0Atomic);
+                        }
+                    } else if (bal1Human > bal0ValueIn1Human) {
+                        // token1 is excess by value; swap half the value difference from token1 -> token0
+                        uint256 diff1Human = bal1Human - bal0ValueIn1Human;
+                        uint256 swap1Human = diff1Human / 2;
+                        uint256 swap1Atomic = FullMath.mulDiv(swap1Human, 10 ** uint256(decimals1), PRECISION);
+                        if (swap1Atomic > 0 && swap1Atomic < bal1) {
+                            IERC20Metadata(lpToken1).safeApprove(unirouter, 0);
+                            IERC20Metadata(lpToken1).safeApprove(unirouter, swap1Atomic);
+                            bytes memory path = abi.encodePacked(lpToken1, fee, lpToken0);
+                            UniswapV3Utils.swap(unirouter, path, swap1Atomic);
+                        }
+                    }
+                }
+            }
+        }
         _setTicks();
         _addLiquidity();
     }
@@ -715,6 +758,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
         SaucerSwapCLMLib.safeAssociateToken(token);
     }
 
+    // NOTE: Temporarily removed additional non-essential admin setters to reduce bytecode size.
+    // These can be re-introduced in a later upgrade if/when needed.
+    /*
     function setPositionWidth(int24 _positionWidth) external payable onlyOwner {
         // Validate width against tick spacing and global tick bounds
         int24 distance = _tickDistance();
@@ -745,6 +791,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         if (_interval < 60) revert InvalidInput();
         twapInterval = _interval;
     }
+    */
 
     function setUnirouter(address _unirouter) external override onlyOwner {
         _removeAllowances();
@@ -795,6 +842,22 @@ contract SaucerSwapLariRewardsCLMStrategy is
         require(!paused(), "SP");
     }
 
+    function _addRewardToken(address _token, bool _isHTS) internal {
+        SaucerSwapLariLib.addRewardToken(
+            rewardTokens,
+            rewardTokenIndex,
+            isRewardToken,
+            _token,
+            _isHTS,
+            lpToken0,
+            lpToken1
+        );
+        emit RewardTokenAdded(_token, _isHTS);
+    }
+
+    // NOTE: Temporarily removed non-essential admin setters to reduce bytecode size.
+    // These can be re-introduced in a later upgrade if/when needed.
+    /*
     function associateToken(address token) external onlyOwner {
         _associateToken(token);
     }
@@ -807,19 +870,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function addRewardToken(address _token, bool _isHTS) external onlyManager {
         if (isRewardToken[_token]) revert TokenExists();
         _addRewardToken(_token, _isHTS);
-    }
-
-    function _addRewardToken(address _token, bool _isHTS) internal {
-        SaucerSwapLariLib.addRewardToken(
-            rewardTokens,
-            rewardTokenIndex,
-            isRewardToken,
-            _token,
-            _isHTS,
-            lpToken0,
-            lpToken1
-        );
-        emit RewardTokenAdded(_token, _isHTS);
     }
 
     function updateRewardTokenStatus(address _token, bool _isActive) external onlyManager {
@@ -857,6 +907,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         }
         emit LockDurationUpdated(oldDuration, _lockDuration);
     }
+    */
 
     function getRewardTokensLength() external view returns (uint256) {
         return rewardTokens.length;
