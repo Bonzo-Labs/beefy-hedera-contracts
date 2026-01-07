@@ -9,9 +9,9 @@ const { ethers } = hardhat;
  * STRATEGY_ADDRESS=0x... VAULT_ADDRESS=0x... npx hardhat run scripts/strategy/testDepositWithdraw.js --network hedera_testnet
  */
 
-const STRATEGY_ADDRESS = "0x07A66c6F7cF1a8353Df3e51dB8396BaCceF1FFF1";
-const VAULT_ADDRESS = "0x7B77d169c9905Ab19b5F56d5d381E1f23C3f6f5E";
-const AMOUNT_0 = "0.1"; // Default 0.1 tokens
+const STRATEGY_ADDRESS = "0x5dDf9A4aF6A43962f49CD8cca3179306DF36BD9e";
+const VAULT_ADDRESS = "0x24d7C6a067503fab120A18485D40CC6eCe9C8A93";
+const AMOUNT_0 = "0.4"; // Default 0.1 tokens
 const AMOUNT_1 = "0.1"; // Default 0.1 tokens
 
 async function main() {
@@ -199,8 +199,8 @@ async function main() {
   if (shares.eq(0)) {
     console.log("⚠️  No shares to withdraw");
   } else {
-    const withdrawShares = shares.div(2);
-    console.log("Withdrawing 50%:", ethers.utils.formatEther(withdrawShares));
+    const withdrawShares = shares; // shares.div(2);
+    console.log("Withdrawing all shares:", ethers.utils.formatEther(withdrawShares));
     
     const userBal0BeforeWithdraw = await token0.balanceOf(user.address);
     const userBal1BeforeWithdraw = await token1.balanceOf(user.address);
