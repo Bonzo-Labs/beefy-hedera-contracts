@@ -297,7 +297,7 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
 
         // Iterate: repay using loose HBARX, then withdraw only the HF-safe amount of collateral, then repeat.
         // This avoids "health factor too low" reverts when trying to withdraw too much collateral before repaying.
-        uint256 maxIterations = (maxLoops + 1) * 6 + 6; // bounded, but enough for full exits
+        uint256 maxIterations = (maxLoops + 2); // bounded, but enough for full exits
         for (uint256 i = 0; i < maxIterations; i++) {
             uint256 debtBal = IERC20(debtToken).balanceOf(address(this));
             if (debtBal <= targetDebtRemaining) break;
