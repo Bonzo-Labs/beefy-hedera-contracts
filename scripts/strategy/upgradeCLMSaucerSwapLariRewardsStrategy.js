@@ -24,7 +24,7 @@ const ethers = hardhat.ethers;
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
-const PROXY_ADDRESS = "0x07A66c6F7cF1a8353Df3e51dB8396BaCceF1FFF1";
+const PROXY_ADDRESS = "0x5dDf9A4aF6A43962f49CD8cca3179306DF36BD9e";
 // const LOCK_DURATION;// set  only if you want to update the lock duration
 //*******************SET CHAIN TYPE HERE*******************
 

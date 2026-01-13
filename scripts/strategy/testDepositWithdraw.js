@@ -9,10 +9,10 @@ const { ethers } = hardhat;
  * STRATEGY_ADDRESS=0x... VAULT_ADDRESS=0x... npx hardhat run scripts/strategy/testDepositWithdraw.js --network hedera_testnet
  */
 
-const STRATEGY_ADDRESS = "0x07A66c6F7cF1a8353Df3e51dB8396BaCceF1FFF1";
-const VAULT_ADDRESS = "0x7B77d169c9905Ab19b5F56d5d381E1f23C3f6f5E";
+const STRATEGY_ADDRESS = "0x5dDf9A4aF6A43962f49CD8cca3179306DF36BD9e";
+const VAULT_ADDRESS = "0x24d7C6a067503fab120A18485D40CC6eCe9C8A93";
 const AMOUNT_0 = "0.1"; // Default 0.1 tokens
-const AMOUNT_1 = "0.1"; // Default 0.1 tokens
+const AMOUNT_1 = "0.8"; // Default 0.1 tokens
 
 async function main() {
   if (!STRATEGY_ADDRESS || !VAULT_ADDRESS) {
@@ -75,9 +75,9 @@ async function main() {
   console.log("  Token0:", ethers.utils.formatUnits(userBal0, decimals0));
   console.log("  Token1:", ethers.utils.formatUnits(userBal1, decimals1));
   
-  if (userBal0.lt(depositAmount0) || userBal1.lt(depositAmount1)) {
-    throw new Error("Insufficient user balance");
-  }
+  // if (userBal0.lt(depositAmount0) || userBal1.lt(depositAmount1)) {
+  //   throw new Error("Insufficient user balance");
+  // }
   
   // Approve
   console.log("\nApproving tokens...");
@@ -95,7 +95,10 @@ async function main() {
   const hbarRequired = await vault.estimateDepositHBARRequired();
   console.log("HBAR required:", hbarRequired.toString());
   //add 25% buffer
-  const hbarRequiredWithBuffer = hbarRequired.mul(125).div(100);
+  let hbarRequiredWithBuffer = hbarRequired.mul(125).div(100);
+  if(token1Address == await strategy.native()) {
+    hbarRequiredWithBuffer = hbarRequiredWithBuffer.add(depositAmount1);
+  }
   if(hbarRequiredWithBuffer.lt(hbarRequired)) {
    throw new Error("HBAR required with buffer is less than hbar required");
   }
@@ -199,8 +202,8 @@ async function main() {
   if (shares.eq(0)) {
     console.log("⚠️  No shares to withdraw");
   } else {
-    const withdrawShares = shares.div(2);
-    console.log("Withdrawing 50%:", ethers.utils.formatEther(withdrawShares));
+    const withdrawShares = shares.div(10);
+    console.log("Withdrawing all shares:", ethers.utils.formatEther(withdrawShares));
     
     const userBal0BeforeWithdraw = await token0.balanceOf(user.address);
     const userBal1BeforeWithdraw = await token1.balanceOf(user.address);

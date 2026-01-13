@@ -87,6 +87,22 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
     error NotEnoughHBAR(uint256 availableHBAR, uint256 requiredHBAR);
     error InsufficientHBARForDebtRepayment(uint256 layerDebt, uint256 expectedHBAR, uint256 minHBAR);
 
+    function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+        // (a + b - 1) / b with protection for a=0
+        return a == 0 ? 0 : ((a - 1) / b) + 1;
+    }
+
+    function _min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+
+    function _convertHbarToHbarXRoundUp(uint256 hbarAmount) internal view returns (uint256) {
+        // Convert HBAR amount to equivalent HBARX amount using exchange rate, rounding up
+        // exchangeRate is HBAR/1 HBARX in 8 decimals
+        uint256 exchangeRate = IStaking(stakingContract).getExchangeRate();
+        return _ceilDiv(hbarAmount * 1e8, exchangeRate);
+    }
+
     function initialize(
         address _want,
         address _borrowToken,
@@ -267,69 +283,112 @@ contract BonzoHBARXLevergedLiqStaking is StratFeeManagerInitializable {
         // Convert to ratio for calculations (1e18 = 100%)
         uint256 withdrawRatio = (_targetAmount * 1e18) / totalAssets;
 
-        // Calculate total supply from lending pool
-        uint256 totalSupply = IERC20(aToken).balanceOf(address(this));
+        // Targets: after unwinding we want to keep (1-withdrawRatio) of collateral + debt in the lending position.
+        uint256 aTokenStart = IERC20(aToken).balanceOf(address(this));
+        uint256 debtStart = IERC20(debtToken).balanceOf(address(this));
+        uint256 aTokenToRemove = (aTokenStart * withdrawRatio) / 1e18;
+        uint256 debtToRemove = (debtStart * withdrawRatio) / 1e18;
 
-        // Calculate proportional supply to withdraw and distribute across layers
-        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
-        uint256 layerSupply = supplyToWithdraw / (maxLoops+1);
-        if(layerSupply == 0) return;
-        
-        IERC20(want).approve(saucerSwapRouter, _targetAmount*3);
-        
-        for (uint256 i = 0; i < maxLoops+1; i++) {
-            // Adjust layer supply if remaining supply is less
-            uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
-            uint256 withdrawAmount = currentSupply < layerSupply ? currentSupply : layerSupply;
-            if(withdrawAmount == 0) break;
-            
-            // Withdraw collateral from lending pool
-            ILendingPool(lendingPool).withdraw(want, withdrawAmount, address(this));
-            
-            // Check current debt
-            uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
-            if (currentDebt == 0) {
-                // No debt left, withdraw any remaining supply if needed
-                uint256 remainingSupply = IERC20(aToken).balanceOf(address(this));
-                if(remainingSupply > 0) {
-                    ILendingPool(lendingPool).withdraw(want, remainingSupply, address(this));
+        uint256 targetATokenRemaining = aTokenStart > aTokenToRemove ? aTokenStart - aTokenToRemove : 0;
+        uint256 targetDebtRemaining = debtStart > debtToRemove ? debtStart - debtToRemove : 0;
+
+        // Approvals for router swaps during unwind
+        IERC20(want).approve(saucerSwapRouter, _targetAmount * 3);
+
+        // Iterate: repay using loose HBARX, then withdraw only the HF-safe amount of collateral, then repeat.
+        // This avoids "health factor too low" reverts when trying to withdraw too much collateral before repaying.
+        uint256 maxIterations = (maxLoops + 2); // bounded, but enough for full exits
+        for (uint256 i = 0; i < maxIterations; i++) {
+            uint256 debtBal = IERC20(debtToken).balanceOf(address(this));
+            if (debtBal <= targetDebtRemaining) break;
+
+            // 1) Repay as much as possible using loose HBARX balance (not counted as collateral by the lending pool)
+            uint256 availableHbarx = IERC20(want).balanceOf(address(this));
+            if (availableHbarx > 0) {
+                uint256 debtToRepay = debtBal - targetDebtRemaining;
+                uint256 hbarxNeeded = _convertHbarToHbarXRoundUp(debtToRepay);
+                // Add slippage buffer (2%) to ensure we can cover the debt after swap
+                hbarxNeeded = (hbarxNeeded * 10200) / 10000;
+
+                uint256 hbarxToSwap = _min(availableHbarx, hbarxNeeded);
+                if (hbarxToSwap > 0) {
+                    uint256 hbarAmount = _swapHBARXToHBAR(hbarxToSwap);
+                    if (hbarAmount > 0) {
+                        uint256 repayAmount = _min(hbarAmount, debtToRepay);
+                        repayAmount = _min(repayAmount, debtBal);
+                        if (repayAmount > 0) {
+                            IWHBARGateway(whbarGateway).repayHBAR{value: repayAmount}(
+                                lendingPool,
+                                repayAmount,
+                                2,
+                                address(this)
+                            );
+                        }
+
+                        // If we have excess HBAR after repaying, convert it back to HBARX
+                        uint256 excessHbar = hbarAmount > repayAmount ? hbarAmount - repayAmount : 0;
+                        if (excessHbar > 0) {
+                            _swapHBARToHBARX(excessHbar);
+                        }
+                    }
                 }
-                break;
             }
 
-            // Repay maximum debt with available HBARX
-            uint256 availableHbarx = IERC20(want).balanceOf(address(this));
-            if (availableHbarx == 0) continue;
-            
-            // Calculate exact HBARX needed to repay current debt
-            uint256 hbarxNeeded = _convertHbarToHbarX(currentDebt);
-            // Add slippage buffer (2%) to ensure we can cover the debt
-            hbarxNeeded = (hbarxNeeded * 10200) / 10000;
-            
-            // Use the minimum of what we need and what we have
-            uint256 hbarxToSwap = hbarxNeeded > availableHbarx ? availableHbarx : hbarxNeeded;
-            
-            // Swap HBARX to HBAR
-            uint256 hbarAmount = _swapHBARXToHBAR(hbarxToSwap);
-            
-            if (hbarAmount > 0) {
-                // Repay debt (cap at current debt balance to avoid overpayment)
-                uint256 repayAmount = hbarAmount > currentDebt ? currentDebt : hbarAmount;
-                IWHBARGateway(whbarGateway).repayHBAR{value: repayAmount}(
-                    lendingPool, 
-                    repayAmount, 
-                    2, 
-                    address(this)
-                );
-                
-                // If we have excess HBAR after repaying all debt, convert it back to HBARX
-                uint256 excessHbar = hbarAmount > repayAmount ? hbarAmount - repayAmount : 0;
-                if (excessHbar > 0) {
-                    _swapHBARToHBARX(excessHbar);
-                }
+            // Re-check debt after repayment attempt
+            debtBal = IERC20(debtToken).balanceOf(address(this));
+            if (debtBal <= targetDebtRemaining) break;
+
+            // If we already removed enough collateral, but still have debt, we cannot proceed safely.
+            uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
+            if (currentSupply <= targetATokenRemaining) break;
+
+            // 2) Compute HF-safe withdrawable fraction using account data (single-collateral assumption).
+            (
+                uint256 totalCollateralETH,
+                uint256 totalDebtETH,
+                ,
+                uint256 currentLiquidationThreshold,
+                ,
+                uint256 healthFactor
+            ) = ILendingPool(lendingPool).getUserAccountData(address(this));
+
+            // If HF is already close to 1, be extra conservative.
+            // healthFactor is 1e18, so 1.05e18 = 5% buffer.
+            if (healthFactor <= 1.05e18) break;
+
+            // No collateral (shouldn't happen if currentSupply > target)
+            if (totalCollateralETH == 0 || currentLiquidationThreshold == 0) break;
+
+            // Required collateral to keep HF >= 1:
+            // collateralETH * liqThreshold / 10000 >= debtETH  => collateralETH >= debtETH * 10000 / liqThreshold
+            uint256 requiredCollateralETH = _ceilDiv(totalDebtETH * 10_000, currentLiquidationThreshold);
+            if (totalCollateralETH <= requiredCollateralETH) break;
+
+            uint256 withdrawableETH = totalCollateralETH - requiredCollateralETH;
+            uint256 withdrawableFactor = (withdrawableETH * 1e18) / totalCollateralETH; // 0..1e18
+
+            // Safety margin to avoid rounding/oracle drift between calculations and withdraw()
+            withdrawableFactor = (withdrawableFactor * 9500) / 10000; // keep 5% buffer
+            if (withdrawableFactor == 0) break;
+
+            uint256 maxWithdrawTokens = (currentSupply * withdrawableFactor) / 1e18;
+            uint256 neededWithdrawTokens = currentSupply - targetATokenRemaining;
+            uint256 withdrawAmount = _min(maxWithdrawTokens, neededWithdrawTokens);
+            if (withdrawAmount == 0) break;
+
+            ILendingPool(lendingPool).withdraw(want, withdrawAmount, address(this));
+        }
+
+        // If we've fully cleared debt for the removed share, withdraw any remaining collateral for the removed share.
+        uint256 finalDebtBal = IERC20(debtToken).balanceOf(address(this));
+        if (finalDebtBal <= targetDebtRemaining) {
+            uint256 remainingSupply = IERC20(aToken).balanceOf(address(this));
+            if (remainingSupply > targetATokenRemaining) {
+                ILendingPool(lendingPool).withdraw(want, remainingSupply - targetATokenRemaining, address(this));
             }
         }
     }
+    
     function _convertHbarToHbarX(uint256 hbarAmount) internal view returns (uint256) {
         // Convert HBAR amount to equivalent HBARX amount using exchange rate
         // exchangeRate is HBAR/1 HBARX in 8 decimals

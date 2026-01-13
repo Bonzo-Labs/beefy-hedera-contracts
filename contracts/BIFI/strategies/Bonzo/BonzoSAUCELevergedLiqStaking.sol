@@ -25,17 +25,18 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     address public aToken; // axSAUCE token
     address public debtToken; // debtSAUCE token
     address public stakingPool; // Staking pool for xSAUCE
-    uint8 public wantTokenDecimals = 6; // Token decimals
-    uint8 public borrowTokenDecimals = 6; // Token decimals
+    uint8 public wantTokenDecimals; // Token decimals (xSAUCE)
+    uint8 public borrowTokenDecimals; // Token decimals (SAUCE)
 
     // Third party contracts
     address public lendingPool;
     address public rewardsController;
 
     // Yield loop parameters
-    uint256 public maxLoops = 1; // Maximum number of yield loops (e.g., 3 for 3x)
+    uint8 public minDeposit; // Minimum deposit in want decimals
+    uint256 public maxLoops; // Maximum number of yield loops (e.g., 3 for 3x)
     uint256 public maxBorrowable; // Maximum borrowable amount (e.g., 8000 for 80%)
-    uint256 public slippageTolerance; // Slippage tolerance in basis points (e.g., 50 for 0.5%)
+    uint256 public slippageTolerance; // Conversion buffer in basis points (e.g., 50 for 0.5%)
 
     bool public harvestOnDeposit;
     uint256 public lastHarvest;
@@ -51,12 +52,12 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     event Unstaked(uint256 amount);
     event SlippageToleranceUpdated(uint256 oldValue, uint256 newValue);
     event MaxBorrowableUpdated(uint256 oldValue, uint256 newValue);
+    event MaxLoopsUpdated(uint256 oldValue, uint256 newValue);
     event RewardsAvailabilityUpdated(bool oldValue, bool newValue);
     event HarvestOnDepositUpdated(bool oldValue, bool newValue);
     event HTSTokenTransferFailed(address token, address from, address to, int64 responseCode);
     event StratPanicCalled();
     event StrategyRetired();
-    event OracleUpdated(address oldValue, address newValue);
     event DebugValues(
         uint256 collateralBase,
         uint256 debtBase,
@@ -74,6 +75,14 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         uint256 decimalDiff,
         uint256 saucePrice
     );
+
+    function _ceilDiv(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a == 0 ? 0 : ((a - 1) / b) + 1;
+    }
+
+    function _min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
 
     function initialize(
         address _want,
@@ -114,6 +123,12 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         isRewardsAvailable = _isRewardsAvailable;
         isBonzoDeployer = _isBonzoDeployer;
 
+        // Defaults
+        wantTokenDecimals = 6;
+        borrowTokenDecimals = 6;
+        minDeposit = 3;
+        maxLoops = 1;
+
         // Associate HTS tokens
         _associateToken(_want);
         _associateToken(_borrowToken);
@@ -153,6 +168,13 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         }
     }
 
+    function beforeDeposit() external virtual override nonReentrant {
+        if (harvestOnDeposit) {
+            require(msg.sender == vault, "!vault");
+            _harvest(tx.origin);
+        }
+    }
+
     function deposit() public whenNotPaused nonReentrant {
         require(msg.sender == vault, "!vault");
         _deposit();
@@ -160,14 +182,15 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
     function _deposit() internal {
         uint256 wantBal = IERC20(want).balanceOf(address(this));
-        require(wantBal > 0, "No funds to deposit");
+        require(wantBal > 0, "!funds");
+        require(wantBal >= uint256(minDeposit) * (10 ** wantTokenDecimals), "!min xSAUCE");
         _createYieldLoops(wantBal);
     }
 
     function _createYieldLoops(uint256 amount) internal {
-        require(amount > 0, "Amount must be > 0");
+        require(amount > 0, "!amount");
 
-        // Approve once for everything we'll need
+        // Approve for deposits/repays/staking
         uint256 approvalAmount = amount * (maxLoops * 2);
         IERC20(want).approve(lendingPool, approvalAmount);
         IERC20(borrowToken).approve(lendingPool, approvalAmount);
@@ -175,31 +198,37 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
         // Initial deposit
         ILendingPool(lendingPool).deposit(want, amount, address(this), 0);
-        uint256 currentCollateral = amount;
+
+        // Track new collateral added each iteration (starts with initial deposit)
+        uint256 newCollateralThisLoop = amount;
         uint256 totalBorrowed = 0;
 
-        uint256 saucePerXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(1e6);
-       
         for (uint256 i = 0; i < maxLoops; i++) {
-            uint256 inputCollateralValueInSauce = (currentCollateral * saucePerXSauce) / 1e6;
-            uint256 borrowAmt = (inputCollateralValueInSauce * maxBorrowable) / 10_000;
+            // Health factor check (1e18; 1.5e18 = 150% buffer)
+            (, , , , , uint256 healthFactor) = ILendingPool(lendingPool).getUserAccountData(address(this));
+            if (i > 0 && healthFactor < 1.5e18) break;
+
+            // Calculate borrow amount based ONLY on new collateral from this iteration.
+            // Convert xSAUCE → SAUCE value via the mothership.
+            uint256 newCollateralValueInSauce = ISaucerSwapMothership(stakingPool).xSauceForSauce(newCollateralThisLoop);
+            uint256 borrowAmt = (newCollateralValueInSauce * maxBorrowable) / 10_000;
+
             if (borrowAmt == 0) break;
-            if(totalBorrowed > 0 && borrowAmt > totalBorrowed) {
-                borrowAmt = borrowAmt - totalBorrowed;
-            }
-            // [4] borrow & stake → xSAUCE
+
+            // Borrow & stake → xSAUCE
             ILendingPool(lendingPool).borrow(borrowToken, borrowAmt, 2, 0, address(this));
             uint256 xAmt = _enter(borrowAmt);
+            require(xAmt > 0, "No xSAUCE received from staking");
 
-            // [5] update and re-deposit
-            currentCollateral += xAmt;
             totalBorrowed += borrowAmt;
             ILendingPool(lendingPool).deposit(want, xAmt, address(this), 0);
+
+            // Update newCollateralThisLoop with ACTUAL amount received for next iteration
+            newCollateralThisLoop = xAmt;
         }
 
-        emit Deposit(currentCollateral, totalBorrowed);
+        emit Deposit(newCollateralThisLoop, totalBorrowed);
     }
-
 
     function _enter(uint256 amount) internal returns (uint256) {
         require(amount > 0, "en:Amount must be greater than 0");
@@ -213,19 +242,14 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function _leave(uint256 amount) internal returns (uint256) {
-        if(amount == 0) {
-            return 0;
-        }
+        if (amount == 0) return 0;
+
         uint256 balanceBefore = IERC20(borrowToken).balanceOf(address(this));
-        //approve
-        uint256 sauceBalance = ISaucerSwapMothership(stakingPool).sauceBalance(address(this));
-        uint256 currWantBal = balanceOfWant();
-        if(currWantBal == 0 || sauceBalance == 0) {
-            return 0;
-        }
-        if(amount > currWantBal) {
-            amount = currWantBal;
-        }
+        uint256 currWantBal = IERC20(want).balanceOf(address(this));
+        if (currWantBal == 0) return 0;
+        if (amount > currWantBal) amount = currWantBal;
+        if (amount == 0) return 0;
+
         ISaucerSwapMothership(stakingPool).leave(amount);
         uint256 balanceAfter = IERC20(borrowToken).balanceOf(address(this));
         uint256 received = balanceAfter - balanceBefore;
@@ -242,104 +266,150 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
         if (totalAssets == 0) return;
 
-        // Calculate withdrawal percentage in basis points (10000 = 100%)
-        uint256 withdrawBps = (_targetAmount * 10000) / totalAssets;
-        if (withdrawBps > 10000) withdrawBps = 10000; // Cap at 100%
         // Convert to ratio for calculations (1e18 = 100%)
         uint256 withdrawRatio = (_targetAmount * 1e18) / totalAssets;
 
-        // Calculate total supply and debt from lending pool
-        uint256 totalSupply = IERC20(aToken).balanceOf(address(this));
-        uint256 totalDebt = IERC20(debtToken).balanceOf(address(this));
+        // Targets: after unwinding we want to keep (1-withdrawRatio) of collateral + debt in the lending position.
+        uint256 aTokenStart = IERC20(aToken).balanceOf(address(this));
+        uint256 debtStart = IERC20(debtToken).balanceOf(address(this));
 
-        // Calculate proportional amounts for each layer
-        uint256 debtToRepay = (totalDebt * withdrawRatio) / 1e18;
-        uint256 supplyToWithdraw = (totalSupply * withdrawRatio) / 1e18;
-        // uint256 requiredXSauceForDebt = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
-        supplyToWithdraw = supplyToWithdraw + ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
-        // Distribute across layers
-        uint256 layerSupply = supplyToWithdraw / (maxLoops+1);
-        uint256 layerDebt = debtToRepay / (maxLoops+1);
-        if(layerSupply == 0) return;
-        uint256 debtPaid = 0;
+        uint256 aTokenToRemove = (aTokenStart * withdrawRatio) / 1e18;
+        uint256 debtToRemove = (debtStart * withdrawRatio) / 1e18;
 
-        IERC20(borrowToken).approve(lendingPool, debtToRepay*3);
-        IERC20(want).approve(stakingPool, _targetAmount*3);
-        for (uint256 i = 0; i < maxLoops+1; i++) {
+        uint256 targetATokenRemaining = aTokenStart > aTokenToRemove ? aTokenStart - aTokenToRemove : 0;
+        uint256 targetDebtRemaining = debtStart > debtToRemove ? debtStart - debtToRemove : 0;
+
+        // Approvals for unstake/repay during unwind
+        IERC20(want).approve(stakingPool, _targetAmount * 3);
+        IERC20(borrowToken).approve(lendingPool, type(uint256).max);
+
+        // Iterate: repay using loose xSAUCE (unstake to SAUCE), then withdraw only the HF-safe amount of collateral, then repeat.
+        uint256 maxIterations = (maxLoops + 2); // bounded, but enough for full exits
+        for (uint256 i = 0; i < maxIterations; i++) {
+            uint256 debtBal = IERC20(debtToken).balanceOf(address(this));
+            if (debtBal <= targetDebtRemaining) break;
+
+            // 1) Repay as much as possible using loose xSAUCE balance (not counted as collateral by the lending pool)
+            uint256 availableXSauce = IERC20(want).balanceOf(address(this));
+            if (availableXSauce > 0) {
+                uint256 debtToRepay = debtBal - targetDebtRemaining;
+
+                // Convert SAUCE debt to xSAUCE amount needed, with a small buffer for rounding/exchange drift.
+                uint256 xSauceNeeded = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtToRepay);
+                uint256 bufferBps = slippageTolerance > 200 ? slippageTolerance : 200; // at least 2%
+                xSauceNeeded = (xSauceNeeded * (10_000 + bufferBps)) / 10_000;
+
+                uint256 xSauceToLeave = _min(availableXSauce, xSauceNeeded);
+                if (xSauceToLeave > 0) {
+                    uint256 sauceReceived = _leave(xSauceToLeave);
+                    if (sauceReceived > 0) {
+                        uint256 repayAmount = _min(sauceReceived, debtToRepay);
+                        repayAmount = _min(repayAmount, debtBal);
+
+                        if (repayAmount > 0) {
+                            ILendingPool(lendingPool).repay(borrowToken, repayAmount, 2, address(this));
+                        }
+
+                        // Stake excess SAUCE back to xSAUCE (keeps the strategy in the desired asset)
+                        uint256 excessSauce = sauceReceived > repayAmount ? sauceReceived - repayAmount : 0;
+                        if (excessSauce > 0) {
+                            _enter(excessSauce);
+                        }
+                    }
+                }
+            }
+
+            // Re-check debt after repayment attempt
+            debtBal = IERC20(debtToken).balanceOf(address(this));
+            if (debtBal <= targetDebtRemaining) break;
+
+            // If we already removed enough collateral, but still have debt, we cannot proceed safely.
             uint256 currentSupply = IERC20(aToken).balanceOf(address(this));
-            if(currentSupply > 0 && currentSupply <= layerSupply) {
-                layerSupply = currentSupply;
-            }
-            ILendingPool(lendingPool).withdraw(want, layerSupply, address(this));
-            // Handle debt repayment for this layer
-            uint256 currentDebt = IERC20(debtToken).balanceOf(address(this));
-            if (currentDebt == 0){
-                uint256 currWantBal = IERC20(want).balanceOf(address(this));
-                uint256 amtToWithdraw = currWantBal > supplyToWithdraw ? supplyToWithdraw : supplyToWithdraw - currWantBal;
-                uint256 currSupply = IERC20(aToken).balanceOf(address(this));
-                amtToWithdraw = amtToWithdraw > currSupply ? currSupply : amtToWithdraw;
-                if(amtToWithdraw > 0) {
-                    ILendingPool(lendingPool).withdraw(want, amtToWithdraw, address(this));
-                }
-                break;
-            }
+            if (currentSupply <= targetATokenRemaining) break;
 
-            uint256 debtForThisLayer = (i == maxLoops) ? 
-                (debtToRepay - debtPaid) : // Last layer gets remaining debt
-                layerDebt; // Other layers get equal share
+            // 2) Compute HF-safe withdrawable fraction using account data (single-collateral assumption).
+            (
+                uint256 totalCollateralETH,
+                uint256 totalDebtETH,
+                ,
+                uint256 currentLiquidationThreshold,
+                ,
+                uint256 healthFactor
+            ) = ILendingPool(lendingPool).getUserAccountData(address(this));
 
-            if (debtForThisLayer > 0 && debtForThisLayer <= currentDebt) {
-                // Convert SAUCE debt to xSAUCE amount needed
-                uint256 requiredXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(debtForThisLayer);
-                requiredXSauce = IERC20(want).balanceOf(address(this)) > requiredXSauce ? IERC20(want).balanceOf(address(this)) : requiredXSauce;
-                // Leave xSAUCE to get SAUCE for debt repayment
-                uint256 sauceAmount = _leave(requiredXSauce);
-                
-                if (sauceAmount > 0) {
-                    uint256 currDebtBal = IERC20(debtToken).balanceOf(address(this));
-                    if(sauceAmount > currDebtBal) {
-                        // uint256 debtToPay = sauceAmount > currDebtBal ? currDebtBal : sauceAmount;
-                        ILendingPool(lendingPool).repay(borrowToken, currDebtBal, 2, address(this));
-                        debtPaid += currDebtBal;
-                        ISaucerSwapMothership(stakingPool).enter(sauceAmount - currDebtBal);
-                    }
-                    else{
-                        ILendingPool(lendingPool).repay(borrowToken, sauceAmount, 2, address(this));
-                        debtPaid += sauceAmount;
-                    }
-                }
+            // healthFactor is 1e18, so 1.05e18 = 5% buffer.
+            if (healthFactor <= 1.05e18) break;
+            if (totalCollateralETH == 0 || currentLiquidationThreshold == 0) break;
+
+            // collateralETH * liqThreshold / 10000 >= debtETH  => collateralETH >= debtETH * 10000 / liqThreshold
+            uint256 requiredCollateralETH = _ceilDiv(totalDebtETH * 10_000, currentLiquidationThreshold);
+            if (totalCollateralETH <= requiredCollateralETH) break;
+
+            uint256 withdrawableETH = totalCollateralETH - requiredCollateralETH;
+            uint256 withdrawableFactor = (withdrawableETH * 1e18) / totalCollateralETH; // 0..1e18
+
+            // Safety margin to avoid rounding/oracle drift between calculations and withdraw()
+            withdrawableFactor = (withdrawableFactor * 9500) / 10_000; // keep 5% buffer
+            if (withdrawableFactor == 0) break;
+
+            uint256 maxWithdrawTokens = (currentSupply * withdrawableFactor) / 1e18;
+            uint256 neededWithdrawTokens = currentSupply - targetATokenRemaining;
+            uint256 withdrawAmount = _min(maxWithdrawTokens, neededWithdrawTokens);
+            if (withdrawAmount == 0) break;
+
+            ILendingPool(lendingPool).withdraw(want, withdrawAmount, address(this));
+        }
+
+        // If we've fully cleared debt for the removed share, withdraw any remaining collateral for the removed share.
+        uint256 finalDebtBal = IERC20(debtToken).balanceOf(address(this));
+        if (finalDebtBal <= targetDebtRemaining) {
+            uint256 remainingSupply = IERC20(aToken).balanceOf(address(this));
+            if (remainingSupply > targetATokenRemaining) {
+                ILendingPool(lendingPool).withdraw(want, remainingSupply - targetATokenRemaining, address(this));
             }
         }
     }
 
     function harvest() external whenNotPaused {
+        _harvest(msg.sender);
+    }
+
+    function harvest(address callFeeRecipient) external whenNotPaused {
+        _harvest(callFeeRecipient);
+    }
+
+    function _harvest(address callFeeRecipient) internal {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
 
         if (isRewardsAvailable) {
-            // Claim rewards from lending pool
-            address[] memory assets = new address[](1);
+            // Claim rewards for both aToken and debtToken
+            address[] memory assets = new address[](2);
             assets[0] = aToken;
+            assets[1] = debtToken;
             IRewardsController(rewardsController).claimRewards(assets, type(uint256).max, address(this), want);
         }
 
         uint256 wantHarvested = balanceOfWant();
-        if (wantHarvested > 0) {
-            chargeFees();
-            deposit();
+        if (wantHarvested > 0 && wantHarvested >= uint256(minDeposit) * (10 ** wantTokenDecimals)) {
+            chargeFees(callFeeRecipient);
+            _deposit();
         }
 
         lastHarvest = block.timestamp;
         emit StratHarvest(msg.sender, wantHarvested, balanceOf());
     }
 
-    function chargeFees() internal {
+    function chargeFees(address callFeeRecipient) internal {
+        require(callFeeRecipient != address(0), "Invalid fee recipient");
         uint256 wantBal = IERC20(want).balanceOf(address(this));
         if (wantBal > 0) {
             IFeeConfig.FeeCategory memory fees = getFees();
-            uint256 callFeeAmount = (wantBal * fees.call) / 1e18;
-            uint256 beefyFeeAmount = (wantBal * fees.beefy) / 1e18;
-            uint256 strategistFeeAmount = isBonzoDeployer ? 0 : (wantBal * fees.strategist) / 1e18;
+            uint256 totalFees = (wantBal * fees.total) / DIVISOR;
+            uint256 callFeeAmount = (totalFees * fees.call) / DIVISOR;
+            uint256 beefyFeeAmount = (totalFees * fees.beefy) / DIVISOR;
+            uint256 strategistFeeAmount = isBonzoDeployer ? 0 : (totalFees * fees.strategist) / DIVISOR;
             if (callFeeAmount > 0) {
-                _safeTransfer(want, address(this), msg.sender, callFeeAmount);
+                _safeTransfer(want, address(this), callFeeRecipient, callFeeAmount);
             }
             if (beefyFeeAmount > 0) {
                 _safeTransfer(want, address(this), beefyFeeRecipient, beefyFeeAmount);
@@ -354,9 +424,10 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
     function balanceOf() public view returns (uint256) {
         uint256 borrowBal = IERC20(debtToken).balanceOf(address(this));
-        //get amount of debt in xSauce
+        // Convert SAUCE debt → xSAUCE needed to cover it
         uint256 debtInXSauce = ISaucerSwapMothership(stakingPool).sauceForxSauce(borrowBal);
-        return balanceOfWant() + balanceOfPool() - debtInXSauce;
+        uint256 totalAssets = balanceOfWant() + balanceOfPool();
+        return totalAssets > debtInXSauce ? totalAssets - debtInXSauce : 0;
     }
 
     function balanceOfWant() public view returns (uint256) {
@@ -372,21 +443,29 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
     }
 
     function setHarvestOnDeposit(bool _harvestOnDeposit) external onlyManager {
+        bool oldValue = harvestOnDeposit;
         harvestOnDeposit = _harvestOnDeposit;
-        emit HarvestOnDepositUpdated(harvestOnDeposit, _harvestOnDeposit);
+        if (harvestOnDeposit) {
+            setWithdrawalFee(0);
+        } else {
+            setWithdrawalFee(10);
+        }
+        emit HarvestOnDepositUpdated(oldValue, _harvestOnDeposit);
     }
 
     function setRewardsAvailable(bool _isRewardsAvailable) external onlyManager {
+        bool oldValue = isRewardsAvailable;
         isRewardsAvailable = _isRewardsAvailable;
-        emit RewardsAvailabilityUpdated(isRewardsAvailable, _isRewardsAvailable);
+        emit RewardsAvailabilityUpdated(oldValue, _isRewardsAvailable);
     }
 
     function panic() public {
         require(msg.sender == owner() || msg.sender == keeper || msg.sender == vault, "!invalid caller");
         if (isRewardsAvailable) {
             // Claim rewards from lending pool
-            address[] memory assets = new address[](1);
+            address[] memory assets = new address[](2);
             assets[0] = aToken;
+            assets[1] = debtToken;
             IRewardsController(rewardsController).claimRewards(assets, type(uint256).max, address(this), want);
         }
         uint256 totalPosition = balanceOf();
@@ -474,8 +553,9 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
     function setRewardsController(address _rewardsController) external onlyManager {
         require(_rewardsController != address(0), "!zero address");
+        address oldValue = rewardsController;
         rewardsController = _rewardsController;
-        emit RewardsControllerUpated(rewardsController, _rewardsController);
+        emit RewardsControllerUpated(oldValue, _rewardsController);
     }
 
     function getRewardsController() external view returns (address) {
@@ -508,7 +588,7 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
         // using tx.origin since withdraw is called by vault and validation check is done for original trx sender - EOA
         if (tx.origin != owner() && !paused()) {
             uint256 withdrawalFeeAmount = (wantBal * withdrawalFee) / WITHDRAWAL_MAX;
-            wantBal = wantBal - withdrawalFeeAmount;
+            wantBal = wantBal > withdrawalFeeAmount ? wantBal - withdrawalFeeAmount : 0;
         }
 
         // Transfer want tokens to vault
@@ -516,4 +596,25 @@ contract BonzoSAUCELevergedLiqStaking is StratFeeManagerInitializable {
 
         emit Withdraw(wantBal);
     }
+
+    // ===== Management setters =====
+
+    function setMaxBorrowable(uint256 _maxBorrowable) external onlyManager {
+        require(_maxBorrowable > 0 && _maxBorrowable <= 10000, "maxBorrowable must be between 0 and 10000");
+        emit MaxBorrowableUpdated(maxBorrowable, _maxBorrowable);
+        maxBorrowable = _maxBorrowable;
+    }
+
+    function setMaxLoops(uint256 _maxLoops) external onlyManager {
+        require(_maxLoops <= 10, "maxLoops too high");
+        emit MaxLoopsUpdated(maxLoops, _maxLoops);
+        maxLoops = _maxLoops;
+    }
+
+    function setStakingPool(address _stakingPool) external onlyManager {
+        require(_stakingPool != address(0), "!zero address");
+        stakingPool = _stakingPool;
+    }
+
+    receive() external payable {}
 }
