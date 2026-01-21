@@ -10,7 +10,7 @@ const { ethers } = hardhat;
  * Note: The caller must be an authorized rebalancer on the strategy.
  */
 
-const STRATEGY_ADDRESS =  "0x5dDf9A4aF6A43962f49CD8cca3179306DF36BD9e";
+const STRATEGY_ADDRESS = "0x157EB9ba35d70560D44394206D4a03885C33c6d5";
 const HBAR_AMOUNT = process.env.HBAR_AMOUNT || "1.5";
 
 function fmtUnits(v, d) {

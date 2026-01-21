@@ -85,7 +85,7 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
 
     /// @notice Address of the native token (for fee payments)
     address public native;
-    
+
     /// @notice Address of the strategy factory
     address public factory;
 
@@ -94,17 +94,17 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     function getMintFee() external pure returns (uint256 mintFee) {
         return 0; // Standard UniswapV3 doesn't have mint fees
     }
-    
+
     /// @notice Total locked profits for token0 and token1
     uint256 public totalLocked0;
     uint256 public totalLocked1;
-    
+
     /// @notice Timestamp of last harvest
     uint256 public lastHarvest;
-    
+
     /// @notice Timestamp of last position adjustment
     uint256 public lastPositionAdjustment;
-    
+
     /// @notice Duration for profit locking (6 hours)
     uint256 public constant DURATION = 21600;
 
@@ -224,12 +224,12 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
     }
 
     /// @notice Called during deposit to add all liquidity back to their positions.
-    function deposit() external onlyCalmPeriods payable {
+    function deposit() external payable onlyCalmPeriods {
         _onlyVault();
 
         // Get current balances before adding liquidity
         (uint256 balBefore0, uint256 balBefore1) = balancesOfThis();
-        
+
         // Silence unused variable warnings
         balBefore0;
         balBefore1;
@@ -760,11 +760,9 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
             revert InvalidTicks();
     }
 
-    /**
-     * @notice Sets the path to swap the first token to the native token for fee harvesting.
-     * @param _path The path to swap the first token to the native token.
-     */
-    function setLpToken0ToNativePath(bytes calldata _path) public onlyOwner {
+    // NOTE: To reduce bytecode size, we keep these path setters internal-only.
+    // They are still used during initialization but are not exposed as owner-admin setters.
+    function setLpToken0ToNativePath(bytes memory _path) internal {
         if (_path.length > 0) {
             address[] memory _route = UniV3Utils.pathToRoute(_path);
             if (_route[0] != lpToken0) revert InvalidInput();
@@ -774,11 +772,7 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
         }
     }
 
-    /**
-     * @notice Sets the path to swap the second token to the native token for fee harvesting.
-     * @param _path The path to swap the second token to the native token.
-     */
-    function setLpToken1ToNativePath(bytes calldata _path) public onlyOwner {
+    function setLpToken1ToNativePath(bytes memory _path) internal {
         if (_path.length > 0) {
             address[] memory _route = UniV3Utils.pathToRoute(_path);
             if (_route[0] != lpToken1) revert InvalidInput();
@@ -788,18 +782,10 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
         }
     }
 
-    /**
-     * @notice Sets the deviation from the twap we will allow on adding liquidity.
-     * @param _maxDeviation The max deviation from twap we will allow.
-     */
-    function setDeviation(int56 _maxDeviation) external onlyOwner {
-        emit SetDeviation(_maxDeviation);
-
-        // Require the deviation to be less than or equal to 4 times the tick spacing.
-        if (_maxDeviation >= _tickDistance() * 4) revert InvalidInput();
-
-        maxTickDeviation = _maxDeviation;
-    }
+    // NOTE: Temporarily removed additional owner setters to reduce bytecode size.
+    // These can be re-introduced in a later upgrade if/when needed.
+    //
+    // function setDeviation(int56 _maxDeviation) external onlyOwner { ... }
 
     /**
      * @notice Returns the route to swap the first token to the native token for fee harvesting.
@@ -846,38 +832,9 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
         twapTick = (tickCuml[1] - tickCuml[0]) / int32(twapInterval);
     }
 
-    function setTwapInterval(uint32 _interval) external onlyOwner {
-        emit SetTwapInterval(twapInterval, _interval);
-
-        // Require the interval to be greater than 60 seconds.
-        if (_interval < 60) revert InvalidInput();
-
-        twapInterval = _interval;
-    }
-
-    /**
-     * @notice Sets our position width and readjusts our positions.
-     * @param _width The new width multiplier of the position.
-     */
-    function setPositionWidth(int24 _width) external onlyOwner {
-        emit SetPositionWidth(positionWidth, _width);
-        _claimEarnings();
-        _removeLiquidity();
-        positionWidth = _width;
-        _setTicks();
-        _addLiquidity();
-    }
-
-    /**
-     * @notice set the unirouter address
-     * @param _unirouter The new unirouter address
-     */
-    function setUnirouter(address _unirouter) external override onlyOwner {
-        _removeAllowances();
-        unirouter = _unirouter;
-        _giveAllowances();
-        emit SetUnirouter(_unirouter);
-    }
+    // function setTwapInterval(uint32 _interval) external onlyOwner { ... }
+    // function setPositionWidth(int24 _width) external onlyOwner { ... }
+    // function setUnirouter(address _unirouter) external override onlyOwner { ... }
 
     /// @notice Retire the strategy and return all the dust to the fee recipient.
     function retireVault() external onlyOwner {
@@ -938,7 +895,6 @@ contract StrategyPassiveManagerUniswap is StratFeeManagerInitializable, IStrateg
         require(!paused(), "Strategy is paused");
     }
 
-    
     /**
      * @notice Get leftover token amounts after liquidity addition
      * @return leftover0Amount Amount of token0 left over

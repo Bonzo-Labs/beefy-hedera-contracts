@@ -24,10 +24,10 @@ library SaucerSwapLariLib {
         address token;
         bool isHTS;
         bool isActive;
-        address[] toLp0Route;   
+        address[] toLp0Route;
         address[] toLp1Route;
-        uint24 [] lp0RoutePoolFees; 
-        uint24 [] lp1RoutePoolFees; 
+        uint24[] lp0RoutePoolFees;
+        uint24[] lp1RoutePoolFees;
     }
 
     struct FeeParams {
@@ -45,7 +45,6 @@ library SaucerSwapLariLib {
         address lpToken0;
         address lpToken1;
     }
-
 
     function processRewardTokens(
         address[] memory rewardTokens,
@@ -70,11 +69,7 @@ library SaucerSwapLariLib {
         }
     }
 
-    function giveRewardAllowances(
-        address[] memory rewardTokens,
-        address spender,
-        address native
-    ) external {
+    function giveRewardAllowances(address[] memory rewardTokens, address spender, address native) external {
         for (uint256 i = 0; i < rewardTokens.length; i++) {
             address reward = rewardTokens[i];
             if (reward != native) {
@@ -83,11 +78,7 @@ library SaucerSwapLariLib {
         }
     }
 
-    function removeRewardAllowances(
-        address[] memory rewardTokens,
-        address spender,
-        address native
-    ) external {
+    function removeRewardAllowances(address[] memory rewardTokens, address spender, address native) external {
         for (uint256 i = 0; i < rewardTokens.length; i++) {
             address reward = rewardTokens[i];
             if (reward != native) {
@@ -110,7 +101,7 @@ library SaucerSwapLariLib {
         if (rewardAmount == 0 || rewardToken == native) {
             return rewardAmount;
         }
-        
+
         bytes memory path = abi.encodePacked(rewardToken, uint24(3000), native);
         return UniswapV3Utils.swap(unirouter, path, rewardAmount);
     }
@@ -119,21 +110,18 @@ library SaucerSwapLariLib {
         if (amount == 0 || route.length < 2) return;
         address tokenIn = route[0];
         address tokenOut = route[route.length - 1];
-        
+
         if (tokenIn == tokenOut) return;
         uint24[] memory fees = new uint24[](route.length - 1);
         for (uint i = 0; i < fees.length; i++) {
             fees[i] = poolFees[i];
         }
-        
+
         bytes memory path = UniswapV3Utils.routeToPath(route, fees);
         UniswapV3Utils.swap(unirouter, path, amount);
     }
 
-    function associateRewardTokens(
-        address[] memory rewardTokens,
-        address native
-    ) external {
+    function associateRewardTokens(address[] memory rewardTokens, address native) external {
         for (uint256 i = 0; i < rewardTokens.length; i++) {
             address reward = rewardTokens[i];
             if (reward != native) {
@@ -151,7 +139,7 @@ library SaucerSwapLariLib {
         amountLeft0 = amount0 > 0 ? amount0 - ((amount0 * feeTotal) / divisor) : 0;
         amountLeft1 = amount1 > 0 ? amount1 - ((amount1 * feeTotal) / divisor) : 0;
     }
-    
+
     function calculateLPTokenFees(
         uint256 amount0,
         uint256 amount1,
@@ -179,25 +167,22 @@ library SaucerSwapLariLib {
             uint256 callFee0 = (feeAmount0 * feeCall) / divisor;
             uint256 strategistFee0 = (feeAmount0 * feeStrategist) / divisor;
             uint256 beefyFee0 = feeAmount0 - callFee0 - strategistFee0;
-            
+
             if (callFee0 > 0) transferTokens(lpToken0, callFeeRecipient, callFee0);
             if (strategistFee0 > 0) transferTokens(lpToken0, strategist, strategistFee0);
             if (beefyFee0 > 0) transferTokens(lpToken0, beefyFeeRecipient, beefyFee0);
         }
-        
+
         if (feeAmount1 > 0) {
             uint256 callFee1 = (feeAmount1 * feeCall) / divisor;
             uint256 strategistFee1 = (feeAmount1 * feeStrategist) / divisor;
             uint256 beefyFee1 = feeAmount1 - callFee1 - strategistFee1;
-            
+
             if (callFee1 > 0) transferTokens(lpToken1, callFeeRecipient, callFee1);
             if (strategistFee1 > 0) transferTokens(lpToken1, strategist, strategistFee1);
             if (beefyFee1 > 0) transferTokens(lpToken1, beefyFeeRecipient, beefyFee1);
         }
     }
-
-
-
 
     function processLariRewards(
         RewardToken[] storage rewardTokens,
@@ -224,17 +209,17 @@ library SaucerSwapLariLib {
             RewardToken storage rewardToken = rewardTokens[i];
             if (!rewardToken.isActive) continue;
             uint256 balance = 0;
-            if(rewardToken.token == native){
+            if (rewardToken.token == native) {
                 balance = address(this).balance - msg.value;
                 //wrap
-                if(balance > 0){
+                if (balance > 0) {
                     IERC20Metadata(native).approve(unirouter, balance);
                     IWHBARHelper(whbarHelper).deposit{value: balance}();
                 }
-            }else{
+            } else {
                 balance = IERC20Metadata(rewardToken.token).balanceOf(address(this));
             }
-            
+
             if (balance == 0) continue;
             IERC20Metadata(rewardToken.token).approve(unirouter, balance);
 
@@ -279,7 +264,7 @@ library SaucerSwapLariLib {
         );
         rewardTokenIndex[_token] = rewardTokens.length - 1;
         isRewardToken[_token] = true;
-        
+
         // Associate HTS token if needed
         if (_isHTS && _token != lpToken0 && _token != lpToken1) {
             SaucerSwapCLMLib.safeAssociateToken(_token);
@@ -316,7 +301,6 @@ library SaucerSwapLariLib {
         rewardTokens[index].lp1RoutePoolFees = _lp1RoutePoolFees;
     }
 
-
     // function quoteLpTokenToNativePrice(
     //     address lpToken,
     //     address native,
@@ -325,7 +309,7 @@ library SaucerSwapLariLib {
     // ) external returns (uint256) {
     //     uint256 amount = 10 ** decimals / 10;
     //     if (lpToken == native) return amount * 10;
-        
+
     //     // For SaucerSwap, we can use a simple direct path since it's based on UniswapV3
     //     bytes memory path = abi.encodePacked(lpToken, uint24(3000), native);
     //     try IQuoter(quoter).quoteExactInput(path, amount) returns (uint256 amountOut) {
@@ -345,7 +329,7 @@ library SaucerSwapLariLib {
     ) external {
         // Skip if unirouter is zero address (not used in LARI strategies)
         if (unirouter == address(0)) return;
-        
+
         // Only approve non-native tokens (HTS tokens need ERC20 approvals for swapping)
         if (lpToken0 != native) {
             IERC20Metadata(lpToken0).approve(unirouter, type(uint256).max);
@@ -370,7 +354,7 @@ library SaucerSwapLariLib {
     ) external {
         // Skip if unirouter is zero address (not used in LARI strategies)
         if (unirouter == address(0)) return;
-        
+
         // Only approve non-native tokens (HTS tokens need ERC20 approvals for swapping)
         if (lpToken0 != native) {
             try IERC20Metadata(lpToken0).approve(unirouter, type(uint256).max) {
@@ -407,7 +391,7 @@ library SaucerSwapLariLib {
     ) external {
         // Skip if unirouter is zero address (not used in LARI strategies)
         if (unirouter == address(0)) return;
-        
+
         // Only revoke approvals for non-native tokens
         if (lpToken0 != native) {
             IERC20Metadata(lpToken0).approve(unirouter, 0);
@@ -431,7 +415,7 @@ library SaucerSwapLariLib {
     ) external returns (uint256 fee0, uint256 fee1) {
         bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
         IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
-        
+
         (uint128 liquidity, , , , ) = poolContract.positions(key);
         if (liquidity > 0) poolContract.burn(tickLower, tickUpper, 0);
         (fee0, fee1) = poolContract.collect(strategy, tickLower, tickUpper, type(uint128).max, type(uint128).max);
@@ -445,13 +429,17 @@ library SaucerSwapLariLib {
     ) external returns (uint256 fee0, uint256 fee1) {
         bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
         IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
-        
+
         (uint128 liquidity, , , , ) = poolContract.positions(key);
         if (liquidity > 0) poolContract.burn(tickLower, tickUpper, 0);
         (fee0, fee1) = poolContract.collect(strategy, tickLower, tickUpper, type(uint128).max, type(uint128).max);
     }
 
-    function setMainTick(int24 tick, int24 distance, int24 width) external pure returns (int24 tickLower, int24 tickUpper) {
+    function setMainTick(
+        int24 tick,
+        int24 distance,
+        int24 width
+    ) external pure returns (int24 tickLower, int24 tickUpper) {
         return TickUtils.baseTicks(tick, width, distance);
     }
 
@@ -462,12 +450,21 @@ library SaucerSwapLariLib {
         uint256 bal0,
         uint256 bal1,
         uint256 poolPrice,
-        uint256 precision
+        uint256 precision,
+        uint8 decimals0,
+        uint8 decimals1
     ) external pure returns (int24 tickLower, int24 tickUpper) {
-        // We calculate how much token0 we have in the price of token1.
+        // Calculate token0 value in token1 atomic units, adjusting for decimals.
         uint256 amount0;
         if (bal0 > 0) {
             amount0 = FullMath.mulDiv(bal0, poolPrice, precision);
+            if (decimals1 > decimals0) {
+                uint256 scaleUp = 10 ** (decimals1 - decimals0);
+                amount0 = FullMath.mulDiv(amount0, scaleUp, 1);
+            } else if (decimals0 > decimals1) {
+                uint256 scaleDown = 10 ** (decimals0 - decimals1);
+                amount0 = FullMath.mulDiv(amount0, 1, scaleDown);
+            }
         }
         // We set the alternative position based on the token that has the most value available.
         if (amount0 < bal1) {
@@ -491,13 +488,13 @@ library SaucerSwapLariLib {
         bool initTicks
     ) external view returns (uint256 amount0, uint256 amount1) {
         if (!initTicks) return (0, 0);
-        
+
         bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
         IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
-        
+
         (uint128 liquidity, , , uint256 owed0, uint256 owed1) = poolContract.positions(key);
         uint160 sqrtPrice = SaucerSwapCLMLib.getPoolSqrtPrice(pool);
-        
+
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice,
             TickMath.getSqrtRatioAtTick(tickLower),
@@ -516,13 +513,13 @@ library SaucerSwapLariLib {
         bool initTicks
     ) external view returns (uint256 amount0, uint256 amount1) {
         if (!initTicks) return (0, 0);
-        
+
         bytes32 key = keccak256(abi.encodePacked(strategy, tickLower, tickUpper));
         IUniswapV3Pool poolContract = IUniswapV3Pool(pool);
-        
+
         (uint128 liquidity, , , uint256 owed0, uint256 owed1) = poolContract.positions(key);
         uint160 sqrtPrice = SaucerSwapCLMLib.getPoolSqrtPrice(pool);
-        
+
         (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
             sqrtPrice,
             TickMath.getSqrtRatioAtTick(tickLower),
