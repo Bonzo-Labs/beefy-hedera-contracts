@@ -142,7 +142,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         lockDuration = 21600;
         SaucerSwapCLMLib.safeAssociateToken(lpToken0);
         SaucerSwapCLMLib.safeAssociateToken(lpToken1);
-        
+
         for (uint256 i = 0; i < _params.rewardTokens.length; i++) {
             _addRewardToken(_params.rewardTokens[i], true); // Assume all are HTS initially
         }
@@ -190,7 +190,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
         _removeLiquidity(); // Since we commented it out in beforeAction(), we need to remove it here.
         if (_amount0 > 0) {
-            if(withdrawalFee > 0) {
+            if (withdrawalFee > 0) {
                 uint256 wfee0 = (_amount0 * withdrawalFee) / WITHDRAWAL_MAX;
                 _amount0 = _amount0 - wfee0;
                 _transferTokens(lpToken0, address(this), beefyFeeRecipient, wfee0, true);
@@ -198,7 +198,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             _transferTokens(lpToken0, address(this), vault, _amount0, true);
         }
         if (_amount1 > 0) {
-            if(withdrawalFee > 0) {
+            if (withdrawalFee > 0) {
                 uint256 wfee1 = (_amount1 * withdrawalFee) / WITHDRAWAL_MAX;
                 _amount1 = _amount1 - wfee1;
                 _transferTokens(lpToken1, address(this), beefyFeeRecipient, wfee1, true);
@@ -215,6 +215,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
         (uint256 bal0, uint256 bal1) = balancesOfThis();
         uint256 mintFee = updateMintFeeWithFreshPrice();
+        //fix for frequesnt issues of not having enough HBAR for mint fee
+        mintFee = (mintFee * 80) / 100; //reduce mint fee by 20% because we are overestimating it by 1.5x in getMintFee()
         uint160 sqrtprice = sqrtPrice();
         (uint128 liquidity, uint160 adjustedSqrtPrice) = _calculateLiquidityWithPriceCheck(
             sqrtprice,
@@ -281,9 +283,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
         }
 
         uint256 hbarBalanceAfter = address(this).balance;
-        
+
         uint256 hbarSpent = hbarBalanceBefore > hbarBalanceAfter ? hbarBalanceBefore - hbarBalanceAfter : 0;
-        
+
         // Return excess HBAR if we received any for this operation
         // msg.value contains HBAR for: deposit(), withdraw(), harvest(), moveTicks(), setPositionWidth()
         if (msg.value > hbarSpent) {
@@ -324,7 +326,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function processLariRewards() external {
         _processLariRewards();
     }
-    
+
     function harvest(address _callFeeRecipient) external payable {
         _harvest(_callFeeRecipient);
     }
@@ -335,7 +337,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     // What we do in the cron job - we call harvest() and then moveTicks() one after the other.
     function _harvest(address _callFeeRecipient) private onlyCalmPeriods {
-        require(msg.value >= 2*getMintFee(), "IMF");
+        require(msg.value >= 2 * getMintFee(), "IMF");
         // Claim fees from the pool and collect them.
         _claimEarnings();
         _removeLiquidity();
@@ -352,10 +354,10 @@ contract SaucerSwapLariRewardsCLMStrategy is
             pendingRewardLock1 = 0;
             lastRewardLockUpdate = block.timestamp;
         }
-        
+
         // Calculate remaining locked amounts and add new fees
         uint256 timeElapsed = block.timestamp - lastHarvest;
-        
+
         uint256 duration = lockDuration;
         if (duration == 0 || timeElapsed >= duration) {
             // All locked amounts have been unlocked (or locking disabled)
@@ -519,7 +521,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
                     //1e26: 1e18 * 1e8 (1e18 is the decimals of usdc, 1e8 is the decimals of hbar)
                     //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
-                    mintFee = mintFee * 150 / 100;
+                    mintFee = (mintFee * 150) / 100;
                 } else {
                     revert("HBAR-PF");
                 }
@@ -541,12 +543,12 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function updateMintFeeWithFreshPrice() public returns (uint256 mintFee) {
         mintFee = _getMintFeeFromPool();
-        
+
         if (beefyOracle != address(0)) {
             try IBeefyOracle(beefyOracle).getFreshPriceInUSD(native) returns (uint256 hbarPrice, bool success) {
                 if (success && hbarPrice > 0) {
                     mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
-                    mintFee = mintFee * 150 / 100;
+                    mintFee = (mintFee * 150) / 100;
                 } else {
                     revert("HBAR-PF");
                 }
@@ -588,7 +590,11 @@ contract SaucerSwapLariRewardsCLMStrategy is
         return ISaucerSwapPool(pool).tickSpacing();
     }
 
-    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes memory /*data*/) external payable nonReentrant {
+    function uniswapV3MintCallback(
+        uint256 amount0,
+        uint256 amount1,
+        bytes memory /*data*/
+    ) external payable nonReentrant {
         if (msg.sender != pool) revert NotPool();
         if (!minting) revert InvalidEntry();
         minting = false;
@@ -616,6 +622,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
 
     function _setAltTick(int24 tick, int24 distance, int24 width) private {
         (uint256 bal0, uint256 bal1) = balancesOfThis();
+        (uint8 decimals0, uint8 decimals1) = SaucerSwapCLMLib.getTokenDecimals(pool);
         (positionAlt.tickLower, positionAlt.tickUpper) = SaucerSwapLariLib.setAltTick(
             tick,
             distance,
@@ -623,7 +630,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
             bal0,
             bal1,
             price(),
-            PRECISION
+            PRECISION,
+            decimals0,
+            decimals1
         );
         if (positionMain.tickLower == positionAlt.tickLower && positionMain.tickUpper == positionAlt.tickUpper)
             revert InvalidTicks();
@@ -636,7 +645,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         uint256 amount,
         bool /* isFromContract */
     ) internal {
-        if(amount == 0) return;
+        if (amount == 0) return;
         SaucerSwapLariLib.transferTokens(token, to, amount);
     }
 
@@ -688,11 +697,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     function _pendingRewardLocks() private view returns (uint256 locked0, uint256 locked1) {
         uint256 duration = lockDuration;
         uint256 lastUpdate = lastRewardLockUpdate;
-        if (
-            duration == 0 ||
-            lastUpdate == 0 ||
-            (pendingRewardLock0 == 0 && pendingRewardLock1 == 0)
-        ) {
+        if (duration == 0 || lastUpdate == 0 || (pendingRewardLock0 == 0 && pendingRewardLock1 == 0)) {
             return (0, 0);
         }
 
@@ -710,7 +715,9 @@ contract SaucerSwapLariRewardsCLMStrategy is
         SaucerSwapCLMLib.safeAssociateToken(token);
     }
 
-    function setPositionWidth(int24 _positionWidth) external onlyOwner payable {
+    // NOTE: Temporarily removed additional non-essential admin setters to reduce bytecode size.
+    // These can be re-introduced in a later upgrade if/when needed.
+    function setPositionWidth(int24 _positionWidth) external payable onlyOwner {
         // Validate width against tick spacing and global tick bounds
         int24 distance = _tickDistance();
         // if (_positionWidth <= 0) revert InvalidInput();
@@ -756,7 +763,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         if (bal1 > 0) {
             _transferTokens(lpToken1, address(this), vault, bal1, true);
         }
-        if(address(this).balance > 0) {
+        if (address(this).balance > 0) {
             AddressUpgradeable.sendValue(payable(vault), address(this).balance);
         }
         _transferOwnership(address(0));
@@ -790,21 +797,6 @@ contract SaucerSwapLariRewardsCLMStrategy is
         require(!paused(), "SP");
     }
 
-    function associateToken(address token) external onlyOwner {
-        _associateToken(token);
-    }
-
-    function setBeefyOracle(address _beefyOracle) external onlyOwner {
-        require(_beefyOracle != address(0), "BO-IA");
-        beefyOracle = _beefyOracle;
-    }
-
-
-    function addRewardToken(address _token, bool _isHTS) external onlyManager {
-        if (isRewardToken[_token]) revert TokenExists();
-        _addRewardToken(_token, _isHTS);
-    }
-
     function _addRewardToken(address _token, bool _isHTS) internal {
         SaucerSwapLariLib.addRewardToken(
             rewardTokens,
@@ -816,6 +808,22 @@ contract SaucerSwapLariRewardsCLMStrategy is
             lpToken1
         );
         emit RewardTokenAdded(_token, _isHTS);
+    }
+
+    // NOTE: Temporarily removed non-essential admin setters to reduce bytecode size.
+    // These can be re-introduced in a later upgrade if/when needed.
+    function associateToken(address token) external onlyOwner {
+        _associateToken(token);
+    }
+
+    function setBeefyOracle(address _beefyOracle) external onlyOwner {
+        require(_beefyOracle != address(0), "BO-IA");
+        beefyOracle = _beefyOracle;
+    }
+
+    function addRewardToken(address _token, bool _isHTS) external onlyManager {
+        if (isRewardToken[_token]) revert TokenExists();
+        _addRewardToken(_token, _isHTS);
     }
 
     function updateRewardTokenStatus(address _token, bool _isActive) external onlyManager {

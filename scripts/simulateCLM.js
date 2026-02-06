@@ -37,31 +37,31 @@ const DEFAULTS = {
 const CLM_VAULTS = [
   {
     name: "BONZO-XBONZO",
-    vaultAddress: "0x36d6c6bAD8cdCE5e58e1d1874A84F5c79B5ACA57",
-    strategyAddress: "0xc4e5FCb9FBb10f183d6c884585114575ea2bC881",
-    positionWidth: 8,
-    maxTickDev: 8,
+    vaultAddress: "0xcfba07324bd207C3ED41416a9a36f8184F9a2134",
+    strategyAddress: "0x3Dab58797e057878d3cD8f78F28C6967104FcD0c",
+    positionWidth: 2,
+    maxTickDev: 20,
   },
   {
     name: "SAUCE-XSAUCE",
-    vaultAddress: "0xD997f0121885cD9487ad0513fCF85d672d52FFad",
-    strategyAddress: "0xc27FCfb8bE2b594BDbA97DbA9d0b1Aa4665e100c",
-    positionWidth: 6,
-    maxTickDev: 6,
+    vaultAddress: "0x8AEE31dFF6264074a1a3929432070E1605F6b783",
+    strategyAddress: "0xE9Ab1D3C3d086A8efA0f153f107B096BEaBDee6f",
+    positionWidth: 2,
+    maxTickDev: 20,
   },
   {
     name: "USDC-HBAR",
-    vaultAddress: "0x8AE6416623eDEC4b6050C24935f4670671ef31Cf",
-    strategyAddress: "0x6017f4c1fe6ba9bd1979c91cd21fc5f52d88b8fc",
-    positionWidth: 9,
-    maxTickDev: 9,
+    vaultAddress: "0x724F19f52A3E0e9D2881587C997db93f9613B2C7",
+    strategyAddress: "0x157EB9ba35d70560D44394206D4a03885C33c6d5",
+    positionWidth: 25,
+    maxTickDev: 25,
   },
   {
     name: "USDC-SAUCE",
-    vaultAddress: "0x5b1DFeaF4e79Eb6B2FF1Ea053E5592D0f61506b1",
-    strategyAddress: "0x0B165c2276e46b94ff62a6551B3befB7cB3f8d00",
-    positionWidth: 9,
-    maxTickDev: 9,
+    vaultAddress: "0x0171baa37fC9f56c98bD56FEB32bC28342944C6e",
+    strategyAddress: "0xDC74aC010A60357A89008d5eBDBaF144Cf5BD8C6",
+    positionWidth: 18,
+    maxTickDev: 25,
   },
 ];
 
@@ -210,6 +210,35 @@ function formatFixed(x, decimals = 18, digits = 6) {
   return frac.length ? `${whole}.${frac}` : `${whole}`;
 }
 
+function priceX18ToNumber(priceX18) {
+  const n = BigInt(priceX18.toString());
+  const base = 10n ** 18n;
+  return Number(n) / Number(base);
+}
+
+function calculateRangePercentages(currentPriceX18, lowerPriceX18, upperPriceX18) {
+  const currentPrice = priceX18ToNumber(currentPriceX18);
+  const lowerPrice = priceX18ToNumber(lowerPriceX18);
+  const upperPrice = priceX18ToNumber(upperPriceX18);
+
+  // Calculate percentage moves from current price
+  // downside: how far below current price is the lower bound
+  const downsidePct = ((currentPrice - lowerPrice) / currentPrice) * 100;
+  // upside: how far above current price is the upper bound
+  const upsidePct = ((upperPrice - currentPrice) / currentPrice) * 100;
+
+  const isInRange = lowerPrice <= currentPrice && currentPrice <= upperPrice;
+
+  return {
+    downsidePct,
+    upsidePct,
+    isInRange,
+    currentPrice,
+    lowerPrice,
+    upperPrice,
+  };
+}
+
 async function getTwapTick(pool, intervalSec) {
   try {
     const secondsAgos = [intervalSec, 0];
@@ -242,29 +271,31 @@ async function simulateVault(target) {
 
   const strategy = await getReadOnlyContract(strategyAddr, "SaucerSwapLariRewardsCLMStrategy");
 
-  const [
-    poolAddress,
-    token0Address,
-    token1Address,
-    positionWidthBN,
-    maxTickDeviationBN,
-    twapIntervalBN,
-    leftover0BN,
-    leftover1BN,
-    totalLocked0BN,
-    totalLocked1BN,
-  ] = await Promise.all([
-    strategy.pool(),
-    strategy.lpToken0(),
-    strategy.lpToken1(),
-    strategy.positionWidth(),
-    strategy.maxTickDeviation(),
-    strategy.twapInterval(),
-    strategy.leftover0(),
-    strategy.leftover1(),
-    strategy.totalLocked0(),
-    strategy.totalLocked1(),
-  ]);
+  const [poolAddress, token0Address, token1Address, positionWidthBN, maxTickDeviationBN, twapIntervalBN] =
+    await Promise.all([
+      strategy.pool(),
+      strategy.lpToken0(),
+      strategy.lpToken1(),
+      strategy.positionWidth(),
+      strategy.maxTickDeviation(),
+      strategy.twapInterval(),
+    ]);
+  const { totalLocked0BN, totalLocked1BN } = await getLockedAmounts(strategy);
+
+  // getLeftoverAmounts requires _onlyVault() modifier, so we can't call it directly
+  // Try to call it, but default to 0 if it fails (leftovers are typically 0 unless there was a recent deposit)
+  let leftover0BN = ethers.BigNumber.from(0);
+  let leftover1BN = ethers.BigNumber.from(0);
+  try {
+    const leftoverResult = await strategy.getLeftoverAmounts();
+    leftover0BN = leftoverResult.leftover0Amount ?? leftoverResult[0] ?? ethers.BigNumber.from(0);
+    leftover1BN = leftoverResult.leftover1Amount ?? leftoverResult[1] ?? ethers.BigNumber.from(0);
+  } catch (error) {
+    // getLeftoverAmounts may fail due to _onlyVault() modifier, default to 0
+    if (!error.message || !error.message.includes("onlyVault")) {
+      console.warn(`Warning: Could not fetch leftover amounts: ${error.message}`);
+    }
+  }
 
   let strategyIsCalm = null;
   try {
@@ -579,21 +610,287 @@ function printResult(target, result) {
   }
 }
 
+function printSummaryTable(results) {
+  console.log("\n" + "=".repeat(80));
+  console.log("SUMMARY TABLE - Main Position Range vs Current Price");
+  console.log("=".repeat(80));
+
+  const rows = [];
+  for (const { target, result } of results) {
+    if (!result) continue;
+
+    const { pool, positions } = result;
+    const rangeInfo = calculateRangePercentages(
+      pool.priceX18,
+      positions.main.current.lowerPriceX18,
+      positions.main.current.upperPriceX18
+    );
+
+    let downsideStr, upsideStr;
+    if (rangeInfo.isInRange) {
+      // In range: downside is how much price can drop (display as negative), upside is how much it can rise (positive)
+      // downsidePct is positive (current > lower), but we display as negative to show "can drop X%"
+      downsideStr = `-${rangeInfo.downsidePct.toFixed(2)}%`;
+      upsideStr = `+${rangeInfo.upsidePct.toFixed(2)}%`;
+    } else if (rangeInfo.lowerPrice > rangeInfo.currentPrice) {
+      // Entire position is above spot: both bounds are above current price
+      // downsidePct will be negative (current < lower), upsidePct will be positive (upper > current)
+      // Display both as positive percentages above current price
+      downsideStr = `+${Math.abs(rangeInfo.downsidePct).toFixed(2)}%`;
+      upsideStr = `+${rangeInfo.upsidePct.toFixed(2)}%`;
+    } else {
+      // Entire position is below spot: both bounds are below current price
+      // downsidePct will be positive (current > lower), upsidePct will be negative (upper < current)
+      downsideStr = `-${rangeInfo.downsidePct.toFixed(2)}%`;
+      upsideStr = `${rangeInfo.upsidePct.toFixed(2)}%`;
+    }
+
+    rows.push({
+      pair: target.name,
+      downside: downsideStr,
+      upside: upsideStr,
+      inRange: rangeInfo.isInRange ? "✔️ Yes" : "❌ Out of range",
+    });
+  }
+
+  // Calculate column widths
+  const pairWidth = Math.max(...rows.map(r => r.pair.length), "Pair".length);
+  const downsideWidth = Math.max(...rows.map(r => r.downside.length), "% Below".length);
+  const upsideWidth = Math.max(...rows.map(r => r.upside.length), "% Above".length);
+  const inRangeWidth = Math.max(...rows.map(r => r.inRange.length), "In-Range?".length);
+
+  // Print header
+  const header = `| ${"Pair".padEnd(pairWidth)} | ${"% Below".padEnd(downsideWidth)} | ${"% Above".padEnd(
+    upsideWidth
+  )} | ${"In-Range?".padEnd(inRangeWidth)} |`;
+  console.log(header);
+  console.log(
+    "|" +
+      "-".repeat(pairWidth + 2) +
+      "|" +
+      "-".repeat(downsideWidth + 2) +
+      "|" +
+      "-".repeat(upsideWidth + 2) +
+      "|" +
+      "-".repeat(inRangeWidth + 2) +
+      "|"
+  );
+
+  // Print rows
+  for (const row of rows) {
+    console.log(
+      `| ${row.pair.padEnd(pairWidth)} | ${row.downside.padEnd(downsideWidth)} | ${row.upside.padEnd(
+        upsideWidth
+      )} | ${row.inRange.padEnd(inRangeWidth)} |`
+    );
+  }
+
+  console.log("=".repeat(80));
+}
+
+function printAltPositionTable(results) {
+  console.log("\n" + "=".repeat(80));
+  console.log("SUMMARY TABLE - Alt Position Range vs Current Price");
+  console.log("=".repeat(80));
+
+  const rows = [];
+  for (const { target, result } of results) {
+    if (!result) continue;
+
+    const { pool, positions } = result;
+    const rangeInfo = calculateRangePercentages(
+      pool.priceX18,
+      positions.alt.current.lowerPriceX18,
+      positions.alt.current.upperPriceX18
+    );
+
+    let downsideStr, upsideStr;
+    if (rangeInfo.isInRange) {
+      downsideStr = `-${rangeInfo.downsidePct.toFixed(2)}%`;
+      upsideStr = `+${rangeInfo.upsidePct.toFixed(2)}%`;
+    } else if (rangeInfo.lowerPrice > rangeInfo.currentPrice) {
+      downsideStr = `+${Math.abs(rangeInfo.downsidePct).toFixed(2)}%`;
+      upsideStr = `+${rangeInfo.upsidePct.toFixed(2)}%`;
+    } else {
+      downsideStr = `-${rangeInfo.downsidePct.toFixed(2)}%`;
+      upsideStr = `${rangeInfo.upsidePct.toFixed(2)}%`;
+    }
+
+    rows.push({
+      pair: target.name,
+      downside: downsideStr,
+      upside: upsideStr,
+      inRange: rangeInfo.isInRange ? "✔️ Yes" : "❌ Out of range",
+    });
+  }
+
+  // Calculate column widths
+  const pairWidth = Math.max(...rows.map(r => r.pair.length), "Pair".length);
+  const downsideWidth = Math.max(...rows.map(r => r.downside.length), "% Below".length);
+  const upsideWidth = Math.max(...rows.map(r => r.upside.length), "% Above".length);
+  const inRangeWidth = Math.max(...rows.map(r => r.inRange.length), "In-Range?".length);
+
+  // Print header
+  const header = `| ${"Pair".padEnd(pairWidth)} | ${"% Below".padEnd(downsideWidth)} | ${"% Above".padEnd(
+    upsideWidth
+  )} | ${"In-Range?".padEnd(inRangeWidth)} |`;
+  console.log(header);
+  console.log(
+    "|" +
+      "-".repeat(pairWidth + 2) +
+      "|" +
+      "-".repeat(downsideWidth + 2) +
+      "|" +
+      "-".repeat(upsideWidth + 2) +
+      "|" +
+      "-".repeat(inRangeWidth + 2) +
+      "|"
+  );
+
+  // Print rows
+  for (const row of rows) {
+    console.log(
+      `| ${row.pair.padEnd(pairWidth)} | ${row.downside.padEnd(downsideWidth)} | ${row.upside.padEnd(
+        upsideWidth
+      )} | ${row.inRange.padEnd(inRangeWidth)} |`
+    );
+  }
+
+  console.log("=".repeat(80));
+}
+
+function printBalancesTable(results) {
+  console.log("\n" + "=".repeat(80));
+  console.log("SUMMARY TABLE - Position Balances");
+  console.log("=".repeat(80));
+
+  const rows = [];
+  for (const { target, result } of results) {
+    if (!result) continue;
+
+    const { tokens, balances } = result;
+    const mainToken0 = formatFixed(balances.pool.mainAmount0, tokens.token0.decimals, 6);
+    const mainToken1 = formatFixed(balances.pool.mainAmount1, tokens.token1.decimals, 6);
+    const altToken0 = formatFixed(balances.pool.altAmount0, tokens.token0.decimals, 6);
+    const altToken1 = formatFixed(balances.pool.altAmount1, tokens.token1.decimals, 6);
+    const contractToken0 = formatFixed(balances.contract.token0, tokens.token0.decimals, 6);
+    const contractToken1 = formatFixed(balances.contract.token1, tokens.token1.decimals, 6);
+
+    rows.push({
+      pair: target.name,
+      mainToken0: `${tokens.token0.symbol} ${mainToken0}`,
+      mainToken1: `${tokens.token1.symbol} ${mainToken1}`,
+      altToken0: `${tokens.token0.symbol} ${altToken0}`,
+      altToken1: `${tokens.token1.symbol} ${altToken1}`,
+      contractToken0: `${tokens.token0.symbol} ${contractToken0}`,
+      contractToken1: `${tokens.token1.symbol} ${contractToken1}`,
+    });
+  }
+
+  // Calculate column widths
+  const pairWidth = Math.max(...rows.map(r => r.pair.length), "Pair".length);
+  const mainToken0Width = Math.max(...rows.map(r => r.mainToken0.length), "Main Token0".length);
+  const mainToken1Width = Math.max(...rows.map(r => r.mainToken1.length), "Main Token1".length);
+  const altToken0Width = Math.max(...rows.map(r => r.altToken0.length), "Alt Token0".length);
+  const altToken1Width = Math.max(...rows.map(r => r.altToken1.length), "Alt Token1".length);
+  const contractToken0Width = Math.max(...rows.map(r => r.contractToken0.length), "Contract Token0".length);
+  const contractToken1Width = Math.max(...rows.map(r => r.contractToken1.length), "Contract Token1".length);
+
+  // Print header
+  const header = `| ${"Pair".padEnd(pairWidth)} | ${"Main Token0".padEnd(mainToken0Width)} | ${"Main Token1".padEnd(
+    mainToken1Width
+  )} | ${"Alt Token0".padEnd(altToken0Width)} | ${"Alt Token1".padEnd(altToken1Width)} | ${"Contract Token0".padEnd(
+    contractToken0Width
+  )} | ${"Contract Token1".padEnd(contractToken1Width)} |`;
+  console.log(header);
+  console.log(
+    "|" +
+      "-".repeat(pairWidth + 2) +
+      "|" +
+      "-".repeat(mainToken0Width + 2) +
+      "|" +
+      "-".repeat(mainToken1Width + 2) +
+      "|" +
+      "-".repeat(altToken0Width + 2) +
+      "|" +
+      "-".repeat(altToken1Width + 2) +
+      "|" +
+      "-".repeat(contractToken0Width + 2) +
+      "|" +
+      "-".repeat(contractToken1Width + 2) +
+      "|"
+  );
+
+  // Print rows
+  for (const row of rows) {
+    console.log(
+      `| ${row.pair.padEnd(pairWidth)} | ${row.mainToken0.padEnd(mainToken0Width)} | ${row.mainToken1.padEnd(
+        mainToken1Width
+      )} | ${row.altToken0.padEnd(altToken0Width)} | ${row.altToken1.padEnd(
+        altToken1Width
+      )} | ${row.contractToken0.padEnd(contractToken0Width)} | ${row.contractToken1.padEnd(contractToken1Width)} |`
+    );
+  }
+
+  console.log("=".repeat(80));
+}
+
 async function main() {
   await hardhat.run("compile");
   const targets = loadTargets();
 
   console.log("CLM Simulation - network:", hardhat.network.name);
+  const networkConfig = hardhat.config.networks[hardhat.network.name];
+  if (networkConfig && networkConfig.url) {
+    // console.log("RPC URL:", networkConfig.url);
+    if (networkConfig.url.includes("hashio.io")) {
+      console.warn("⚠️  WARNING: Using Hashio fallback RPC. Check HEDERA_MAINNET_RPC in .env file");
+    }
+  }
 
+  // Check if CHAIN_TYPE is set correctly for Hedera networks
+  if (hardhat.network.name === "hedera_mainnet" && process.env.CHAIN_TYPE !== "mainnet") {
+    console.warn("⚠️  WARNING: CHAIN_TYPE is not set to 'mainnet'. This may cause 'Sender account not found' errors.");
+    console.warn("   Run with: CHAIN_TYPE=mainnet npx hardhat run scripts/simulateCLM.js --network hedera_mainnet");
+  } else if (hardhat.network.name === "hedera_testnet" && process.env.CHAIN_TYPE !== "testnet") {
+    console.warn("⚠️  WARNING: CHAIN_TYPE is not set to 'testnet'. This may cause 'Sender account not found' errors.");
+    console.warn("   Run with: CHAIN_TYPE=testnet npx hardhat run scripts/simulateCLM.js --network hedera_testnet");
+  }
+
+  // Check if accounts are configured
+  try {
+    const signers = await ethers.getSigners();
+    if (!signers || signers.length === 0) {
+      console.warn(
+        "⚠️  WARNING: No accounts configured. Hedera requires a valid sender account even for read-only calls."
+      );
+      console.warn("   Ensure your .env file has the appropriate private keys configured:");
+      if (hardhat.network.name === "hedera_mainnet") {
+        console.warn("   - DEPLOYER_PK_MAINNET (or other *_MAINNET keys)");
+      } else if (hardhat.network.name === "hedera_testnet") {
+        console.warn("   - DEPLOYER_PK (or other testnet keys)");
+      }
+    }
+  } catch (error) {
+    console.warn("⚠️  WARNING: Could not check account configuration:", error.message);
+  }
+
+  const results = [];
   for (const target of targets) {
     try {
       const result = await simulateVault(target);
       printResult(target, result);
+      results.push({ target, result });
     } catch (e) {
       console.error(`\n${target.name}  ${target.address}`);
       console.error("Failed to simulate vault:", e.message);
+      results.push({ target, result: null });
     }
   }
+
+  printSummaryTable(results);
+  printAltPositionTable(results);
+  printBalancesTable(results);
 }
 
 main()
@@ -605,13 +902,50 @@ main()
 
 async function getReadOnlyContract(address, artifactName) {
   const artifact = await artifacts.readArtifact(artifactName);
-  let signer = undefined;
+  let runner = ethers.provider;
+
   try {
     const signers = await ethers.getSigners();
-    signer = signers && signers.length > 0 ? signers[0] : undefined;
-  } catch (_) {
-    signer = undefined;
+    if (signers && signers.length > 0) {
+      runner = signers[0];
+    } else {
+      console.warn(
+        "⚠️  WARNING: No signers configured for read-only contract calls. Hedera RPC may reject calls without a sender."
+      );
+    }
+  } catch (error) {
+    console.warn("⚠️  WARNING: Unable to load signers for read-only calls:", error.message);
   }
-  const signerOrProvider = signer || ethers.provider;
-  return new ethers.Contract(address, artifact.abi, signerOrProvider);
+
+  return new ethers.Contract(address, artifact.abi, runner);
+}
+
+async function getLockedAmounts(strategy) {
+  const zero = ethers.BigNumber.from(0);
+  const hasTotalLocked0 = typeof strategy.totalLocked0 === "function";
+  const hasTotalLocked1 = typeof strategy.totalLocked1 === "function";
+
+  if (!hasTotalLocked0 && !hasTotalLocked1) {
+    return { totalLocked0BN: zero, totalLocked1BN: zero };
+  }
+
+  const [totalLocked0BN, totalLocked1BN] = await Promise.all([
+    hasTotalLocked0
+      ? strategy.totalLocked0().catch(error => {
+          console.warn(`Warning: Failed to read totalLocked0: ${error.message}`);
+          return zero;
+        })
+      : zero,
+    hasTotalLocked1
+      ? strategy.totalLocked1().catch(error => {
+          console.warn(`Warning: Failed to read totalLocked1: ${error.message}`);
+          return zero;
+        })
+      : zero,
+  ]);
+
+  return {
+    totalLocked0BN,
+    totalLocked1BN,
+  };
 }

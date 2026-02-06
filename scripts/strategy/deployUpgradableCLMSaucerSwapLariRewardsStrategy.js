@@ -40,8 +40,8 @@ if (CHAIN_TYPE === "testnet") {
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000001535b2",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000001243ee",
     unirouter: process.env.UNIROUTER_ADDRESS || "0x0000000000000000000000000000000000159398",
-  
-    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000014f5", 
+
+    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000014f5",
     token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000120f46",
     native: "0x0000000000000000000000000000000000003ad2", // WHBAR testnet
 
@@ -53,7 +53,7 @@ if (CHAIN_TYPE === "testnet") {
         ],
 
     positionWidth: parseInt(process.env.POSITION_WIDTH) || 200,
-    lockDuration:  21600,
+    lockDuration: 21600,
     vaultName: process.env.VAULT_NAME || "Beefy CLM LARI SaucerSwap Testnet",
     vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-LARI-SS-T",
   };
@@ -65,11 +65,11 @@ if (CHAIN_TYPE === "testnet") {
     // SAUCE-XSAUCE pool: 0xcfeffaae43f176f91602d75ec1d0637e273c973b
     // BONZO-XBONZO pool: 0xf6cc94f16bc141115fcb9b587297aecfa14f4eb6
     // USDC-WETH hts pool: 0x335b3a8aaaecd63019091187dc8d99574f6552d0
-    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xc5b707348da504e9be1bd4e21525459830e7b11d",
+    pool: process.env.SAUCERSWAP_POOL_ADDRESS || "0xcfeffaae43f176f91602d75ec1d0637e273c973b",
     quoter: process.env.SAUCERSWAP_QUOTER_ADDRESS || "0x00000000000000000000000000000000003c4370",
     factory: process.env.SAUCERSWAP_FACTORY_ADDRESS || "0x00000000000000000000000000000000003c3951",
     unirouter: process.env.UNIROUTER_ADDRESS || "0x00000000000000000000000000000000003c437a",
-    
+
     // Token addresses (mainnet)
     // USDC: 0x000000000000000000000000000000000006f89a
     // HBAR: 0x0000000000000000000000000000000000163b5a
@@ -80,8 +80,8 @@ if (CHAIN_TYPE === "testnet") {
     // BONZO: 0x00000000000000000000000000000000007e545e
     // XBONZO:0x0000000000000000000000000000000000818e2d
     // WETH: 0x0000000000000000000000000000000000951679
-    token0: process.env.TOKEN0_ADDRESS || "0x000000000000000000000000000000000006f89a",
-    token1: process.env.TOKEN1_ADDRESS || "0x0000000000000000000000000000000000163b5a",
+    token0: process.env.TOKEN0_ADDRESS || "0x00000000000000000000000000000000000b2ad5",
+    token1: process.env.TOKEN1_ADDRESS || "0x00000000000000000000000000000000001647e8",
     native: "0x0000000000000000000000000000000000163b5a", // WHBAR mainnet
 
     rewardTokens: process.env.REWARD_TOKENS
@@ -89,15 +89,15 @@ if (CHAIN_TYPE === "testnet") {
       : [
           "0x0000000000000000000000000000000000163b5a", // WHBAR
           "0x00000000000000000000000000000000000b2ad5", // SAUCE
-          "0x0000000000000000000000000000000000492a28" // PACK
+          "0x0000000000000000000000000000000000492a28", // PACK
         ],
 
-    positionWidth: 30,
-    maxDeviation: 30,
+    positionWidth: 6,
+    maxDeviation: 6,
     twapInterval: 300,
     lockDuration: 21600,
-    vaultName: process.env.VAULT_NAME || "Beefy CLM LARI SaucerSwap",
-    vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-LARI-SS",
+    vaultName: process.env.VAULT_NAME || "CLM LARI SAUCE-XSAUCE",
+    vaultSymbol: process.env.VAULT_SYMBOL || "bCLM-LARI-SAUCE-XSAUCE",
   };
 }
 
@@ -105,6 +105,8 @@ async function main() {
   await hardhat.run("compile");
 
   const deployer = await ethers.getSigner();
+  const strategist = process.env.STRATEGIST_ADDRESS;
+  const beefyFeeRecipient = process.env.BEEFY_FEE_RECIPIENT;
   console.log("Account:", deployer.address);
   console.log("Account balance:", (await deployer.getBalance()).toString());
   console.log("Chain type:", CHAIN_TYPE);
@@ -132,6 +134,8 @@ async function main() {
 
 async function deployStrategyWithHardhatUpgrades() {
   const deployer = await ethers.getSigner();
+  const strategist = process.env.STRATEGIST_ADDRESS;
+  const beefyFeeRecipient = process.env.BEEFY_FEE_RECIPIENT;
   console.log("\n╔════════════════════════════════════════════════════════════════╗");
   console.log("║     DEPLOYING WITH HARDHAT UPGRADES PLUGIN                     ║");
   console.log("╚════════════════════════════════════════════════════════════════╝");
@@ -178,7 +182,7 @@ async function deployStrategyWithHardhatUpgrades() {
 
   // Deploy strategy using Hardhat Upgrades plugin
   console.log("\n=== Step 3: Deploy Strategy with Hardhat Upgrades ===");
-  
+
   const StrategyFactory = await ethers.getContractFactory("SaucerSwapLariRewardsCLMStrategy", {
     libraries: {
       SaucerSwapCLMLib: clmLibrary.address,
@@ -200,8 +204,8 @@ async function deployStrategyWithHardhatUpgrades() {
     vaultInstance.address,
     config.unirouter,
     deployer.address, // keeper
-    deployer.address, // strategist
-    deployer.address, // beefyFeeRecipient
+    strategist, // strategist
+    beefyFeeRecipient, // beefyFeeRecipient
     addresses.beefyFeeConfig,
   ];
 
@@ -213,25 +217,21 @@ async function deployStrategyWithHardhatUpgrades() {
   console.log("  • Initialize the strategy");
 
   // 🎉 THE MAGIC HAPPENS HERE - One line does it all!
-  const strategy = await upgrades.deployProxy(
-    StrategyFactory,
-    [initParams, commonAddresses],
-    {
-      initializer: 'initialize',
-      kind: 'transparent',
-      unsafeAllowLinkedLibraries: true, // Required for linked libraries
-      txOverrides: { gasLimit: 8000000 }
-    }
-  );
+  const strategy = await upgrades.deployProxy(StrategyFactory, [initParams, commonAddresses], {
+    initializer: "initialize",
+    kind: "transparent",
+    unsafeAllowLinkedLibraries: true, // Required for linked libraries
+    txOverrides: { gasLimit: 8000000 },
+  });
 
   await strategy.deployed();
-  
+
   console.log("✅ Strategy proxy deployed:", strategy.address);
-  
+
   // Get implementation and admin addresses
   const implementationAddress = await upgrades.erc1967.getImplementationAddress(strategy.address);
   const adminAddress = await upgrades.erc1967.getAdminAddress(strategy.address);
-  
+
   console.log("✅ Implementation address:", implementationAddress);
   console.log("✅ ProxyAdmin address:", adminAddress);
 
@@ -322,7 +322,7 @@ async function deployStrategyWithHardhatUpgrades() {
       const fees = rewardRoutes[rewardToken][config.token0].fees;
       const route2 = rewardRoutes[rewardToken][config.token1].route;
       const fees2 = rewardRoutes[rewardToken][config.token1].fees;
-      
+
       await strategy.setRewardRoute(rewardToken, route, route2, fees, fees2, { gasLimit: 1000000 });
       console.log(`✅ Routes set for ${rewardToken}`);
     }
@@ -334,17 +334,17 @@ async function deployStrategyWithHardhatUpgrades() {
   console.log("\n╔════════════════════════════════════════════════════════════════╗");
   console.log("║                 DEPLOYMENT SUCCESSFUL! ✅                       ║");
   console.log("╚════════════════════════════════════════════════════════════════╝");
-  
+
   console.log("\n📦 Core Contracts:");
   console.log(`  Strategy Proxy:      ${strategy.address}`);
   console.log(`  Implementation:      ${implementationAddress}`);
   console.log(`  ProxyAdmin:          ${adminAddress}`);
   console.log(`  Vault:               ${vaultInstance.address}`);
-  
+
   console.log("\n📚 Libraries:");
   console.log(`  CLM Library:         ${clmLibrary.address}`);
   console.log(`  LARI Library:        ${lariLibrary.address}`);
-  
+
   console.log("\n⚙️  Configuration:");
   console.log(`  Pool:                ${config.pool}`);
   console.log(`  Token0:              ${config.token0}`);
@@ -355,11 +355,14 @@ async function deployStrategyWithHardhatUpgrades() {
   console.log("\n╔════════════════════════════════════════════════════════════════╗");
   console.log("║                  UPGRADE INSTRUCTIONS                          ║");
   console.log("╚════════════════════════════════════════════════════════════════╝");
-  
+
   console.log("\n🔄 To upgrade in the future, simply run:");
   console.log(`\nCHAIN_TYPE=${CHAIN_TYPE} PROXY_ADDRESS=${strategy.address} \\`);
-  console.log("npx hardhat run scripts/strategy/upgradeCLMSaucerSwapLariRewardsStrategyWithHardhatUpgrades.js --network hedera_" + CHAIN_TYPE);
-  
+  console.log(
+    "npx hardhat run scripts/strategy/upgradeCLMSaucerSwapLariRewardsStrategyWithHardhatUpgrades.js --network hedera_" +
+      CHAIN_TYPE
+  );
+
   console.log("\n✨ That's it! Hardhat Upgrades handles:");
   console.log("  • ProxyAdmin management automatically");
   console.log("  • Storage layout validation");
@@ -407,4 +410,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-

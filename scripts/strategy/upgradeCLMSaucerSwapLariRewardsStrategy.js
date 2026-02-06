@@ -24,7 +24,7 @@ const ethers = hardhat.ethers;
 
 //*******************SET CHAIN TYPE HERE*******************
 const CHAIN_TYPE = process.env.CHAIN_TYPE;
-const PROXY_ADDRESS = "0x5dDf9A4aF6A43962f49CD8cca3179306DF36BD9e";
+const PROXY_ADDRESS = "0x157EB9ba35d70560D44394206D4a03885C33c6d5";
 // const LOCK_DURATION;// set  only if you want to update the lock duration
 //*******************SET CHAIN TYPE HERE*******************
 
@@ -66,7 +66,7 @@ async function upgradeStrategyWithHardhatUpgrades() {
   // Get current implementation and admin
   console.log("\n=== Step 1: Read Current Deployment ===");
   let currentImplementation, adminAddress;
-  
+
   try {
     currentImplementation = await upgrades.erc1967.getImplementationAddress(PROXY_ADDRESS);
     adminAddress = await upgrades.erc1967.getAdminAddress(PROXY_ADDRESS);
@@ -117,7 +117,7 @@ async function upgradeStrategyWithHardhatUpgrades() {
 
   if (!clmLibraryAddress || !lariLibraryAddress) {
     console.log("⚠️  Library addresses not found, deploying new libraries...");
-    
+
     const CLMLibraryFactory = await ethers.getContractFactory("SaucerSwapCLMLib");
     const clmLibrary = await CLMLibraryFactory.deploy({ gasLimit: 5000000 });
     await clmLibrary.deployed();
@@ -157,32 +157,27 @@ async function upgradeStrategyWithHardhatUpgrades() {
 
   // 🎉 THE MAGIC HAPPENS HERE - Hardhat validates and upgrades!
   console.log("\n=== Step 5: Perform Upgrade ===");
-  
+
   try {
-    const upgradedStrategy = await upgrades.upgradeProxy(
-      PROXY_ADDRESS,
-      StrategyFactory,
-      {
-        unsafeAllowLinkedLibraries: true,
-        txOverrides: { gasLimit: 3000000 }
-      }
-    );
+    const upgradedStrategy = await upgrades.upgradeProxy(PROXY_ADDRESS, StrategyFactory, {
+      unsafeAllowLinkedLibraries: true,
+      txOverrides: { gasLimit: 3000000 },
+    });
 
     await upgradedStrategy.deployed();
     console.log("✅ Upgrade successful!");
-    
+
     // Get new implementation
     const newImplementation = await upgrades.erc1967.getImplementationAddress(PROXY_ADDRESS);
     console.log("✅ New implementation:", newImplementation);
-    
+
     if (currentImplementation.toLowerCase() === newImplementation.toLowerCase()) {
       console.warn("⚠️  WARNING: Implementation address unchanged!");
       console.warn("This might mean no code changes were detected.");
     }
-
   } catch (error) {
     console.error("❌ Upgrade failed:", error.message);
-    
+
     if (error.message.includes("storage layout")) {
       console.error("\n💡 Storage Layout Issue Detected:");
       console.error("  • You may have reordered or removed state variables");
@@ -190,28 +185,26 @@ async function upgradeStrategyWithHardhatUpgrades() {
       console.error("  • New variables must be added at the END only");
       console.error("  • Review your changes carefully!");
     }
-    
+
     throw error;
   }
 
-    // Verify state preservation
-    console.log("\n=== Step 6: Verify State Preservation ===");
-    const upgradedStrategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", PROXY_ADDRESS);
+  // Verify state preservation
+  console.log("\n=== Step 6: Verify State Preservation ===");
+  const upgradedStrategy = await ethers.getContractAt("SaucerSwapLariRewardsCLMStrategy", PROXY_ADDRESS);
 
-    // // Optionally set lock duration post-upgrade
-    // if (LOCK_DURATION) {
-    //   console.log("\n=== Step 8: Update Lock Duration ===");
-    //   try {
-    //     const lockTx = await upgradedStrategy.setLockDuration(LOCK_DURATION, { gasLimit: 500000 });
-    //     await lockTx.wait();
-    //     console.log(`✅ Lock duration updated to ${LOCK_DURATION}s`);
-    //   } catch (error) {
-    //     console.error("❌ Failed to update lock duration:", error.message);
-    //     throw error;
-    //   }
-    // }
-
-
+  // // Optionally set lock duration post-upgrade
+  // if (LOCK_DURATION) {
+  //   console.log("\n=== Step 8: Update Lock Duration ===");
+  //   try {
+  //     const lockTx = await upgradedStrategy.setLockDuration(LOCK_DURATION, { gasLimit: 500000 });
+  //     await lockTx.wait();
+  //     console.log(`✅ Lock duration updated to ${LOCK_DURATION}s`);
+  //   } catch (error) {
+  //     console.error("❌ Failed to update lock duration:", error.message);
+  //     throw error;
+  //   }
+  // }
 
   try {
     const afterConfig = {
@@ -225,7 +218,7 @@ async function upgradeStrategyWithHardhatUpgrades() {
       maxTickDeviation: await upgradedStrategy.maxTickDeviation(),
       owner: await upgradedStrategy.owner(),
       rewardTokensLength: await upgradedStrategy.getRewardTokensLength(),
-      lockDuration: await upgradedStrategy.lockDuration(),  
+      lockDuration: await upgradedStrategy.lockDuration(),
     };
 
     console.log("Configuration after upgrade:");
@@ -237,7 +230,7 @@ async function upgradeStrategyWithHardhatUpgrades() {
     console.log("  Owner:", afterConfig.owner);
     console.log("  Lock Duration:", afterConfig.lockDuration.toString());
     // Verify critical state preserved
-    const statePreserved = 
+    const statePreserved =
       currentConfig.pool === afterConfig.pool &&
       currentConfig.vault === afterConfig.vault &&
       currentConfig.lpToken0 === afterConfig.lpToken0 &&
@@ -257,7 +250,6 @@ async function upgradeStrategyWithHardhatUpgrades() {
     throw error;
   }
 
-
   // Get final implementation
   const finalImplementation = await upgrades.erc1967.getImplementationAddress(PROXY_ADDRESS);
 
@@ -265,7 +257,7 @@ async function upgradeStrategyWithHardhatUpgrades() {
   console.log("\n╔════════════════════════════════════════════════════════════════╗");
   console.log("║                  UPGRADE SUCCESSFUL! ✅                         ║");
   console.log("╚════════════════════════════════════════════════════════════════╝");
-  
+
   console.log("\n📊 Upgrade Summary:");
   console.log("  Proxy Address:       ", PROXY_ADDRESS);
   console.log("  Old Implementation:  ", currentImplementation);
@@ -324,4 +316,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-

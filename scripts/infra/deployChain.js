@@ -23,7 +23,7 @@ if (CHAIN_TYPE === "testnet") {
 } else if (CHAIN_TYPE === "mainnet") {
   keeper = process.env.KEEPER_ADDRESS_MAINNET;
   voter = process.env.KEEPER_ADDRESS_MAINNET;
-  beefyFeeRecipient = process.env.KEEPER_ADDRESS_MAINNET;
+  beefyFeeRecipient = process.env.BEEFY_FEE_RECIPIENT;
 }
 
 const TIMELOCK_ADMIN_ROLE = "0x5f58e3a2316349923ce3780f8d587db2d72378aed66a8261c916544fa6846ca5";

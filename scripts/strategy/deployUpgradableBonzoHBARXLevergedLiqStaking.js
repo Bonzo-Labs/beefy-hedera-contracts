@@ -47,9 +47,9 @@ if (CHAIN_TYPE === "testnet") {
     want: "0x0000000000000000000000000000000000220ced", // HBARX token
     borrowToken: "0x0000000000000000000000000000000000003ad2", // WHBAR token
     aToken: "0x37FfB9d2c91ef6858E54DD5B05805339A1aEA207", // aHBARX token
-    debtToken:  "0xacE6c84d8737e377c1f85BE5f7BC82E4fF3248E6", // debtWHBAR token
-    lendingPool:  "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62", // Bonzo lending pool
-    rewardsController:  "0x40f1f4247972952ab1D276Cf552070d2E9880DA6", // Bonzo rewards controller
+    debtToken: "0xacE6c84d8737e377c1f85BE5f7BC82E4fF3248E6", // debtWHBAR token
+    lendingPool: "0x7710a96b01e02eD00768C3b39BfA7B4f1c128c62", // Bonzo lending pool
+    rewardsController: "0x40f1f4247972952ab1D276Cf552070d2E9880DA6", // Bonzo rewards controller
     stakingContract: "", // Will be set by mock deployment or env var
     unirouter: "0x0000000000000000000000000000000000159398", // Router address
     whbarGateway: "0xa7e46f496b088A8f8ee35B74D7E58d6Ce648Ae64", // WHBARGateway address
@@ -57,7 +57,7 @@ if (CHAIN_TYPE === "testnet") {
     slippageTolerance: 50, // 0.5% slippage tolerance
     isRewardsAvailable: false,
     isBonzoDeployer: true,
-    vaultName: "Beefy HBARX Leveraged Bonzo Testnet",
+    vaultName: "HBARX Leveraged LST",
     vaultSymbol: "bvHBARX-LEV-BONZO-T",
   };
 } else if (CHAIN_TYPE === "mainnet") {
@@ -66,7 +66,7 @@ if (CHAIN_TYPE === "testnet") {
     borrowToken: "0x0000000000000000000000000000000000163b5a", // WHBAR token mainnet
     aToken: "0x40EBC87627Fe4689567C47c8C9C84EDC4Cf29132", // aHBARX token mainnet
     debtToken: "0xCD5A1FF3AD6EDd7e85ae6De3854f3915dD8c9103", // debtWHBAR token mainnet
-    lendingPool:  "0x236897c518996163E7b313aD21D1C9fCC7BA1afc", // Bonzo lending pool mainnet
+    lendingPool: "0x236897c518996163E7b313aD21D1C9fCC7BA1afc", // Bonzo lending pool mainnet
     rewardsController: "0x0f3950d2fCbf62a2D79880E4fc251E4CB6625FBC", // Bonzo rewards controller mainnet
     stakingContract: "0x0000000000000000000000000000000000158d97", // Stader staking contract mainnet
     unirouter: "0x00000000000000000000000000000000003c437a", // Router address mainnet
@@ -75,7 +75,7 @@ if (CHAIN_TYPE === "testnet") {
     slippageTolerance: 50, // 0.5% slippage tolerance
     isRewardsAvailable: false,
     isBonzoDeployer: false,
-    vaultName: "Beefy HBARX Leveraged Bonzo",
+    vaultName: "HBARX Leveraged LST",
     vaultSymbol: "bvHBARX-LEV-BONZO",
   };
 }
@@ -140,7 +140,7 @@ async function deployStrategyWithHardhatUpgrades() {
     await mockStaking.deployed();
     stakingContractAddress = mockStaking.address;
     console.log("✅ Mock Staking Contract deployed:", stakingContractAddress);
-    
+
     // Transfer some HBARX to the mock staking contract for testing
     try {
       const wantToken = await ethers.getContractAt("IERC20", config.want);
@@ -175,7 +175,7 @@ async function deployStrategyWithHardhatUpgrades() {
 
   // Deploy strategy using Hardhat Upgrades plugin
   console.log("\n=== Step 2: Deploy Strategy with Hardhat Upgrades ===");
-  
+
   const StrategyFactory = await ethers.getContractFactory("BonzoHBARXLevergedLiqStaking");
 
   // Prepare initialization parameters
@@ -210,24 +210,20 @@ async function deployStrategyWithHardhatUpgrades() {
   console.log("  • Initialize the strategy");
 
   // 🎉 THE MAGIC HAPPENS HERE - One line does it all!
-  const strategy = await upgrades.deployProxy(
-    StrategyFactory,
-    [...initParams, commonAddresses],
-    {
-      initializer: 'initialize',
-      kind: 'transparent',
-      txOverrides: { gasLimit: 8000000 }
-    }
-  );
+  const strategy = await upgrades.deployProxy(StrategyFactory, [...initParams, commonAddresses], {
+    initializer: "initialize",
+    kind: "transparent",
+    txOverrides: { gasLimit: 8000000 },
+  });
 
   await strategy.deployed();
-  
+
   console.log("✅ Strategy proxy deployed:", strategy.address);
-  
+
   // Get implementation and admin addresses
   const implementationAddress = await upgrades.erc1967.getImplementationAddress(strategy.address);
   const adminAddress = await upgrades.erc1967.getAdminAddress(strategy.address);
-  
+
   console.log("✅ Implementation address:", implementationAddress);
   console.log("✅ ProxyAdmin address:", adminAddress);
 
@@ -281,17 +277,17 @@ async function deployStrategyWithHardhatUpgrades() {
   console.log("\n╔════════════════════════════════════════════════════════════════╗");
   console.log("║                 DEPLOYMENT SUCCESSFUL! ✅                       ║");
   console.log("╚════════════════════════════════════════════════════════════════╝");
-  
+
   console.log("\n📦 Core Contracts:");
   console.log(`  Strategy Proxy:      ${strategy.address}`);
   console.log(`  Implementation:       ${implementationAddress}`);
   console.log(`  ProxyAdmin:           ${adminAddress}`);
   console.log(`  Vault:                ${vaultInstance.address}`);
-  
+
   if (CHAIN_TYPE === "testnet" && stakingContractAddress !== config.stakingContract) {
     console.log(`  Mock Staking Contract: ${stakingContractAddress}`);
   }
-  
+
   console.log("\n⚙️  Configuration:");
   console.log(`  Want (HBARX):         ${config.want}`);
   console.log(`  Borrow Token (WHBAR): ${config.borrowToken}`);
@@ -307,7 +303,7 @@ async function deployStrategyWithHardhatUpgrades() {
   console.log("\n╔════════════════════════════════════════════════════════════════╗");
   console.log("║                  UPGRADE INSTRUCTIONS                          ║");
   console.log("╚════════════════════════════════════════════════════════════════╝");
-  
+
   console.log("\n🔄 To upgrade in the future, create an upgrade script:");
   console.log(`\nconst { upgrades } = require("hardhat");`);
   console.log(`const PROXY_ADDRESS = "${strategy.address}";`);
@@ -316,7 +312,7 @@ async function deployStrategyWithHardhatUpgrades() {
   console.log(`const upgraded = await upgrades.upgradeProxy(PROXY_ADDRESS, StrategyFactory);`);
   console.log(`await upgraded.deployed();`);
   console.log(`console.log("Upgraded:", upgraded.address);`);
-  
+
   console.log("\n✨ Hardhat Upgrades handles:");
   console.log("  • ProxyAdmin management automatically");
   console.log("  • Storage layout validation");
@@ -370,4 +366,3 @@ main()
     console.error(error);
     process.exit(1);
   });
-
