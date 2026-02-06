@@ -1,85 +1,89 @@
-# Bonzo Contracts
-Official repo for strategies and vaults from Bonzo. Community strategists can contribute here to grow the ecosystem.
+# Bonzo Contracts (Hedera)
 
-## Vault Deployment Process
-### 1. Select a farm
-The first step to have a vault deployed on Bonzo is to select a farm to deploy a vault around. At the moment the rewards for a strategist are:
- - 0.5% of all rewards earned by a vault they deployed.
+Official repo for strategies and vaults from Bonzo. Community strategists can contribute here to grow the ecosystem. This repository contains Bonzo vaults and strategies built for Hedera. Vaults are user-facing contracts that accept deposits, issue shares, and route funds into strategies that compound rewards. Strategies handle protocol-specific logic, swaps, and reward harvesting. The repo includes Hedera helpers plus strategies already deployed for Bonzo and SaucerSwap.
 
-This means that you want to select a farm with:
-1. High APR
-2. High expected TVL
-3. Long farm life
+## Quick Links
+- `STRATEGY_DEVELOPMENT_GUIDE.md` for the full strategy walkthrough and required interfaces
+- `test/Hedera/README.md` for Hedera test setup and infra deployment details
+- `contracts/BIFI/strategies/Bonzo/` for Bonzo strategy implementations
+- `contracts/BIFI/strategies/SaucerSwap/` for SaucerSwap strategy implementations
 
-First time strategists must deploy contracts for farms on existing platforms on Bonzo first. New platforms must undergo an audit by Bonzo dev team before development can begin.
+## Create A New Strategy
+1. Pick the protocol and vault type. Typical options are single-asset, LP, or CLM.
+2. Start from the closest existing strategy in `contracts/BIFI/strategies/Bonzo/` or `contracts/BIFI/strategies/SaucerSwap/` and copy it into a new file.
+3. Update protocol-specific addresses, rewards handling, swap routes, and oracle config. Use Hedera helpers in `contracts/BIFI/Hedera/` for HTS integration where needed.
+4. Add tests under `test/Hedera/` that cover deposit, withdraw, harvest, and emergency flows.
+5. Compile and run tests locally.
+6. Deploy to Hedera testnet, verify, and complete manual validation before mainnet.
 
-### 2. Prepare the smart contracts
-If you decided to do a simple LP vault, or a single asset vault, the most likely thing is that there is a working template that you can use. Most farms work under a version of the [Masterchef](https://bscscan.com/address/0xe70E9185F5ea7Ba3C5d63705784D8563017f2E57#code) contract (like Goose Finance), or [Reward Pool](https://arbiscan.io/address/0x48f4634c8383af01bf71aefbc125eb582eb3c74d#code) contract (like Bonzo Reward Pool).
+## Local Setup
+```bash
+npm install
+npm run compile
 
-### 3. Test the contracts
-If you're doing something completely custom you should add automated tests to facilitate review and diminish risks. If it's a copy/paste from another strategy you can get by with manual testing for now as everything has been battle tested tested quite a bit.
+# Deploy chain infrastructure (vault factory, fee config, etc.)
+npm run deploy:chain hedera_testnet
 
-For extra help in debugging a deployed vault during development, you can use the [ProdVaultTest.t.sol](./forge/test/ProdVaultTest.t.sol), which is written using the `forge` framework. Run `yarn installForge` to install if you don't have `forge` installed.
+# Deploy Supra Oracle
+npx hardhat run scripts/infra/deploySupraOracle.js --network hedera_testnet
 
-To prep to run the test suite, input the correct vault address, vaultOwner and stratOwner for the chain your testing in `ProdVaultTest.t.sol`, and modify the `yarn forgeTest:vault` script in package.json to pass in the correct RPC url of the chain your vault is on. Then run `yarn forgeTest:vault` to execute the test run. You can use `console.log` within the tests in `ProdVaultTest.t.sol` to output to the console.
+# Deploy Chainlink Oracle
+npx hardhat run scripts/infra/deployChainlinkOracle.js --network hedera_testnet
+```
 
-### 4. Deploy the smart contracts
-Once you are confident that everything works as expected you can do the official deploy of the vault + strategy contracts. There are [some scripts](https://github.com/Bonzo-Labs/beefy-hedera-contracts/blob/master/scripts/) to help make deploying easier. 
+## Testing On Hedera
+Hedera tests live under `test/Hedera/`. See `test/Hedera/README.md` for the full matrix and infra steps.
 
-Make sure the strategy is verified in the scanner. A fool-proof way to verify is to flatten the strategy file using the `yarn flat-hardhat` command and removing the excess licenses from the flattened file. Verify the strategy contract using the flattened file as the source code, solidity version is typically 0.6.12 and is optimized to 200 runs. Constructor arguments can be found from the end of the input data in the contract creation transaction; they are padded out with a large number of 0s (include the 0s).
+```bash
+# Run a single test on testnet config
+CHAIN_TYPE=testnet npx hardhat test test/Hedera/YourStrategy.test.ts
 
+# Run all Hedera tests
+CHAIN_TYPE=testnet npx hardhat test test/Hedera/
 
-### 5. Test the vault
+# Run against an actual network
+npx hardhat test test/Hedera/ --network hedera_testnet
+```
 
-Run `yarn start` on the local app terminal and test the vault as if you were a user on the `localhost` page.
+## Environment Variables
+Create a `.env` file at the repo root with the following variables:
 
-**Manual Testing Is Required for All Live Vaults**
+```env
+# Chain Configuration
+CHAIN_TYPE=testnet  # or mainnet
 
-0. Give vault approval to spend your want tokens. 
-1. Deposit a small amount to test deposit functionality.
-2. Withdraw, to test withdraw functionality.
-3. Deposit a larger amount wait 30 seconds to a minute and harvest. Check harvest transaction to make sure things are going to the right places.
-4. Panic the vault. Funds should be in the strategy.
-5. Withdraw 50%.
-6. Try to deposit, once you recieve the error message pop up in metamask you can stop. No need to send the transaction through.
-7. Unpause.
-8. Deposit the withdrawn amount.
-9. Harvest again.
-10. Switch harvest-on-deposit to `true` for low-cost chains (Polygon, Fantom, Harmony, Celo, Cronos, Moonriver, Moonbeam, Fuse, Syscoin, Emerald).
-11. Check that `callReward` is not 0, if needed set `pendingRewardsFunctionName` to the relevant function name from the masterchef.
-12. Transfer ownership of the vault and strategy contracts to the owner addresses for the respective chains found in the [address book]
-13. Leave some funds in the vault until users have deposited after going live, empty vaults will fail validation checks.
-14. Run `yarn validate` to ensure that the validation checks will succeed when opening a pull request.
+# Testnet Private Keys (without 0x prefix)
+DEPLOYER_PK=your_deployer_private_key
+KEEPER_PK=your_keeper_private_key
+UPGRADER_PK=your_upgrader_private_key
+REWARDER_PK=your_rewarder_private_key
+NON_MANAGER_PK=your_non_manager_private_key
 
-This is required so that maintainers can review everything before the vault is actually live on the app and manage it after its live.
+# Mainnet Private Keys (without 0x prefix)
+DEPLOYER_PK_MAINNET=your_mainnet_deployer_private_key
+KEEPER_PK_MAINNET=your_mainnet_keeper_private_key
+UPGRADER_PK_MAINNET=your_mainnet_upgrader_private_key
+REWARDER_PK_MAINNET=your_mainnet_rewarder_private_key
+NON_MANAGER_PK_MAINNET=your_mainnet_non_manager_private_key
 
-Simpler than that is to use the scripts available to add existing protocol farms. 
+# RPC Endpoints
+HEDERA_TESTNET_RPC=https://testnet.hashio.io/api
+HEDERA_MAINNET_RPC=https://mainnet.hashio.io/api
+```
 
-- `yarn bsc:pancake:add --pool <pid>` will add the new pancake farm. 
-- `yarn polygon:quick:add --pool <reward pool address>` will add the new quickswap reward pool.
+## Deployment Notes
+- Infra deployment uses `npm run deploy:chain hedera_testnet` and related scripts under `scripts/infra/`.
+- Strategy and vault deployments are done via `npx hardhat run scripts/... --network hedera_testnet`.
+- Verify deployments and keep constructor args and flattened sources for scanner verification.
 
-
-
-### Done!
-Another Bonzo dev will review everything, merge the PRs and ship it to production.
-
-## Environment variables
- bsc-rpc: "https://bsc-dataseed2.defibit.io/",
- 
- heco-rpc:"https://http-mainnet-node.huobichain.com",
-    
- avax-rpc: "https://api.avax.network/ext/bc/C/rpc",
-    
- polygon-rpc: "https://polygon-rpc.com/",
-    
- fantom-rpc: "https://rpc.ftm.tools",
- 
- one-rpc: "https://api.s0.t.hmny.io/",
-    
- arbitrum-rpc: "https://arb1.arbitrum.io/rpc",
- 
+## Manual Validation Checklist
+1. Deposit a small amount and withdraw.
+2. Deposit a larger amount and harvest.
+3. Panic, then withdraw and unpause.
+4. Re-deposit and harvest again.
+5. Verify fee destinations and reward tokens.
+6. Transfer ownership to the correct chain owner addresses before going live.
 
 ## Troubleshooting
-- If you get the following error when testing or deploying on a forked chain: `Error: VM Exception while processing transaction: reverted with reason string 'Address: low-level delegate call failed'`, you are probably using `hardhat` network rather than `localhost`. Make sure you are using `--network localhost` flag for your test or deploy yarn commands.
-- If you get the following error when running the fork command i.e. `yarn net bsc`: `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory`. Run this command to increase heap memory limit: `export NODE_OPTIONS=--max_old_space_size=4096`
-- If you are getting hanging deployments on polygon when you run `yarn deploy-strat:polygon`, try manually adding `{gasPrice: 8000000000 * 5}` as the last arg in the deploy commands, i.e. `const vault = await Vault.deploy(predictedAddresses.strategy, vaultParams.mooName, vaultParams.mooSymbol, vaultParams.delay, {gasPrice: 8000000000 * 5}); `
+- If RPC calls fail, verify `HEDERA_TESTNET_RPC` or `HEDERA_MAINNET_RPC` connectivity and account balances.
+- If gas estimation fails, increase gas limits in the relevant test or deployment script.
