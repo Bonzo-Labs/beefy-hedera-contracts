@@ -69,7 +69,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
     uint256 private expectedAmount1;
     bool private initTicks;
     uint256 private lastDeposit;
-    address public native;
+    /// @custom:oz-renamed-from native
+    address public nativeToken;
     address public factory;
     uint256 private totalLocked0;
     uint256 private totalLocked1;
@@ -88,6 +89,8 @@ contract SaucerSwapLariRewardsCLMStrategy is
     mapping(address => uint256) private rewardTokenIndex;
     mapping(address => bool) private isRewardToken;
     uint256 public lockDuration;
+    // When set, native() reports address(0) so the vault pays WHBAR instead of unwrapping to HBAR.
+    bool public payoutWhbar;
     // Errors
     error NotAuthorized();
     error NotPool();
@@ -108,6 +111,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     event RewardTokenUpdated(address indexed token, bool isActive);
     event ClaimEarnings(uint256 fee0, uint256 fee1, uint256 feeAlt0, uint256 feeAlt1);
     event LockDurationUpdated(uint256 oldDuration, uint256 newDuration);
+    event PayoutWhbarUpdated(bool enabled);
     modifier onlyCalmPeriods() {
         _onlyCalmPeriods();
         _;
@@ -133,7 +137,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
         pool = _params.pool;
         lpToken0 = ISaucerSwapPool(_params.pool).token0();
         lpToken1 = ISaucerSwapPool(_params.pool).token1();
-        native = _params.native;
+        nativeToken = _params.native;
         factory = _params.factory;
         beefyOracle = _params.beefyOracle;
         positionWidth = _params.positionWidth; // Our width multiplier. The tick distance of each side will be width * tickSpacing.
@@ -189,24 +193,21 @@ contract SaucerSwapLariRewardsCLMStrategy is
         if (block.timestamp == lastDeposit) _onlyCalmPeriods();
 
         _removeLiquidity(); // Since we commented it out in beforeAction(), we need to remove it here.
-        if (_amount0 > 0) {
-            if (withdrawalFee > 0) {
-                uint256 wfee0 = (_amount0 * withdrawalFee) / WITHDRAWAL_MAX;
-                _amount0 = _amount0 - wfee0;
-                _transferTokens(lpToken0, address(this), beefyFeeRecipient, wfee0, true);
-            }
-            _transferTokens(lpToken0, address(this), vault, _amount0, true);
-        }
-        if (_amount1 > 0) {
-            if (withdrawalFee > 0) {
-                uint256 wfee1 = (_amount1 * withdrawalFee) / WITHDRAWAL_MAX;
-                _amount1 = _amount1 - wfee1;
-                _transferTokens(lpToken1, address(this), beefyFeeRecipient, wfee1, true);
-            }
-            _transferTokens(lpToken1, address(this), vault, _amount1, true);
-        }
+        _amount0 = _sendToVaultLessFee(lpToken0, _amount0);
+        _amount1 = _sendToVaultLessFee(lpToken1, _amount1);
         emit Withdraw(vault, _amount0, _amount1);
         if (!_isPaused()) _addLiquidity();
+    }
+
+    function _sendToVaultLessFee(address token, uint256 amount) private returns (uint256) {
+        if (amount == 0) return 0;
+        if (withdrawalFee > 0) {
+            uint256 wfee = (amount * withdrawalFee) / WITHDRAWAL_MAX;
+            amount = amount - wfee;
+            _transferTokens(token, address(this), beefyFeeRecipient, wfee, true);
+        }
+        _transferTokens(token, address(this), vault, amount, true);
+        return amount;
     }
 
     function _addLiquidity() private onlyCalmPeriods {
@@ -301,26 +302,20 @@ contract SaucerSwapLariRewardsCLMStrategy is
         (uint128 liquidity, , , , ) = ISaucerSwapPool(pool).positions(keyMain);
         (uint128 liquidityAlt, , , , ) = ISaucerSwapPool(pool).positions(keyAlt);
         // If we have liquidity in the positions we remove it and collect our tokens.
-        if (liquidity > 0) {
-            ISaucerSwapPool(pool).burn(positionMain.tickLower, positionMain.tickUpper, liquidity);
-            ISaucerSwapPool(pool).collect(
-                address(this),
-                positionMain.tickLower,
-                positionMain.tickUpper,
-                type(uint128).max,
-                type(uint128).max
-            );
-        }
-        if (liquidityAlt > 0) {
-            ISaucerSwapPool(pool).burn(positionAlt.tickLower, positionAlt.tickUpper, liquidityAlt);
-            ISaucerSwapPool(pool).collect(
-                address(this),
-                positionAlt.tickLower,
-                positionAlt.tickUpper,
-                type(uint128).max,
-                type(uint128).max
-            );
-        }
+        _burnAndCollect(positionMain, liquidity);
+        _burnAndCollect(positionAlt, liquidityAlt);
+    }
+
+    function _burnAndCollect(Position memory position, uint128 liquidity) private {
+        if (liquidity == 0) return;
+        ISaucerSwapPool(pool).burn(position.tickLower, position.tickUpper, liquidity);
+        ISaucerSwapPool(pool).collect(
+            address(this),
+            position.tickLower,
+            position.tickUpper,
+            type(uint128).max,
+            type(uint128).max
+        );
     }
 
     function processLariRewards() external {
@@ -381,7 +376,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             unirouter,
             lpToken0,
             lpToken1,
-            native,
+            nativeToken,
             whbarHelper
         );
         fees0 += newFees0;
@@ -445,7 +440,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
             DIVISOR,
             lpToken0,
             lpToken1,
-            native
+            nativeToken
         );
     }
 
@@ -481,56 +476,42 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function balancesOfPool() public view returns (BalanceInfo memory balInfo) {
-        (balInfo.mainAmount0, balInfo.mainAmount1) = _getMainPositionAmounts();
-        (balInfo.altAmount0, balInfo.altAmount1) = _getAltPositionAmounts();
+        (balInfo.mainAmount0, balInfo.mainAmount1) = SaucerSwapLariLib.getMainPositionAmounts(
+            pool,
+            address(this),
+            positionMain.tickLower,
+            positionMain.tickUpper,
+            initTicks
+        );
+        (balInfo.altAmount0, balInfo.altAmount1) = SaucerSwapLariLib.getAltPositionAmounts(
+            pool,
+            address(this),
+            positionAlt.tickLower,
+            positionAlt.tickUpper,
+            initTicks
+        );
 
         balInfo.token0Bal = balInfo.mainAmount0 + balInfo.altAmount0;
         balInfo.token1Bal = balInfo.mainAmount1 + balInfo.altAmount1;
     }
 
-    function _getMainPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
-        return
-            SaucerSwapLariLib.getMainPositionAmounts(
-                pool,
-                address(this),
-                positionMain.tickLower,
-                positionMain.tickUpper,
-                initTicks
-            );
-    }
-
-    function _getAltPositionAmounts() private view returns (uint256 amount0, uint256 amount1) {
-        return
-            SaucerSwapLariLib.getAltPositionAmounts(
-                pool,
-                address(this),
-                positionAlt.tickLower,
-                positionAlt.tickUpper,
-                initTicks
-            );
-    }
-
     function getMintFee() public view returns (uint256 mintFee) {
-        mintFee = _getMintFeeFromPool();
+        if (beefyOracle == address(0)) revert("!BO");
         // Convert tinycent US to HBAR using oracle
-        if (beefyOracle != address(0)) {
-            try IBeefyOracle(beefyOracle).getPriceInUSD(native) returns (uint256 hbarPrice) {
-                if (hbarPrice > 0) {
-                    //get the price of usdc in hbar
-                    //hbar price is in usd
-                    //1e26: 1e18 * 1e8 (1e18 is the decimals of usdc, 1e8 is the decimals of hbar)
-                    //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
-                    mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
-                    mintFee = (mintFee * 150) / 100;
-                } else {
-                    revert("HBAR-PF");
-                }
-            } catch {
-                revert("HBAR-PF2");
-            }
-        } else {
-            revert("!BO");
+        try IBeefyOracle(beefyOracle).getPriceInUSD(nativeToken) returns (uint256 hbarPrice) {
+            return _mintFeeInHbar(_getMintFeeFromPool(), hbarPrice);
+        } catch {
+            revert("HBAR-PF2");
         }
+    }
+
+    //hbar price is in usd
+    //1e26: 1e18 * 1e8 (1e18 is the decimals of usdc, 1e8 is the decimals of hbar)
+    //1e10: 1e18 * 1e-8 (1e18 is the decimals of usdc , 1e-8  since tinycentUSFee is in usdc)
+    function _mintFeeInHbar(uint256 tinycentFee, uint256 hbarPrice) private pure returns (uint256 mintFee) {
+        if (hbarPrice == 0) revert("HBAR-PF");
+        mintFee = (tinycentFee * 1e26) / (hbarPrice * 1e10);
+        mintFee = (mintFee * 150) / 100;
     }
 
     function _getMintFeeFromPool() private view returns (uint256 mintFee) {
@@ -542,23 +523,12 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function updateMintFeeWithFreshPrice() public returns (uint256 mintFee) {
-        mintFee = _getMintFeeFromPool();
-
-        if (beefyOracle != address(0)) {
-            try IBeefyOracle(beefyOracle).getFreshPriceInUSD(native) returns (uint256 hbarPrice, bool success) {
-                if (success && hbarPrice > 0) {
-                    mintFee = (mintFee * 1e26) / (hbarPrice * 1e10);
-                    mintFee = (mintFee * 150) / 100;
-                } else {
-                    revert("HBAR-PF");
-                }
-            } catch {
-                revert("HBAR-PF2");
-            }
-        } else {
-            revert("!BO");
+        if (beefyOracle == address(0)) revert("!BO");
+        try IBeefyOracle(beefyOracle).getFreshPriceInUSD(nativeToken) returns (uint256 hbarPrice, bool success) {
+            return _mintFeeInHbar(_getMintFeeFromPool(), success ? hbarPrice : 0);
+        } catch {
+            revert("HBAR-PF2");
         }
-        return mintFee;
     }
 
     function range() external view returns (uint256 lowerPrice, uint256 upperPrice) {
@@ -786,7 +756,7 @@ contract SaucerSwapLariRewardsCLMStrategy is
     }
 
     function _removeAllowances() private {
-        SaucerSwapLariLib.removeAllowances(lpToken0, lpToken1, native, unirouter, rewardTokens);
+        SaucerSwapLariLib.removeAllowances(lpToken0, lpToken1, nativeToken, unirouter, rewardTokens);
     }
 
     function _isPaused() internal view returns (bool) {
@@ -860,6 +830,18 @@ contract SaucerSwapLariRewardsCLMStrategy is
             lastRewardLockUpdate = block.timestamp;
         }
         emit LockDurationUpdated(oldDuration, _lockDuration);
+    }
+
+    /// @notice Native token as seen by the vault. Reports address(0) while payoutWhbar is set, which
+    ///         makes BonzoVaultConcLiq skip the HBAR unwrap and transfer WHBAR tokens instead.
+    /// @dev Clone vaults cannot receive the WHBAR contract's 2300-gas HBAR push since Hedera v0.77.
+    function native() external view returns (address) {
+        return payoutWhbar ? address(0) : nativeToken;
+    }
+
+    function setPayoutWhbar(bool _enabled) external onlyOwner {
+        payoutWhbar = _enabled;
+        emit PayoutWhbarUpdated(_enabled);
     }
 
     function getRewardTokensLength() external view returns (uint256) {
