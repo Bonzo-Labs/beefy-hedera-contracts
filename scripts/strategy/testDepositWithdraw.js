@@ -9,10 +9,10 @@ const { ethers } = hardhat;
  * STRATEGY_ADDRESS=0x... VAULT_ADDRESS=0x... npx hardhat run scripts/strategy/testDepositWithdraw.js --network hedera_testnet
  */
 
-const STRATEGY_ADDRESS = "0x5dDf9A4aF6A43962f49CD8cca3179306DF36BD9e";
-const VAULT_ADDRESS = "0x24d7C6a067503fab120A18485D40CC6eCe9C8A93";
+const STRATEGY_ADDRESS = "0x157EB9ba35d70560D44394206D4a03885C33c6d5";
+const VAULT_ADDRESS = "0x724F19f52A3E0e9D2881587C997db93f9613B2C7";
 const AMOUNT_0 = "0.1"; // Default 0.1 tokens
-const AMOUNT_1 = "0.8"; // Default 0.1 tokens
+const AMOUNT_1 = "1.2"; // Default 0.1 tokens
 
 async function main() {
   if (!STRATEGY_ADDRESS || !VAULT_ADDRESS) {
@@ -96,7 +96,7 @@ async function main() {
   console.log("HBAR required:", hbarRequired.toString());
   //add 25% buffer
   let hbarRequiredWithBuffer = hbarRequired.mul(125).div(100);
-  if(token1Address == await strategy.native()) {
+  if(token1Address == await strategy.nativeToken()) {
     hbarRequiredWithBuffer = hbarRequiredWithBuffer.add(depositAmount1);
   }
   if(hbarRequiredWithBuffer.lt(hbarRequired)) {

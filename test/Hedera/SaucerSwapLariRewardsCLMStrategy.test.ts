@@ -272,7 +272,7 @@ describe("SaucerSwapLariRewardsCLMStrategy", function () {
         return;
       }
       try {
-        const actualNative = await strategy.native();
+        const actualNative = await strategy.nativeToken();
         expect(actualNative.toLowerCase()).to.equal(NATIVE_ADDRESS.toLowerCase());
         console.log("✓ Native token address verified:", actualNative);
       } catch (error: any) {
